@@ -1,0 +1,18 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP AD5241
+D 256-Position Digital Potentiometers
+F ${KIPRJMOD}/../ui_board/datasheets/AD5241_5242.pdf
+$ENDCMP
+#
+$CMP LTC4303
+D Hot Swappable 2-Wire Bus Buffer with Stuck Bus Recovery
+F ${KIPRJMOD}/../ui_board/datasheets/4303fb.pdf
+$ENDCMP
+#
+$CMP PCA9698
+D 40-bit parallel input/output (I/O) port expansion for I 2 C-bus
+F ${KIPRJMOD}/../ui_board/datasheets/PCA9698.pdf
+$ENDCMP
+#
+#End Doc Library

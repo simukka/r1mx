@@ -1,0 +1,8 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP LTC4303
+D Hot Swappable 2-Wire Bus Buffer with Stuck Bus Recovery
+F ${KIPRJMOD}/../ui_board/datasheets/4303fb.pdf
+$ENDCMP
+#
+#End Doc Library

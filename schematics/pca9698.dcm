@@ -1,0 +1,7 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP PCA9698
+D 40-bit parallel input/output (I/O) port expansion for I 2 C-bus
+$ENDCMP
+#
+#End Doc Library
