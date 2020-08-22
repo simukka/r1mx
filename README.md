@@ -14,8 +14,15 @@ sensor [1]. The sensor data is processed through an FPGA (Xilinx Virtex-4) and
 then persisted to a drive (SSD, CF, or Hard Drive). It was effectively the
 industry-first digital cinema camera that was equivalent to 35mm movie film.
 
-### CPU_IO Board
+## Background
+The RED ONE was manufactured by the [Sanmina Corporation](https://web.archive.org/web/20081024222256/https://www.sanmina.com/).
+![top](smh.png)
 
+
+
+## Components
+
+### CPU_IO Board
 
 #### Top
 ![top](cpu_io_board/top.JPG)
