@@ -23,16 +23,15 @@ The RED ONE was manufactured by the [Sanmina Corporation](https://web.archive.or
 ## Components
 
 ### CPU_IO Board
-Connects to the AUDIO_PCI board via a 180 position high-speed mezzanine connector (part number?).
-![180pos-mezzanine](cpu_io_board/mezzanine-180pos.JPG)
-
-Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine connector (part number?).
-3x connectors to the Monitor, EVF, and ?
 
 #### Top
+Connects to the AUDIO_PCI board via a 180 position high-speed mezzanine connector (part number?).
+![180pos-mezzanine](cpu_io_board/mezzanine-180pos.JPG)
 ![top](cpu_io_board/top.JPG)
 
 #### Bottom
+Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine connector (part number?).
+3x connectors to the Monitor, EVF, and ?
 ![bottom](cpu_io_board/bottom.JPG)
 
 
