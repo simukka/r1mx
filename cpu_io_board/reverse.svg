@@ -44,9 +44,9 @@
      inkscape:window-height="1016"
      id="namedview2850"
      showgrid="false"
-     inkscape:zoom="0.37193062"
-     inkscape:cx="1784.6556"
-     inkscape:cy="2727.7417"
+     inkscape:zoom="0.26299466"
+     inkscape:cx="1836.8118"
+     inkscape:cy="1519.8468"
      inkscape:window-x="40"
      inkscape:window-y="27"
      inkscape:window-maximized="1"
@@ -71,7 +71,7 @@
      inkscape:groupmode="layer"
      id="layer2"
      inkscape:label="top"
-     style="display:none"
+     style="display:inline"
      sodipodi:insensitive="true">
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/cpu_io_board/top.JPG"
@@ -9089,7 +9089,7 @@
      inkscape:groupmode="layer"
      id="layer6"
      inkscape:label="bottom_pads"
-     style="display:inline">
+     style="display:none">
     <rect
        style="display:inline;fill:#00ff00;stroke:#ff00ff;stroke-width:0;stroke-miterlimit:4;stroke-dasharray:none"
        id="rect9815-45-8"
