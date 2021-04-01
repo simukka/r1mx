@@ -44,9 +44,9 @@
      inkscape:window-height="1384"
      id="namedview2850"
      showgrid="false"
-     inkscape:zoom="0.52598932"
-     inkscape:cx="1823.3426"
-     inkscape:cy="1823.5203"
+     inkscape:zoom="0.26299466"
+     inkscape:cx="3499.4492"
+     inkscape:cy="1709.8501"
      inkscape:window-x="1920"
      inkscape:window-y="24"
      inkscape:window-maximized="0"
@@ -60,12 +60,12 @@
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/cpu_io_board/bottom.JPG"
        xlink:href="bottom.JPG"
-       y="0"
-       x="0"
-       id="image2856"
-       preserveAspectRatio="none"
+       width="7296"
        height="4096"
-       width="7296" />
+       preserveAspectRatio="none"
+       id="image2856"
+       x="0"
+       y="0" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -92,7 +92,7 @@
      inkscape:groupmode="layer"
      id="layer15"
      inkscape:label="components_bottom"
-     style="display:inline">
+     style="display:none">
     <rect
        style="opacity:1;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.30015743;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        id="rect7502"
@@ -189,7 +189,7 @@
      inkscape:groupmode="layer"
      id="layer5"
      inkscape:label="traces_bottom"
-     style="display:inline">
+     style="display:none">
     <path
        style="fill:#ff0e00;fill-opacity:1;stroke:#000000;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
        d="m 1161.0869,3596.8309 h 102.6737 c 0,0 1.6384,-168.7562 0,-168.7562 -1.6384,0 -13.1073,0 -13.1073,0 l -36.045,36.045 v 14.7457 l -27.5799,27.5799 v 32.4951 l -28.7254,16.5847 v 41.852 z"
@@ -1125,12 +1125,12 @@
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/cpu_io_board/top.JPG"
        xlink:href="top.JPG"
-       y="0"
-       x="0"
-       id="image5617"
-       preserveAspectRatio="none"
+       width="7296"
        height="4096"
-       width="7296" />
+       preserveAspectRatio="none"
+       id="image5617"
+       x="0"
+       y="0" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -10175,7 +10175,8 @@
   <g
      inkscape:groupmode="layer"
      id="layer19"
-     inkscape:label="top_tp">
+     inkscape:label="top_tp"
+     style="display:none">
     <ellipse
        style="display:inline;opacity:1;fill:#ff00ff;fill-opacity:1;stroke:#000000;stroke-width:1.30015743;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        id="path7759-8-9-2-6"
@@ -11826,7 +11827,7 @@
      inkscape:groupmode="layer"
      id="layer11"
      inkscape:label="components_top"
-     style="display:inline">
+     style="display:none">
     <g
        inkscape:groupmode="layer"
        id="layer12"
@@ -13082,7 +13083,7 @@
      inkscape:groupmode="layer"
      id="layer6"
      inkscape:label="bottom_pads"
-     style="display:inline">
+     style="display:none">
     <rect
        style="display:inline;fill:#00ff00;stroke:#ff00ff;stroke-width:0;stroke-miterlimit:4;stroke-dasharray:none"
        id="rect9815-45-8"
@@ -14550,7 +14551,7 @@
      inkscape:groupmode="layer"
      id="layer18"
      inkscape:label="bottom_tp"
-     style="display:inline">
+     style="display:none">
     <ellipse
        style="opacity:1;fill:#ff00ff;fill-opacity:1;stroke:#000000;stroke-width:1.30015743;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        id="path7759"
@@ -14591,7 +14592,7 @@
      inkscape:groupmode="layer"
      id="layer7"
      inkscape:label="vias_tp"
-     style="display:inline">
+     style="display:none">
     <ellipse
        id="path129-7-6"
        cx="2070.6814"

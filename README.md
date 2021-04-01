@@ -1,28 +1,70 @@
 # RED ONE MYSTERIUM-X
 *Disclaimer: This repository is for educational purposes only.*
 
-These cameras (and the components within) are no longer repairable
-by the manufacturer, and very little information exists on the Internet
-(or from the manufacturer) that can assist with the debugging, and repair of
-RED ONE MX cameras.
+The RED ONE is a digital cinema camera that is known for being the first
+digital camera that is equivalent to "35mm film". It was released in 2007 and
+was the first production camera of [Red Digital Cinema](https://en.wikipedia.org/wiki/Red_Digital_Cinema).
 
-Fortunately, the technology within these digital cinema cameras still have value.
+In 2010, the 14 Megapixel Mysterium-X sensor was introduced as an upgrade for 
+the Red One, effectively known as the RED ONE MX. 
+
+The RED ONE and RED ONE MX camera has been discontinued since (?) and are no longer
+covered by warranty, serviceable by the manufacturer, and are quickly becoming 
+e-waste. 
+
+In 2007, Manfred Lopez asked, "What Will Red One's Lifespan be?"
+
+> We have 16mm and 35mm cameras here from the 80s that are still being used. 
+> People still use Konvas that are 30 years old.
+> The technology will get better, no doubt. 
+> But im sure Red will last generations... resolution will maintain itself. 
+> -- <cite>Jarred Land</cite>
+
+Unfortunately, late 2008 the fate of the RED ONE was rendered obsolete with the
+announcement of the next generation RED cameras.    
+
+Today, those of us who own and operate RED ONE cameras choose to do so for
+many reasons, but we do so at the risk of having no path forward when something
+eventually breaks or stops working.
+
+Very little information exists on the Internet that can assist with the debugging, 
+maintenance, and repair of RED ONE and RED ONE MX cameras.
+
+Fortunately, the technology and engineering within the RED ONE is known and 
+reversible.  
+
+This repository contains the research and progress of reverse engineering the 
+RED ONE camera for the goal of producing:
+
+1. Schematics.
+2. Component lists.
+3. Debugging steps.
+4. Repair guides.
+
 
 ## Overview
 The RED ONE MX is a digital cinema camera that uses a 14 Megapixel MYSTERIUM-X
-sensor [1]. The sensor data is processed through an FPGA (Xilinx Virtex-4) and
-then persisted to a drive (SSD, CF, or Hard Drive). It was effectively the
-industry-first digital cinema camera that was equivalent to 35mm movie film.
+sensor [1]. The sensor data is processed through an FPGA (Xilinx Virtex-4), 
+encoded, and persisted to external media (SSD, CF, or Hard Drive). 
+
+The camera body is primarily precision machined aluminum (grade ?) and houses 
+four primary PCB boards, one sensor board, and various supporting boards:
+* AUDIO_PCI Board
+* CPI_IO Board
+* ? Board
+* POWER Board
+* UI Board
+* SENSOR Board
+* ?
+* ?
 
 ## Background
-The RED ONE was manufactured by the [Sanmina Corporation](https://web.archive.org/web/20081024222256/https://www.sanmina.com/).
+The PCB boards were manufactured by the [Sanmina Corporation](https://web.archive.org/web/20081024222256/https://www.sanmina.com/).
 ![top](smh.png)
 
+# Boards
 
-
-## Components
-
-### CPU_IO Board
+## CPU_IO Board
 
 #### Top
 Connects to the AUDIO_PCI board via a 180 position high-speed mezzanine connector (part number?).
@@ -35,7 +77,7 @@ Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine
 ![bottom](cpu_io_board/bottom.JPG)
 
 
-### AUDIO_PCI Board
+## AUDIO_PCI Board
 * ISP1562
  * Universal serial bus PCI host controller
 * NET2280REV1A-LF
@@ -59,7 +101,7 @@ Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine
 #### Bottom
 ![bottom](audio_pci_board/bottom.JPG)
 
-### UI Board
+## UI Board
 Provides the physical control interface for camera operators.
 
 * LTBPY
@@ -81,7 +123,7 @@ Provides the physical control interface for camera operators.
 ![layout](ui_board/layout.png)
 
 
-
+# Troubleshooting
 ## Common issues (wip)
 These are common issues that have been seen with the RED ONE MX cameras.
 
@@ -94,21 +136,48 @@ These are common issues that have been seen with the RED ONE MX cameras.
 3. No audio input through XLR.
 * Fault with the CPU_IO and AUDIO_PCI board interconnect.
 
-
 ### Fault with the CPU_IO and AUDIO_PCI board interconnect.
 If the video (sdi, hdmi), xlr audio, and storage (cf, ssd, hard drive) are not
 working, it is possible that the interconnect (part number ?) between the CPU_IO
 and AUDIO_PCI board has broken traces on the CPU_IO board.
 
 
+# Firmware
+## Releases
+(wip)
+*Contact me if you have a build that is not listed below*
+
+* Build 13 v1.8.8
+* Build 15 v2.2.5
+* Build 16 v3.2.5
+* Build 17 v3.4.1
+* Build 20 v20.1.3
+* Build 20 v20.1.6
+* Build 21 v21.4.1
+* Build 30 v30.7.0
+* Build 31 v31.6.16
+* Build 32 v32.0.3
+
 ### Resources
 1. https://support.red.com/hc/en-us/articles/360011307074-RED-ONE-Specs
+2. https://www.linkedin.com/in/thao-ho-b3984330
+3. https://www.xilinx.com/member/forms/download/xef.html?filename=EDK91.zip
+4. https://www.xilinx.com/member/10x_and_prior_regids.html
 
-### About the author
+### About me
 I'm the proud owner of several RED ONE MX digital cinema cameras.
-Some of them work, and some don't. I have tremendous respect and admiration of
-RED Digital Cinema, their products, and their innovation in the film industry.
+Some of them work, and some don't. These cameras provide me both a utility and
+a slice of history. In 2019, my primary film camera was damaged during a flight 
+to Norway. 
 
+Being a Software Engineer and hobbyist electrical engineer, I expected technical
+problems. However, I did not anticipate the challenge of not being able to access
+information that could help me in my repair.  
+
+I have tremendous respect and admiration of RED Digital Cinema, their products, 
+and their innovation in the film industry. 
+
+But I want to fix my camera, and help those who are in similar situations. 
 
 #### License
 Permission is hereby granted, free of charge, to any person obtaining a copy
