@@ -1,5 +1,7 @@
-# RED ONE MYSTERIUM-X
+# R1MX
 *Disclaimer: This repository is for educational purposes only.*
+An honest attempt to reverse engineer the RED ONE camera for failure analysis
+and obsolescence management.  
 
 The RED ONE is a digital cinema camera that is known for being the first
 digital camera that is equivalent to "35mm film". It was released in 2007 and
@@ -41,8 +43,12 @@ RED ONE camera for the goal of producing:
 3. Debugging steps.
 4. Repair guides.
 
+Research:
+* https://dforte.ece.ufl.edu/wp-content/uploads/sites/65/2020/08/ISTFA_2015_PCB-RE-final.pdf
+* http://www.grandideastudio.com/wp-content/uploads/pcb_deconstruction_techniques_slides.pdf
 
-## Overview
+
+## Overview (wip)
 The RED ONE MX is a digital cinema camera that uses a 14 Megapixel MYSTERIUM-X
 sensor [1]. The sensor data is processed through an FPGA (Xilinx Virtex-4), 
 encoded, and persisted to external media (SSD, CF, or Hard Drive). 
