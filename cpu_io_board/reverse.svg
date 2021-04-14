@@ -44,13 +44,13 @@
      inkscape:window-height="1384"
      id="namedview2850"
      showgrid="false"
-     inkscape:zoom="0.18596531"
-     inkscape:cx="3990.1376"
-     inkscape:cy="1968.941"
+     inkscape:zoom="0.52598933"
+     inkscape:cx="1632.0823"
+     inkscape:cy="1848.6084"
      inkscape:window-x="1920"
      inkscape:window-y="24"
      inkscape:window-maximized="0"
-     inkscape:current-layer="layer8" />
+     inkscape:current-layer="layer29" />
   <g
      inkscape:groupmode="layer"
      id="layer1"
@@ -60,12 +60,12 @@
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/cpu_io_board/bottom.JPG"
        xlink:href="bottom.JPG"
-       width="7296"
-       height="4096"
-       preserveAspectRatio="none"
-       id="image2856"
+       y="0"
        x="0"
-       y="0" />
+       id="image2856"
+       preserveAspectRatio="none"
+       height="4096"
+       width="7296" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -1120,17 +1120,17 @@
      inkscape:groupmode="layer"
      id="layer2"
      inkscape:label="top"
-     style="display:inline"
+     style="display:none"
      sodipodi:insensitive="true">
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/cpu_io_board/top.JPG"
        xlink:href="top.JPG"
-       width="7296"
-       height="4096"
-       preserveAspectRatio="none"
-       id="image5617"
+       y="0"
        x="0"
-       y="0" />
+       id="image5617"
+       preserveAspectRatio="none"
+       height="4096"
+       width="7296" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -12207,6 +12207,39 @@
        d="m 1575.5627,2105.0372 24.5341,-24.5341 h 27.895"
        id="path4457"
        inkscape:connector-curvature="0" />
+    <g
+       inkscape:groupmode="layer"
+       id="layer29"
+       inkscape:label="notes">
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-weight:normal;font-size:13.33333302px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
+         x="1660.6801"
+         y="1541.7657"
+         id="text5990"><tspan
+           sodipodi:role="line"
+           id="tspan5988"
+           x="1660.6801"
+           y="1541.7657">Gnd</tspan><tspan
+           sodipodi:role="line"
+           x="1660.6801"
+           y="1558.4324"
+           id="tspan5992" /></text>
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-weight:normal;font-size:13.33333302px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
+         x="1837.4897"
+         y="1542.7163"
+         id="text5996"><tspan
+           sodipodi:role="line"
+           id="tspan5994"
+           x="1837.4897"
+           y="1542.7163">GND</tspan><tspan
+           sodipodi:role="line"
+           x="1837.4897"
+           y="1559.3829"
+           id="tspan5998" /></text>
+    </g>
   </g>
   <g
      inkscape:groupmode="layer"
@@ -12638,7 +12671,7 @@
      inkscape:groupmode="layer"
      id="layer11"
      inkscape:label="components_top"
-     style="display:none">
+     style="display:inline">
     <g
        inkscape:groupmode="layer"
        id="layer12"

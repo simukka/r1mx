@@ -71,9 +71,9 @@
      inkscape:window-height="1440"
      id="namedview5642"
      showgrid="false"
-     inkscape:zoom="4.2268462"
-     inkscape:cx="5517.9533"
-     inkscape:cy="2670.8885"
+     inkscape:zoom="0.48461592"
+     inkscape:cx="4694.6297"
+     inkscape:cy="2374.9788"
      inkscape:window-x="1920"
      inkscape:window-y="0"
      inkscape:window-maximized="0"
@@ -87,28 +87,28 @@
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/audio_pci_board/bottom.JPG"
        xlink:href="bottom.JPG"
-       width="6996"
-       height="3681.3333"
-       preserveAspectRatio="none"
-       id="image5648"
+       y="0"
        x="0"
-       y="0" />
+       id="image5648"
+       preserveAspectRatio="none"
+       height="3681.3333"
+       width="6996" />
   </g>
   <g
      inkscape:groupmode="layer"
      id="layer16"
      inkscape:label="top"
-     style="display:none"
+     style="display:inline"
      sodipodi:insensitive="true">
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/audio_pci_board/top.JPG"
        xlink:href="top.JPG"
-       width="6996"
-       height="3681.3333"
-       preserveAspectRatio="none"
-       id="image5658"
+       y="-4.5474735e-13"
        x="4.5474735e-13"
-       y="-4.5474735e-13" />
+       id="image5658"
+       preserveAspectRatio="none"
+       height="3681.3333"
+       width="6996" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -12327,7 +12327,7 @@
            x="4607.3833"
            y="608.04596"
            id="tspan10417"
-           style="fill:#000000;stroke-width:0.78515071"></tspan><tspan
+           style="fill:#000000;stroke-width:0.78515071" /><tspan
            sodipodi:role="line"
            x="4607.3833"
            y="681.32672"
