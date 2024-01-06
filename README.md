@@ -43,9 +43,19 @@ RED ONE camera for the goal of producing:
 3. Debugging steps.
 4. Repair guides.
 
-Research:
+Research methods:
 * https://dforte.ece.ufl.edu/wp-content/uploads/sites/65/2020/08/ISTFA_2015_PCB-RE-final.pdf
 * http://www.grandideastudio.com/wp-content/uploads/pcb_deconstruction_techniques_slides.pdf
+
+# Instructions
+The individual boards are sepearted into individual folders.
+Each folder contains datasheets, pictures, schematics, cad designs, and a vector (.svg) file.
+
+## reverse.svg
+The vector file is created with Inkscape (opensource) and contains layers of vector
+graphics that correspond to specific functions of the PCB. This vector
+
+Eventually, the vector information will be converted to a schematic.  
 
 
 ## Overview (wip)
@@ -149,10 +159,19 @@ and AUDIO_PCI board has broken traces on the CPU_IO board.
 
 
 # Firmware
-## Releases
-(wip)
-*Contact me if you have a build that is not listed below*
+## Release history (wip)
+*Contact me if you have a pre-production build that is listed below*
+*Pre-production builds*
+* Build 4 v1.0.4
+* Build 5 v1.1.2
+* Build 6 v1.1.3
+* Build 8 v1.3.5
+* Build 8 v1.3.6
+* Build 10 v1.7.0
+* Build 10 v1.8.6
+* Build 12 v1.8.8
 
+*Production builds*
 * Build 13 v1.8.8
 * Build 15 v2.2.5
 * Build 16 v3.2.5

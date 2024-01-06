@@ -67,15 +67,15 @@
      guidetolerance="10"
      inkscape:pageopacity="0"
      inkscape:pageshadow="2"
-     inkscape:window-width="2560"
-     inkscape:window-height="1440"
+     inkscape:window-width="1914"
+     inkscape:window-height="1024"
      id="namedview5642"
      showgrid="false"
-     inkscape:zoom="0.48461592"
-     inkscape:cx="4694.6297"
-     inkscape:cy="2374.9788"
-     inkscape:window-x="1920"
-     inkscape:window-y="0"
+     inkscape:zoom="1.3707008"
+     inkscape:cx="5273.2418"
+     inkscape:cy="2589.0862"
+     inkscape:window-x="0"
+     inkscape:window-y="24"
      inkscape:window-maximized="0"
      inkscape:current-layer="layer22" />
   <g
@@ -87,28 +87,28 @@
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/audio_pci_board/bottom.JPG"
        xlink:href="bottom.JPG"
-       y="0"
-       x="0"
-       id="image5648"
-       preserveAspectRatio="none"
+       width="6996"
        height="3681.3333"
-       width="6996" />
+       preserveAspectRatio="none"
+       id="image5648"
+       x="0"
+       y="0" />
   </g>
   <g
      inkscape:groupmode="layer"
      id="layer16"
      inkscape:label="top"
-     style="display:inline"
+     style="display:none"
      sodipodi:insensitive="true">
     <image
        sodipodi:absref="/home/simukka/Projects/RED/r1mx/audio_pci_board/top.JPG"
        xlink:href="top.JPG"
-       y="-4.5474735e-13"
-       x="4.5474735e-13"
-       id="image5658"
-       preserveAspectRatio="none"
+       width="6996"
        height="3681.3333"
-       width="6996" />
+       preserveAspectRatio="none"
+       id="image5658"
+       x="4.5474735e-13"
+       y="-4.5474735e-13" />
   </g>
   <g
      inkscape:groupmode="layer"
@@ -1040,7 +1040,7 @@
      inkscape:groupmode="layer"
      id="layer1"
      inkscape:label="vias"
-     style="display:none">
+     style="display:inline">
     <g
        inkscape:groupmode="layer"
        id="layer10"
