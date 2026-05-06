@@ -1,0 +1,87 @@
+	Build 13, RED ONE camera firmware v1.8.8  Jan 16, 2008
+
+>> Resolution of audio hiss on boot up. <<
+
+Note: Unless upgrading from a previous version of Build 12, a BLACK SHADING calibration must be performed. This parameter is located in SYSTEM / MAINTENANCE. Ensure that the lens cap is in place and a formatted CF card is installed before starting a BLACK SHADING operation. More detailed instructions are contained in the System Menus section of the Operations Guide.
+
+
+Installation Instructions for Build 13, RED ONE camera firmware v1.8.8
+
+* This upgrade is fully contained in the folder " build_13_red_one_v1.8.8 "
+
+* In that folder is a copy of this Read Me file and the folder named " Upgrade "
+
+* The " Upgrade " folder includes the camera firmware upgrade file " su.tar "
+
+* DO NOT rename this folder, the camera only opens a folder named " Upgrade " 
+
+* Do NOT decompress the " su.tar "  file, the camera will perform that task. 
+
+
+* DO format a CF card, or use a CF card that you have recorded with.
+
+* DO connect the CF card to your P.C or Macintosh via a CF card reader.
+
+* DO copy the folder called " Upgrade " onto the CF card.
+
+
+* Unmount the CF card from your computer (drag to the trash can)
+
+* Insert the CF card into the CF card slot of your RED-ONE camera.
+
+* If the camera is powered down, power the camera. 
+
+* If the camera is powered up, first power down the camera, wait ten seconds, and then power up the camera.
+
+* On power up the camera rear status display will report " New Firmware " 
+ 
+* Press the joystick to confirm, and the rear status display will then report " Upgrading "
+
+* Note: If you are observing the RED-LCD or other monitor during the upgrade process, a blue progress bar will be visible. This bar will continue for the duration of the upgrade, approximately five minutes. 
+
+* At the end of the upgrade process, the rear status display will report "O.K. Cycle Power" The RED-LCD or other monitor port will report " Upgrade Complete. Power cycle the camera to continue. "
+
+* Power down the camera, wait ten seconds, then power the camera up again.
+
+* Verify that the camera rear status display and or monitors report back - 
+
+     PIN (N/A or value specific to camera)     Build 13     Version 1.8.8
+
+* Installation is now complete. 
+
+Note: Following this firmware upgrade, a BLACK SHADING calibration MUST be performed. See User Guide for detailed instruction notes.
+
+
+Significant changes since Build 12  
+
+* Resolution of audio hiss on camera boot up.
+
+
+Known firmware restrictions for Build 13, version v1.8.8
+
+* 4K 2:1 at 29.97 is not supported with CF Card, only with RED-DRIVE.
+
+* Audio playback on camera is not enabled.
+
+* Audio playback in RED-ALERT and RED-CINE is not enabled.
+
+* No variable gain limiter in headphone output (may sound quiet or clip).
+
+* 4K recording is not yet supported by RED ALERT or by QuickTime Player.
+
+* 4K _H, _M and _P QuickTimes created by camera crash QuickTime Player.
+
+* RED-LCD plus Preview HD-SDI monitor output simultaneously active not supported.
+
+* RED-EVF, RED-LCD, Preview HD-SDI, HDMI simultaneously active not yet supported.
+
+* Dual Link HD-SDI outputs always replicate 720p PREVIEW or PLAYBACK HD-SDI signal. 
+
+* Audio and Timecode not present in HD-SDI or HDMI outputs.
+
+* Use meter reports in minutes rather than hours.
+
+* On boot up, n/a being reported as P.I.N number on camera s/n 001 - 100. 
+
+
+Copyright (c) 2007 RED Digital Cinema, All Rights Reserved.
