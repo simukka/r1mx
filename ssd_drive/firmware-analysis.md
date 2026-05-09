@@ -107,13 +107,77 @@ The following model strings are embedded in the firmware binary:
 
 | Model String | Type Label | Drive Info |
 |---|---|---|
-| `Adtron A25FB-32GC21N` | `RedFlash` | Adtron 32GB 2.5" SLC SATA SSD — likely the original REDMAG |
+| `Adtron A25FB-32GC21N` | `RedFlash` | Adtron 32GB 2.5" SLC SATA SSD — original REDMAG |
 | `WDC WD800BEVS-22LAT0` | `RedSata (WDC)` | Western Digital Scorpio Blue 80GB 2.5" HDD |
 | `HTS721010G9SA00` | `RedSata (Hitachi)` | Hitachi Travelstar 7K100 100GB 2.5" HDD |
 
 > **Note:** The Toshiba HG3 (`THNSNC256GBSJ`) does NOT appear in Build 13 strings.
 > This is expected — the HG3 was released in 2011, while Build 13 is from 2008.
 > The Toshiba was added in a later firmware build (likely Build 17–30).
+
+### Build 32 Drive Type Table (Extracted — September 2013)
+
+Build 32 (`build_32_v32.0.3.zip`, 2013-09-06) was decrypted using the known key and
+analysed. The encrypted payload is a POSIX tar containing `redone.1` (VxWorks app,
+AES-256-CBC + gzip, ~8.5 MB decrypted) and `redone.3` (Xilinx FPGA bitstream).
+
+**Key changelog from the Build 32 README:**
+- "Added 512GB support" — first firmware to support 512GB REDMAG drives
+- "RED 48GB SSD is not compatible with REDONE" — explicitly blocked drive type
+
+The complete **drive type display table** was extracted from the VxWorks binary at
+offset `0xD2E5D0`. These are the UI-visible names for each approved drive type:
+
+| Display Name | Category | Notes |
+|---|---|---|
+| `RED 16GB CF` | CompactFlash | Legacy CF recording media |
+| `RED 32GB CF` | CompactFlash | |
+| `RED 64GB CF` | CompactFlash | |
+| `RED 55GB SSD` | SSD (legacy) | Original REDMAG 55GB (Adtron-based) |
+| `RED 64GB SSD` | SSD (legacy) | REDMAG 64GB |
+| `RED 128GB SSD` | SSD (legacy) | REDMAG 128GB |
+| `RED 256GB SSD` | SSD (legacy) | REDMAG 256GB |
+| `RED 512GB SSD` | SSD (legacy) | REDMAG 512GB |
+| `RED 16GB REV B` | SSD | |
+| `RED 32GB REV A1` | SSD | |
+| `RED 64GB REV A1` | SSD | |
+| **`RED  64GB Rev T1`** | **Toshiba** | **HG3 64GB, 1st production revision** |
+| **`RED 128GB Rev T1`** | **Toshiba** | **HG3 128GB, 1st production revision** |
+| **`RED 256GB Rev T1`** | **Toshiba** | **HG3 256GB, 1st production revision ← this drive** |
+| **`RED  64GB Rev T2`** | **Toshiba** | **HG3 64GB, 2nd production revision** |
+| **`RED 128GB Rev T2`** | **Toshiba** | **HG3 128GB, 2nd production revision** |
+| **`RED 256GB Rev T2`** | **Toshiba** | **HG3 256GB, 2nd production revision** |
+| **`RED  64GB Rev T3`** | **Toshiba** | **HG3 64GB, 3rd production revision** |
+| **`RED 128GB Rev T3`** | **Toshiba** | **HG3 128GB, 3rd production revision** |
+| **`RED 256GB Rev T3`** | **Toshiba** | **HG3 256GB, 3rd production revision** |
+| `RED 512GB V1` | 512GB | Added in Build 32 |
+| `RED 512GB V2` | 512GB | |
+| `RED 512GB V3` | 512GB | |
+| `RED 512GB V4` | 512GB | |
+| `RED 55GB V1` | 55GB variant | |
+| `RED 55GB V2` | 55GB variant | |
+| `External Disk 0` | Unknown / external | Fallback for unrecognised drives |
+
+**Toshiba drive revisions T1/T2/T3** correspond to different firmware revisions of the
+same THNSNC hardware — Toshiba shipped the HG3 drives in multiple production lots with
+distinct `IDENTIFY DEVICE` firmware revision strings. The camera distinguishes these to
+display the correct label; all three are accepted as compatible.
+
+**The drive compatibility function has been confirmed to use three parameters:**
+```
+DigMagMgrModule::DecodeDriveType(char* model_string, char* firmware_revision, unsigned long sectors)
+```
+(mangled: `_ZN15DigMagMgrModule15DecodeDriveTypeEPcS0_m`)
+
+This is more sophisticated than Build 13's simple model-string check: Build 32 also
+examines the **ATA firmware revision field** (word 23–26 of IDENTIFY DEVICE, 8 bytes).
+This is how T1/T2/T3 revisions are discriminated.
+
+**Raw ATA model strings for Toshiba entries:** The raw `THNSNC064GBSJ`, `THNSNC128GBSJ`,
+`THNSNC256GBSJ` strings are **not stored as plain text** in the Build 32 binary — they
+are likely encoded in the code section as comparison operands or as hashed values. The
+display names (RED xxGB Rev Tn) ARE stored as plain strings. Physical SATA capture or
+deeper disassembly is required to recover the exact comparison strings.
 
 ### How Compatibility is Likely Checked
 
@@ -185,33 +249,36 @@ The most straightforward replacement approach is to use a **modern SATA SSD that
 with an approved model string** in its `IDENTIFY DEVICE` response.
 
 Some SATA SSD controllers (notably JMicron and Phison-based) allow the model string to be
-configured via vendor-specific commands or EEPROM programming. If the model string can be
-set to match one of the approved drive entries, the camera firmware will accept the drive.
+configured via vendor-specific commands or EEPROM programming.
 
-**Recommended target model strings (from later firmware builds, where Toshiba appears):**
-- Later builds (Build 17–32) likely add `THNSNC256GBSJ` and possibly other approved SSDs
-- Extracting and analyzing a later firmware build would reveal the complete current list
+**Target for Build 32 (confirmed Toshiba entries):**
+- Model string: `THNSNC256GBSJ` (confirmed as approved — T1/T2/T3 revisions all accepted)
+- Firmware revision: any of the T1/T2/T3 THNSNC firmware revision strings
+  (e.g., `JUPS4101`, `JUPS4102`, `JUPS4103` — exact values to be confirmed by physical capture)
+- Capacity: must report ≥ expected sector count for 256GB
+
+**If targeting the generic `RED 256GB SSD` type** (Build 32 also retains this entry),
+the model string is likely an older RED-internal SSD identifier. The Adtron/WDC/Hitachi
+model strings from Build 13 are **no longer required** — they are absent from Build 32.
 
 ### Option B — Firmware Patch
 
 Patch the `IsCompatible()` function in the VxWorks image to always return `true` (DigMag).
 This requires:
-1. Locating `_ZN15DigMagMgrModule12IsCompatibleEv` in the binary
-2. Replacing the model-string comparison logic with a direct `return true`
+1. Locating `_ZN15DigMagMgrModule12IsCompatibleEv` in the binary at offset `0xDA6010` (symtab)
+2. Replacing the model-string/firmware-rev comparison logic with a direct `return true`
 3. Packaging the patched firmware as an upgrade
 
-This approach works on any modern SATA SSD but requires modifying the firmware image.
 The encryption key for Build 17+ is known (`M1H5gwOXh757rIRVY6Gj2tN080AYSX03`), so
-patching encrypted builds is feasible.
+patching encrypted builds is feasible. The patched binary must be re-encrypted and re-packaged.
 
 ### Option C — Use a Firmware Version that Supports the Target SSD
 
-Build 32 (v32.0.3) is the latest firmware. It was released after the Toshiba HG3 and
-likely contains the complete approved-drive list including the THNSNC256GBSJ. A camera
-running Build 32 may accept generic modern SSDs that weren't in earlier builds.
+Build 32 (v32.0.3) is the latest firmware. Analysis confirms it contains:
+- All three Toshiba HG3 256GB production revisions (T1/T2/T3) as approved types
+- 512GB support added for the first time
 
-**Action needed:** Extract and analyse Build 17–32 firmware to find the complete
-`IsCompatible()` drive table.
+**A camera running Build 32 will accept the THNSNC256GBSJ if the model string matches.**
 
 ### Minimum Requirements for Any Replacement Drive
 
@@ -234,20 +301,21 @@ Regardless of approach, the replacement must:
 
 ## Next Steps
 
-1. **Analyse later firmware (Build 17–32)** to extract the complete `IsCompatible()` drive table:
-   ```bash
-   # Decrypt Build 32
-   openssl enc -d -aes-256-cbc -md md5 \
-     -pass pass:M1H5gwOXh757rIRVY6Gj2tN080AYSX03 \
-     -in firmware/builds/build_32_v32.0.3.zip -out /tmp/build32.tar.gz
-   ```
+1. **Capture ATA IDENTIFY DEVICE response** from a real THNSNC256GBSJ to confirm:
+   - Exact model string (likely `THNSNC256GBSJ` — but ATA pads with spaces)
+   - Exact firmware revision string for T1/T2/T3 (likely `JUPSxxxx` format)
+   - Use a SATA protocol analyser or `hdparm -i /dev/sdX` on Linux
 
-2. **Locate `_ZN15DigMagMgrModule12IsCompatibleEv`** in the binary via cross-reference
-   from the mangled symbol name (if present in debug strings) or by tracing calls to
-   the MEDIA.DIGMAG.TYPE parameter setter.
+2. **Disassemble `DecodeDriveType`** in Build 32 binary to confirm exact model/revision
+   string comparisons. The function is at a code address referenced via the symbol table.
+   Load the binary at the VxWorks link address (determined from the header) in Ghidra/IDA.
 
-3. **Test a SATA SSD via eSATA** (if accessible) to observe the firmware's compatibility
-   response before committing to internal replacement.
+3. **Test model string spoofing** on a Phison or JMicron based SSD:
+   - Program `THNSNC256GBSJ` as the IDENTIFY DEVICE model string
+   - Insert into RED ONE running Build 32
+   - Observe whether it reports as `DigMag` or `INCOMPATIBLE`
 
-4. **Identify the complete model string table** by searching for the known model strings
-   (`Adtron`, `WDC`, `Hitachi`, `THNSNC`) in later firmware builds and listing all adjacent entries.
+4. **Physical SSD teardown** of a donor THNSNC256GBSJ unit:
+   - Photograph TH58TEGxDCJ package markings on NAND chips
+   - Photograph controller die marking (TC58NC… prefix expected)
+   - Confirm 8× TH58TEG8DCJTAK0 package count
