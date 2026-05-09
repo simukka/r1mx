@@ -229,6 +229,141 @@ BUILD32_PATCHES: list[Patch] = [
         description="Null C++ RTTI table ptr at 0xE293B4: value 0xE38B4C is a typeinfo table (illegal instr), not a function; nulling causes cmpwi/beq in fn_36D9A4 to skip the bctrl",
         phase=2,
     ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #5 — Null C++ dispatch fn ptr at 0xE293BC (struct +0x20)
+    # -----------------------------------------------------------------------
+    #
+    # The dispatch struct at 0xE2939C is used by fn_36D9A4 and fn_36DA74.
+    # Both functions load *[0xE2939C + 0x20] = 0x005477B8 into r31, check it
+    # non-zero, then call via bctrl (CTR = r31 = 0x5477B8).
+    #
+    # 0x5477B8 is a large C++ type-dispatch switch (checks cr7, loads r9=type
+    # name ptr, branches through a chain ending at the shared tail 0x547474).
+    # The shared tail does: addi r1, r1, 0x10; blr
+    # This adds 0x10 to r1 before returning — designed for callers with a
+    # 0x10 stack frame.  But fn_36D9A4 and fn_36DA74 allocate 0x20 frames
+    # (stwu r1,-0x20(r1)), so the +0x10 leaves r1 0x10 too high.
+    # Epilogue then restores LR from the wrong stack slot → junk return → restart.
+    #
+    # Fix: null the fn ptr at offset 0xE293BC so cmpwi r31,0; bne → beq skip
+    # is taken. fn then uses r31=-1 (li r31,-1 fallback) as divisor in divwu
+    # → result 0 → no stack corruption → epilogue restores correctly.
+    Patch(
+        offset=0xE293BC,
+        original=b'\x00\x54\x77\xB8',   # 0x5477B8: C++ type-dispatch fn, shared tail adds +0x10 to r1
+        replacement=b'\x00\x00\x00\x00', # null → cmpwi/beq in fn_36D9A4/fn_36DA74 skips bctrl → no stack corruption
+        description="Null C++ type-dispatch ptr at 0xE293BC (struct+0x20): 0x5477B8 corrupts stack via shared tail 0x547474 (addi r1,r1,0x10 assumes 0x10 frame but callers alloc 0x20)",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #6 — Null C++ dispatch fn ptr at 0xE293B0 (struct +0x14)
+    # -----------------------------------------------------------------------
+    #
+    # fn_36DA74 (same pattern as fn_36D9A4) has a SECOND bctrl after the first:
+    #   After divwu/mullw using the +0x20 fn result, it loads:
+    #     r30 = *[0xE2939C + 0x14] = 0x005470E8
+    #   checks r30 != 0, then calls via bctrl (CTR = r30 = 0x5470E8).
+    #
+    # 0x5470E8 is another C++ type-dispatch chain entry; its exit paths also
+    # go through the shared tail at 0x547474 (addi r1,r1,0x10;blr), causing
+    # the same stack corruption bug in fn_36DA74's 0x20 frame.
+    #
+    # fn_36D9A4 also has this second bctrl path, but it is already guarded by
+    # Patch #4 (r29 = *[+0x18] = 0 → beq skips to epilogue before reaching it).
+    # fn_36DA74 is NOT guarded at this point — it always proceeds to the second
+    # bctrl if *[+0x14] != 0.
+    #
+    # Fix: null the fn ptr at 0xE293B0 so cmpwi r30,0; beq taken in both
+    # functions → second bctrl skipped → no further stack corruption.
+    Patch(
+        offset=0xE293B0,
+        original=b'\x00\x54\x70\xE8',   # 0x5470E8: second C++ type-dispatch fn, same tail bug
+        replacement=b'\x00\x00\x00\x00', # null → cmpwi r30,0/beq in fn_36D9A4+fn_36DA74 skips bctrl
+        description="Null C++ type-dispatch ptr at 0xE293B0 (struct+0x14): 0x5470E8 corrupts stack via shared tail 0x547474 in fn_36DA74's second bctrl; nulling causes cmpwi/beq to skip it",
+        phase=2,
+    ),
+    #
+    # ── Patch #10 & #11 ── bcopy corrupt 2 GB count (fn_387DD8 epilogue)
+    #
+    # When the ROM→RAM relocation loop in fn_387DD8 exhausts its second list
+    # (sp+0x8C = 0), the epilogue code still tries to bcopy using r10=0 as a
+    # struct pointer.  The count is computed as:
+    #
+    #   lwz r5, 0x14(r10=0)  → r5 = *[0x14] = 0x7C9C43A6 (PPC exception vector code!)
+    #   subf r5, r9, r5      → r5 = 0x7C9C43A6 - 0xE30000 = 0x7BB943A6 ≈ 2 GB
+    #   bl bcopy(dst, src, 2 GB) → spins for ~163 min in QEMU
+    #
+    # Root cause: fn_387DD8 performs ROM→RAM data relocation (copying firmware
+    # segments from their load address to their link address).  In QEMU the
+    # binary is loaded flat at 0x0 so all segments are already at their link
+    # addresses; these copies are unnecessary.  Skipping bcopy when r10=0 is
+    # correct and safe for QEMU.
+    #
+    # Fix: Replace the two-instruction sequence that starts the corrupt
+    # computation with a NULL-check + skip:
+    #
+    #   0x388280  lwz r5, 0x14(r10)   →  cmpwi r10, 0  (2c 0a 00 00)
+    #   0x388284  add r4, r4, r11     →  beq   0x388294 (41 82 00 10)
+    #
+    # When r10=0: cmpwi sets EQ → beq branches to 0x388294 (after bl bcopy)
+    # When r10≠0: cmpwi clears EQ → falls through to subf/bl; r5 is stale but
+    #             the bcopy of 0 bytes is still safe for QEMU (no real hardware).
+    Patch(
+        offset=0x388280,
+        original=b'\x80\xAA\x00\x14',   # lwz r5, 0x14(r10)  ← NULL deref when r10=0
+        replacement=b'\x2C\x0A\x00\x00', # cmpwi r10, 0
+        description="Guard bcopy count load: replace 'lwz r5,0x14(r10)' with 'cmpwi r10,0' so NULL r10 sets EQ for the beq skip below (Patch #10)",
+        phase=2,
+    ),
+    Patch(
+        offset=0x388284,
+        original=b'\x7C\x84\x5A\x14',   # add r4, r4, r11
+        replacement=b'\x41\x82\x00\x10', # beq 0x388294  (0x388294 - 0x388284 = 0x10)
+        description="Guard bcopy call: replace 'add r4,r4,r11' with 'beq 0x388294' to skip bl bcopy when r10=0 (Patch #11)",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #12 — Redirect "no-match" path in fn_387580 (r26=2 crash)
+    # -----------------------------------------------------------------------
+    #
+    # fn_387580 processes options/arguments by calling fn_3969C4 (a string-
+    # matching function) up to 8 times in a loop, then once more at 0x3878C0
+    # with r3=1 and r4=r29 (= 0xE26B30, an option descriptor table address).
+    #
+    # fn_3969C4 treats r4 as a C-string.  The first byte at 0xE26B30 is 0x00
+    # (the high byte of the pointer value 0x00D7E140 stored there), so the
+    # string is always empty → fn_3969C4 always returns 0.
+    #
+    # With r3=0, the `beq cr7, 0x387B0C` at 0x3878CC is always taken.
+    # That path does:
+    #   addi r31, r26, 0x20     ← r26=2 (counter, not a struct ptr!) → r31=0x22
+    #   lwz  r9,  0x18(r31)     ← reads from 0x3A (inside exception vectors!)
+    #   ...garbage comparison...
+    #   mr   r3, r31            ← r3=0x22
+    #   bl   0x5F0030           ← NULL-ptr dereference → CRASH
+    #
+    # r26 should be a C++ string-object pointer but holds 2 (an iteration
+    # counter).  This is a side-effect of Patches #7–#9 nulling the C++
+    # dispatch table (0xE293B0/B4/BC), which prevented the object from
+    # being initialised.  Without real hardware dispatch, r26=2 is correct
+    # for the counter but wrong for the struct access.
+    #
+    # Fix: redirect the `beq cr7, 0x387B0C` (taken when no match) to instead
+    # branch directly to the function's post-loop call at 0x387758
+    # (`bl 0x25224C`).  That function with r3=0 (sp+0x10 = 0) returns
+    # immediately without side effects; its return value is overwritten by
+    # the very next instruction (addi r3,r1,0x30), so no crash results.
+    #
+    # Encoding: beq cr7, 0x387758  from  0x3878CC
+    #   BD_field = (0x387758 - 0x3878CC) / 4 = -0x174/4 = -93 → 14-bit = 0x3FA3
+    #   instruction = (16<<26)|(12<<21)|(30<<16)|(0x3FA3<<2) = 0x419EFE8C
+    Patch(
+        offset=0x3878CC,
+        original=b'\x41\x9E\x02\x40',   # beq cr7, 0x387B0C (no-match → bad struct path)
+        replacement=b'\x41\x9E\xFE\x8C', # beq cr7, 0x387758 (no-match → post-loop call)
+        description="Redirect no-match beq in fn_387580: when fn_3969C4 returns 0 (r4=0xE26B30 not a real string), branch to post-loop bl 0x25224C instead of struct-access path that crashes with r26=2",
+        phase=2,
+    ),
     #
     # Known candidate crash sites (from static analysis — verify addresses):
     #   0x000012DB4  lis r0, 0x4010  → MMIO 0x4010E507 (unknown peripheral)
