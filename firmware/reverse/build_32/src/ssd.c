@@ -20,18 +20,29 @@
  *   0xD2E7FC            serial suffix "_X_F"
  *
  * Key function addresses:
+ *   0x0039AC2C  memcmp (standard)
  *   0x0039ACEC  strncmp (standard)
  *   0x0039B1D4  strncpy (standard)
  *   0x004A6438  VxWorks log (severity, fmt, file, col, line)
  *   0x004AB25C  drive object lookup / type converter
- *   0x004D04D0  drive type switch dispatch
- *   0x004D06C4  DigMagDrive::SetType
  *   0x004BC2A0  DigMag object getter (reads "MEDIA.DIGMAG.DRIVE?" param)
  *   0x004C9ADC  model string registration wrapper
- *   0x004B7BD8  VxWorks param registration API (primary)
- *   0x004B600C  VxWorks param registration API (secondary)
+ *   0x004CA1E0  DigMag_IsApprovedModel — iterates approved string table; called via vtable
  *   0x004B4B80  VxWorks param lookup
  *   0x004B50DC  VxWorks param registration API (tertiary)
+ *   0x004B600C  VxWorks param registration API (secondary)
+ *   0x004B7BD8  VxWorks param registration API (primary)
+ *   0x004D04D0  drive type switch dispatch
+ *   0x004D06C4  DigMagDrive::SetType
+ *   0x004D1B64  DigMag_IsCompatible(drive_obj) — vtable dispatch to IsApprovedModel
+ *                 returns 0 if model not in approved list → drive set INCOMPATIBLE
+ *
+ * SSD bypass patch sites (see firmware/scripts/patch_firmware.py, phase=3):
+ *   Site A  0x005D552C  bl 0x4D1B64 → li r3,1   (hotplug/mount handler)
+ *   Site B  0x005D58E8  bl 0x4D1B64 → li r3,1   (state re-validate)
+ *   Both sites: replacing bl with li r3,1 makes IsCompatible appear to return
+ *   "compatible" unconditionally; the following bne/beq branches then take the
+ *   success path instead of storing INCOMPATIBLE (6) to drive->state.
  *
  * Decompilation methodology:
  *   Ghidra 12.0.4, PPC405BE, base 0x0; cross-ref against VxWorks param DB
@@ -428,13 +439,25 @@ int DigMag_DriveTypeDispatch(void *object_ptr, int drive_type)
 /* -------------------------------------------------------------------------
  * PATCH NOTE — SSD Compatibility Bypass
  *
- * To allow any SATA SSD to be mounted (bypass model/serial validation),
- * one of the following approaches works:
+ * The model validation chain is:
+ *   Drive mount handler (0x5D5574)
+ *     → bl 0x4D1B64  DigMag_IsCompatible(drive)   [Site A: 0x5D552C]
+ *       → deref drive vtable → vtable[+24]
+ *       → call 0x4CA1E0  DigMag_IsApprovedModel
+ *         → iterate table at 0xD2E3E8–0xD2E484
+ *         → memcmp each entry; return 1 if match, 0 if no match
+ *     ← mr. r28,r3 + bne 0x5D5454  ← if 0: fall to INCOMPATIBLE store
+ *   State re-validate (0x5D5A64)
+ *     → bl 0x4D1B64  DigMag_IsCompatible(drive)   [Site B: 0x5D58E8]
+ *     ← mr. r26,r3 + beq 0x5D5A28  ← if 0: jump to INCOMPATIBLE store
  *
- * Option A — Firmware patch (NOP the incompatible branch):
- *   Find the branch that sets DRIVE_STATE_INCOMPATIBLE in DigMagDrive_Validate
- *   (exact address not yet confirmed — candidates: 0x4AE3C8, 0x4AE758, 0x4AEAA8).
- *   Replace the branch with NOP (0x60000000) to always take the MOUNTED path.
+ * Confirmed firmware patch (see firmware/scripts/patch_firmware.py, phase=3):
+ *
+ * Option A — Firmware patch (CONFIRMED, implemented):
+ *   Site A  0x005D552C:  4B EF C6 39  bl 0x4D1B64  →  38 60 00 01  li r3,1
+ *   Site B  0x005D58E8:  4B EF C2 7D  bl 0x4D1B64  →  38 60 00 01  li r3,1
+ *   Effect: IsCompatible always appears to return 1 (compatible).
+ *           bne/beq branches take the success path; INCOMPATIBLE never stored.
  *
  * Option B — SSD spoofing (program ATA IDENTIFY strings):
  *   The SSD must report via ATA IDENTIFY DEVICE (command 0xEC):

@@ -24,6 +24,10 @@ Build 32 patch summary:
     0x36C394   NOP canary wait bne #2
   Phase 2 (apply as crash sites are discovered):
     0x36FA1C   Always-branch past bogus SSL verify-callback dispatch
+    ... (10 more QEMU-compatibility patches)
+  Phase 3 (SSD model-string bypass):
+    0x5D552C   SSD bypass site A: li r3,1 over bl IsCompatible (hotplug handler)
+    0x5D58E8   SSD bypass site B: li r3,1 over bl IsCompatible (state re-validate)
 
 Build 13 patches are preserved for reference (--build13 flag).
 """
@@ -323,45 +327,59 @@ BUILD32_PATCHES: list[Patch] = [
         phase=2,
     ),
     # -----------------------------------------------------------------------
-    # Phase 2 Patch #12 — Redirect "no-match" path in fn_387580 (r26=2 crash)
+    # Phase 2 Patch #12 — Unconditional branch past crash paths in fn_387834
     # -----------------------------------------------------------------------
     #
-    # fn_387580 processes options/arguments by calling fn_3969C4 (a string-
-    # matching function) up to 8 times in a loop, then once more at 0x3878C0
-    # with r3=1 and r4=r29 (= 0xE26B30, an option descriptor table address).
+    # fn_387834 (prologue at 0x387834: mflr r0 / stwu r1,-0x28(r1), frame=0x28)
+    # processes options by calling fn_3969C4 in a loop.  At 0x3878C0 it calls
+    # fn_3969C4(r3=1, r4=r29) and tests the return value at 0x3878CC.
     #
-    # fn_3969C4 treats r4 as a C-string.  The first byte at 0xE26B30 is 0x00
-    # (the high byte of the pointer value 0x00D7E140 stored there), so the
-    # string is always empty → fn_3969C4 always returns 0.
+    # fn_3969C4 (0x3969C4) structure:
+    #   cmpwi r4, 0       ← if r4=NULL, skip strcmp and return *(0xE27418)
+    #   otherwise calls fn_39AD64 (strcmp) twice then returns 0
+    # *(0xE27418) = 0x00D73178 (non-zero) so when r4=r29=0 (NULL), fn_3969C4
+    # returns NON-zero.
     #
-    # With r3=0, the `beq cr7, 0x387B0C` at 0x3878CC is always taken.
-    # That path does:
-    #   addi r31, r26, 0x20     ← r26=2 (counter, not a struct ptr!) → r31=0x22
-    #   lwz  r9,  0x18(r31)     ← reads from 0x3A (inside exception vectors!)
-    #   ...garbage comparison...
-    #   mr   r3, r31            ← r3=0x22
-    #   bl   0x5F0030           ← NULL-ptr dereference → CRASH
+    # r26 = 2 (loop counter, not a struct ptr) because Patches #7–#9 nulled the
+    # dispatch table (0xE293B0/B4/BC), preventing C++ object initialisation.
+    # BOTH branches at 0x3878CC crash when r26=2:
     #
-    # r26 should be a C++ string-object pointer but holds 2 (an iteration
-    # counter).  This is a side-effect of Patches #7–#9 nulling the C++
-    # dispatch table (0xE293B0/B4/BC), which prevented the object from
-    # being initialised.  Without real hardware dispatch, r26=2 is correct
-    # for the counter but wrong for the struct access.
+    #   beq taken  (r3=0) → 0x387B0C:
+    #     addi r31, r26, 0x20  → r31=0x22 → lwz r9,0x18(r31) reads from 0x3A → CRASH
     #
-    # Fix: redirect the `beq cr7, 0x387B0C` (taken when no match) to instead
-    # branch directly to the function's post-loop call at 0x387758
-    # (`bl 0x25224C`).  That function with r3=0 (sp+0x10 = 0) returns
-    # immediately without side effects; its return value is overwritten by
-    # the very next instruction (addi r3,r1,0x30), so no crash results.
+    #   beq not-taken (r3≠0) → 0x3878D0:
+    #     addi r30, r26, 0x20  → r30=0x22 → lwz r31,0x14(r30) reads from 0x36 → CRASH
     #
-    # Encoding: beq cr7, 0x387758  from  0x3878CC
-    #   BD_field = (0x387758 - 0x3878CC) / 4 = -0x174/4 = -93 → 14-bit = 0x3FA3
-    #   instruction = (16<<26)|(12<<21)|(30<<16)|(0x3FA3<<2) = 0x419EFE8C
+    # The caller at 0x388040 immediately overwrites r3 with `addi r3, r1, 0x20`,
+    # so fn_387834's return value is irrelevant — we can safely exit via the
+    # epilogue regardless of fn_3969C4's return.
+    #
+    # Fix: replace the conditional beq with an UNCONDITIONAL branch to fn_387834's
+    # own correct epilogue at 0x387AD4:
+    #
+    #   0x387AD4: lwz  r0, 0x2C(r1)   ← load saved LR from sp+0x2C (correct for
+    #                                     fn_387834's frame=0x28: old_sp=sp+0x28,
+    #                                     LR save = old_sp+4 = sp+0x2C)
+    #   0x387AD8: mr   r3, r26         ← return r26 as fn result (discarded by caller)
+    #   0x387ADC–0x387AF4: restore r26–r31
+    #   0x387AF8: addi r1, r1, 0x28   ← restore stack (frame=0x28)
+    #   0x387AFC: blr                  ← return to caller (0x388040) ✓
+    #
+    # Previous patch history at this offset:
+    #   v1 (0x419EFE8C): beq → 0x387758 (inside fn_387580), fell through to
+    #      fn_387580's epilogue (frame=0xD0), sp+0xD4=0 → blr→0x0 → RESET.
+    #   v2 (0x419E0208): beq cr7 → 0x387AD4 — only safe when fn_3969C4 returns 0;
+    #      when r29=NULL fn_3969C4 returns 0xD73178 (non-zero) → fallthrough crash.
+    #
+    # Encoding: b 0x387AD4  from  0x3878CC
+    #   offset  = 0x387AD4 - 0x3878CC = 0x208
+    #   LI      = 0x208 (word-addressed, fits in 24-bit signed field)
+    #   instruction = (18<<26)|(LI) = 0x48000000 | 0x208 = 0x48000208
     Patch(
         offset=0x3878CC,
-        original=b'\x41\x9E\x02\x40',   # beq cr7, 0x387B0C (no-match → bad struct path)
-        replacement=b'\x41\x9E\xFE\x8C', # beq cr7, 0x387758 (no-match → post-loop call)
-        description="Redirect no-match beq in fn_387580: when fn_3969C4 returns 0 (r4=0xE26B30 not a real string), branch to post-loop bl 0x25224C instead of struct-access path that crashes with r26=2",
+        original=b'\x41\x9E\x02\x40',   # beq cr7, 0x387B0C (original, crashes with r26=2)
+        replacement=b'\x48\x00\x02\x08', # b 0x387AD4 (unconditional → fn_387834 epilogue)
+        description="Unconditional branch at fn_387834+0x98 to its own epilogue: both the beq-taken (0x387B0C) and fallthrough (0x3878D0) paths crash when r26=2; caller discards return value",
         phase=2,
     ),
     #
@@ -370,6 +388,112 @@ BUILD32_PATCHES: list[Patch] = [
     #   0x000012DD4  lis r0, 0x4004  → MMIO 0x4004E505 (unknown peripheral)
     #   0x0000DCB0   sysHwInit_seq   → calls device enable sub-functions w/ MMIO
     #   0x001C18DC   sysSerialInit   → XUartLite at 0x40600000 (may work in QEMU)
+
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #13 — Bypass corrupted bctrl dispatch that causes infinite loop
+    # -----------------------------------------------------------------------
+    #
+    # fn_36DEF0 at 0x36E024 loads a function pointer from BSS at 0xE2932C:
+    #
+    #   0x36E020: lwz  r29, -27860(r9)     ← r9=0xE30000, so r29=*(0xE2932C)
+    #   0x36E024: cmpwi r29, 0
+    #   0x36E028: beq   0x36E03C           ← skip bctrl if r29==0
+    #   0x36E02C: add   r3, r3, r26        ← compute arg
+    #   0x36E030: mtctr r29                ← CTR = function pointer = 0x38826C
+    #   0x36E034: addi  r4, r0, 4
+    #   0x36E038: bctrl                    ← call *(0xE2932C) = 0x38826C
+    #   0x36E03C: ...                      ← continue after bctrl
+    #
+    # At runtime, *(0xE2932C) = 0x38826C (a code address within the loop body,
+    # NOT a valid vtable function entry point).  This is a stale/corrupted value
+    # caused by Patches #7-#9 nulling the C++ dispatch table, which disrupted
+    # object construction so the vtable was never properly set up.
+    #
+    # The bctrl dispatches to 0x38826C — the middle of a bdnz loop body.
+    # CTR = 0x38826C = 3,736,172 at entry.  fn_387834's inner bdnz exhausts
+    # CTR to 0 on the first call (looping 3.7M times), then wraps to 0xFFFFFFFF.
+    # The outer bdnz at 0x388240 sees CTR≠0 and loops again → INFINITE LOOP.
+    #
+    # Confirmed via GDB RSP: NIP=0x3882C4, CTR=0x38826C, LR=0x36E03C (from bctrl),
+    # SP=0x07FFFF50 — firmware has been stuck for 60+ seconds.
+    #
+    # Fix: convert the conditional skip to an unconditional skip — always branch
+    # past the bctrl, never calling the corrupted function pointer.
+    #
+    # Encoding:
+    #   beq 0x36E03C from 0x36E028:  (18<<26)|(0x14) = 0x48000014
+    #   offset = 0x36E03C - 0x36E028 = 0x14
+    Patch(
+        offset=0x36E028,
+        original=b'\x41\x82\x00\x14',   # beq cr0, 0x36E03C  (conditional skip)
+        replacement=b'\x48\x00\x00\x14', # b 0x36E03C  (always skip bctrl)
+        description="Bypass corrupted bctrl at 0x36E038: *(0xE2932C)=0x38826C (wrong vtable, caused by Patches #7-#9). bctrl→0x38826C loops forever (CTR=3.7M→0→wrap→∞). Convert conditional beq to unconditional b so the dispatch is always skipped.",
+        phase=2,
+    ),
+
+    # -----------------------------------------------------------------------
+    # Phase 3 — SSD model-string bypass (DigMag compatibility check)
+    # -----------------------------------------------------------------------
+    #
+    # The DigMag storage driver validates every attached drive against a
+    # hardcoded approved-model table before allowing it to mount for
+    # recording.  The validation function IsCompatible (0x4D1B64) returns
+    # 0 if the drive's ATA IDENTIFY model string does not match any entry
+    # in the table (0xD2E3E8–0xD2E484, 11 strings incl. "RED 64GB SSD ",
+    # "LEXAR ATA FLASH ATA", "RedRAM", "RedRAID" variants, etc.).
+    #
+    # 0x4D1B64 DigMag_IsCompatible(drive_obj):
+    #   • If drive_obj == NULL or *drive_obj == NULL → return 0
+    #   • r3 = *((*drive_obj) + 24)   ← virtual method pointer from vtable
+    #   • return IsApprovedModel(r3)   ← 0x4CA1E0, iterates approved table
+    #
+    # There are two call sites that set state=INCOMPATIBLE (6) on failure:
+    #
+    #   Site A — 0x5D552C (hotplug/mount handler):
+    #     0x5D5528: mr  r3, r31          ← pass drive object
+    #     0x5D552C: bl  0x4D1B64         ← IsCompatible()  ← PATCH SITE A
+    #     0x5D5530: mr. r28, r3          ← r28 = result; test CR0
+    #     0x5D5534: bne 0x5D5454         ← if compatible → success path
+    #     0x5D5538: li  r0, 6            ← INCOMPATIBLE
+    #     0x5D553C: stw r0, 92(r30)      ← drive->state = INCOMPATIBLE
+    #
+    #   Site B — 0x5D58E8 (re-validate on state change):
+    #     0x5D58E4: mr  r3, r31          ← pass drive object
+    #     0x5D58E8: bl  0x4D1B64         ← IsCompatible()  ← PATCH SITE B
+    #     0x5D58EC: mr. r26, r3          ← r26 = result; test CR0
+    #     0x5D58F0: beq 0x5D5A28         ← if NOT compatible → INCOMPATIBLE
+    #     0x5D5A28: li  r0, 6            ← INCOMPATIBLE (second path)
+    #     0x5D5A38: stw r0, 92(r31)      ← drive->state = INCOMPATIBLE
+    #
+    # Bypass strategy: replace each `bl 0x4D1B64` with `li r3, 1`.
+    #   • li r3, 1  (0x38600001) leaves r3=1 (any non-zero = compatible)
+    #   • The following `mr. r28/r26, r3` then sets CR0=NE
+    #   • Site A: bne taken → success path (drive mounts)
+    #   • Site B: beq NOT taken → execution continues past INCOMPATIBLE store
+    #   • No other register is used between the bl and the mr.
+    #
+    # WARNING: This bypasses the entire model-string check.  Any SATA/ATA
+    # device plugged into the iVDR slot will be treated as a compatible
+    # recording medium.  Data integrity depends on the drive's own ATA
+    # compliance; RED's write patterns (fixed-block sequential) are
+    # standard SATA — no RED-proprietary commands are used post-mount.
+    #
+    # SSD bypass — Site A (hotplug/mount handler at 0x5D5574)
+    Patch(
+        offset=0x5D552C,
+        original=b'\x4b\xef\xc6\x39',   # bl 0x4D1B64  (IsCompatible)
+        replacement=b'\x38\x60\x00\x01', # li r3, 1     (always compatible)
+        description="SSD bypass site A: replace bl IsCompatible with li r3,1; mr./bne at 0x5D5534 then branches to success path instead of setting INCOMPATIBLE state",
+        phase=3,
+    ),
+    # SSD bypass — Site B (re-validate on state change at 0x5D5A64)
+    Patch(
+        offset=0x5D58E8,
+        original=b'\x4b\xef\xc2\x7d',   # bl 0x4D1B64  (IsCompatible)
+        replacement=b'\x38\x60\x00\x01', # li r3, 1     (always compatible)
+        description="SSD bypass site B: replace bl IsCompatible with li r3,1; mr./beq at 0x5D58F0 then does NOT branch to the INCOMPATIBLE store at 0x5D5A28",
+        phase=3,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
