@@ -536,107 +536,151 @@ First MMIO crash expected at `0x12DB4` (accesses `0x4010E507`). Use `--debug` mo
 
 ---
 
-## 9a. Phase 2 QEMU Patches — Discovered at Runtime
+## 9a. Phase 2/3 QEMU Patches — Discovered at Runtime
 
 Applied in addition to the Phase 1 patches above. All offsets are also runtime addresses (firmware loads at 0x0).
 
-### Complete Patch Table (7 patches as of session 3)
+Run `cd firmware && python3 scripts/patch_firmware.py` to apply all patches and produce `software.patched.bin`.
 
-| # | Phase | File Offset | Original | Replacement | Description |
-|---|-------|-------------|----------|-------------|-------------|
-| 1 | 1 | `0x000084` | `3C 20 00 01` | `3C 20 08 00` | SP reloc: `lis r1,1` → `lis r1,0x800` (SP=0x07FFFFD0) |
-| 2 | 1 | `0x36C388` | `40 9E FF F8` | `60 00 00 00` | NOP canary `bne` #1 (waits for `*(0xE269A4)==0x12348765`) |
-| 3 | 1 | `0x36C394` | `40 9E FF EC` | `60 00 00 00` | NOP canary `bne` #2 (waits for `*(0xE269A0)==0x5A5AC3C3`) |
-| 4 | 2 | `0x36FA1C` | `41 82 00 18` | `48 00 00 18` | `beq` → `b`: skip SSL string-as-fn-ptr bctrl in fn_36F9F8 |
-| 5 | 2 | `0x36C3AC` | `48 12 A2 ED` | `60 00 00 00` | NOP BSS `memset` call — QEMU RAM already zero, saves ~15 s |
-| 6 | 2 | `0xE26D2C` | `00 00 00 08` | `00 00 00 00` | Data: zero restart callback at 0xE26D2C (was value 8, called as fn ptr → ROM reset 0x0008) |
-| 7 | 2 | `0xE293B4` | `00 E3 8B 4C` | `00 00 00 00` | Data: null C++ RTTI table ptr at 0xE293B4 (was 0xE38B4C = illegal instr as fn ptr) |
+### Complete Patch Table (36 patches — current as of session 4)
 
-Apply with: `python3 firmware/scripts/patch_firmware.py` from the `firmware/` directory.
+| # | Phase | Offset | Description |
+|---|-------|--------|-------------|
+| 1 | 1 | `0x000084` | SP reloc: `lis r1,1` → `lis r1,0x800` (SP=0x07FFFFD0) |
+| 2 | 1 | `0x36C388` | NOP canary `bne` #1 (spins until `*(0xE269A4)==0x12348765`) |
+| 3 | 1 | `0x36C394` | NOP canary `bne` #2 (spins until `*(0xE269A0)==0x5A5AC3C3`) |
+| 4 | 2 | `0x36FA1C` | `beq` → `b`: skip SSL string-as-fn-ptr bctrl in fn_36F9F8 |
+| 5 | 2 | `0x36C3AC` | NOP BSS memset — QEMU RAM already zero, saves ~15 s |
+| 6 | 2 | `0xE26D2C` | Data: zero restart callback (was `0x00000008` — ROM reset entry) |
+| 7 | 2 | `0xE293B4` | Data: null C++ RTTI ptr (was `0xE38B4C` — illegal instruction) |
+| 8–9 | 2 | `0xE293BC`, `0xE293B0` | Null additional C++ dispatch fn ptrs in same struct |
+| 10–11 | 2 | `0x387DD8` region | Guard bcopy call — null r10 was passing 2 GB count |
+| 12 | 2 | `0x387834` | Unconditional branch past crash paths in fn_387834 |
+| 13 | 2 | `0x36E038` | Bypass 1st corrupted bctrl dispatch (LR=0x36E03C confirmed) |
+| 14 | 2 | `0x36E12C` | Bypass 2nd corrupted bctrl dispatch (infinite loop guard) |
+| 15–20 | 2 | `0x36DC2C`, `0x36DCEC`, `0x370EDC`, `0x370EE4`, `0x370FD0`, `0x370FD8` | NOP/bypass 3rd–8th corrupted bctrl dispatch sites |
+| 21–33 | 2 | BSS data | Null 13 sentinel `0xFFFFFFFF` values used as fn-ptrs (since BSS memset was skipped by Patch #5, they remain uninitialized) |
+| 34–35 | 3 | `0x5D58B8`, `0x5D58E8` | SSD whitelist bypass: patch IsCompatible check to always return 1 |
+| 36 | 2 | `0x62CC` | NOP null bctrl in fn_6288 — fn_2748 clears *(r30+64) leaving CTR=0; bctrl→0x0 resets CPU |
 
-### Phase 2 Crash Analysis
+### Current Boot State (after 36 patches — session 4)
 
-#### Patch 4 — fn_36F9F8: SSL string-as-fn-ptr
+After all 36 patches, the boot successfully reaches `fn_DCB0` (`sysHwInit_seq`) and begins
+executing the hardware sequencer. This is confirmed by:
 
-`fn_36F9F8` reads `0xD7E680` (a C-string pointer in the SSL library) as a function pointer and calls it via `bctrl`. The string is `"P,#5J6..."` — not code. This is a bogus callback dispatch caused by missing SSL context initialization in QEMU.
+- **NIP sampling**: 0xE8A4 (UART TX write helper) dominates — firmware is writing characters
+- **r0 = 0xDD84** at sample time — saved LR inside fn_DCB0's call chain
+- **SP = 0x07FFFF90** — consistent with fn_DCB0 stack frame (16-byte frame below 0x07FFFFA0)
+- **Single-step trace**: previously confirmed NIP=0xDCC4 (fn_DCB0 + 0x14), LR=0xDCCC
 
-**Fix:** Change `beq` at `0x36FA1C` to `b` (always skip the bctrl).
+### fn_DCB0 — `sysHwInit_seq` Full Disassembly
 
-#### Patch 5 — BSS zero-fill skip
-
-`memset(0xE9BF20, 0, 0x2B7560)` is called from `usrInit` at `0x36C3AC`. QEMU initializes all RAM to zero at machine start, so this is redundant. With QEMU's emulated PPC405 ~187 KB/s effective memset throughput, it takes ~15 seconds to complete.
-
-**Fix:** NOP the `bl 0x496698` (memset) at `0x36C3AC`. Booting is identical — VxWorks writes its own data to BSS fields anyway.
-
-#### Patch 6 — fn_36FA7C: integer 8 mistaken for fn ptr
-
-`fn_36FA7C` reads `*(0xE26D2C)` as a function pointer. In the data segment, `0xE26D2C` contains `0x00000008` — the integer 8, part of a sequential column in an SSL callback table (`{5,6,7,8}` at offsets `0xE26D08, 0xE26D14, 0xE26D20, 0xE26D2C`). Value `0x00000008` equals the ROM init entry point, causing an unconditional CPU reset 59,000+ times per 10 seconds.
-
-```
-fn_36FA7C:
-  lwz r31, *[0xE26D2C]  → 0x00000008 (should be NULL or a real fn)
-  cmpwi r31, 0
-  beq  → skip (but taken only if value is 0)
-  mtctr r31             → CTR = 0x0008 (ROM reset!)
-  bctrl                 → RESET
-```
-
-**Fix:** Zero the word at file offset `0xE26D2C`. Then `cmpwi r31,0` is true → skip bctrl → return normally.
-
-**Context:** `fn_36FA7C` is called unconditionally from `fn_36E168` at every boot pass through the `usrInit` → `fn_36C3D0` → `fn_36E168` chain.
-
-#### Patch 7 — C++ RTTI table called as function
-
-`fn_36D9A4` (a C++ dispatch helper called ~12 times per boot) reads a function pointer from a struct at `0xE2939C+0x18 = 0xE293B4`. In the initialized data segment, this slot contains `0x00E38B4C`.
-
-Address `0xE38B4C` is NOT code — it's a C++ typeinfo/RTTI registration table. First word = `0x00000500` (opcode 0 = illegal instruction). The table has 5-word entries:
+fn_DCB0 is the hardware sequencer. It initialises subsystems one by one, printing a progress
+digit ('1'–'9') to UART before each call:
 
 ```
-0xE38B4C: 00000500  00000000  <string_ptr>  <fn_ptr>  00000000
+0xDCB0: mflr r0                         ; prologue
+0xDCB4: stwu r1, -16(r1)
+0xDCBC: stw r0, 20(r1)                  ; save LR
+0xDCB8: li r3, 0x5E ('^')
+0xDCC0: bl fn_1C8BC                     ; print '^'
+0xDCC4: li r3, 0x5E
+0xDCC8: bl fn_1C8BC                     ; print '^'
+0xDCCC: li r3, 0x5E
+0xDCD0: bl fn_1C8BC                     ; print '^'
+0xDCD4: li r3, 0x31 ('1')
+0xDCD8: bl fn_1C8BC                     ; print '1'
+0xDCDC: li r3, 0
+0xDCE0: bl fn_372054                    ; mtspr EVPR, r3 (set exception vectors to base 0)
+0xDCE4: li r3, 0x32 ('2')
+0xDCE8: bl fn_1C8BC                     ; print '2'
+0xDCEC: li r4, 0
+0xDCF0: li r3, 0
+0xDCF4: bl fn_DC28                      ; init fn (skips fn_443F20 since r3=0)
+0xDCF8: li r3, 0x33 ('3')
+0xDCFC: bl fn_1C8BC                     ; print '3'
+0xDD00: bl fn_9BC8                      ; *** LIKELY CRASH POINT ***
+0xDD04: (after fn_9BC8 — checkpoint 1)
+0xDD08-0xDD13: store result to 0xEA_C390
+0xDD14: bl fn_9E24
+0xDD18: li r3, 0x34 ('4')
+0xDD1C: bl fn_1C8BC                     ; print '4'
+0xDD20: bl fn_1968
+0xDD24: (after fn_1968 — checkpoint 2)
+0xDD3C: bl fn_19C
+0xDD40: (after fn_19C — checkpoint 3)
+0xDD44: li r3, 0x35 ('5')
+0xDD48: bl fn_935C
+0xDD4C: li r3, 0x36 ('6')
+0xDD50: bl fn_1C8BC                     ; print '6'
+0xDD54: bl fn_92C4
+0xDD58: (after fn_92C4 — setup MMIO addresses)
+0xDD80: bl fn_1C8BC                     ; print '7'
+0xDD84: bl fn_A2D0
+0xDD88: li r3, 0x38 ('8')
+0xDD8C: bl fn_1C8BC                     ; print '8'
+0xDD94: bl fn_1C8BC                     ; print '9'
+0xDD9C: bl fn_1C8BC                     ; print CR (0x0D)
+0xDDA4: bl fn_1C8BC                     ; print LF (0x0A)
+0xDDB4: blr                             ; return to usrInit + 0x24
 ```
 
-Strings include mangled C++ names: `iptObjectPKc`, `tingsPanelENS_6EPanelE`, etc. This is the RTTI dispatch for camera classes — not a callable function.
+**Confirmed trivial functions** (not the crash point):
+- `fn_372054` at `0xDCE0`: just `mtspr EVPR, r3; blr` — sets exception vector base to 0
+- `fn_DC28` at `0xDCF4`: called with r3=0; since r3==0 the conditional `bl fn_443F20` is skipped; returns immediately
 
-When called: QEMU raises `HV_EMU (96)` (hypervisor emulation = illegal instruction). The Program Check exception at `0x0700` eventually chains back to the restart path → 6177 restarts per 5-second run.
+**Next target**: `fn_9BC8` (called at `0xDD00`). This is the first call after confirming
+UART prints '^^^123' work. fn_9BC8 has not been analysed yet and is the prime suspect for
+the blocking call.
 
-**Fix:** Null the pointer at file offset `0xE293B4`. Then `cmpwi r29,0` in `fn_36D9A4` is true → `beq skip` taken → bctrl avoided entirely.
+### Next Steps — Isolate fn_DCB0 Blocking Call
 
-### Current State (after 7 patches)
+**Known script bug (fixed in next session):** The `resume()` helper must NOT call `recv()` after
+sending `$c#63`. If T05 arrives while `recv()` is draining, it gets lost and `wait_bp()` never
+sees the breakpoint. Correct pattern:
 
-- Boot progresses through `usrInit` → `fn_36CB6C` → `fn_371F30` → ... → `fn_36DDF0` area
-- `fn_36DDF0` runs ~12 iterations per restart cycle (dispatch table traversal)
-- **Restart still occurring ~9790×/5s** — new crash not yet located
-- Most-frequent NIPs: `0x36DDF0` (117K), `0x36DE30` (117K), `0x36E248` (108K), `0x36E154` (108K)
-- NIP sequence before restart: `fn_36DDF0` area → `fn_36D9EC` (TCG block) → `0x00000000`
-- **Suspected cause:** `divwu r12, r28, r31` at `0x36D9F0` — if divisor `r31` is 0 (from `0x5477B8` return value in some edge case) → QEMU may raise divide-by-zero exception → chains to ROM reset
-- **GDB probe confirmed:** after 2 seconds, NIP=`0x00000010` (reset area), SP=`0x07FFFF60` (valid), MSR=`0x00000000`
-- `0x5477B8` is a large C++ type-dispatch function (switch on `r0`, returns string pointer in `r3`)
+```python
+def resume(s):
+    s.send(b'$c#63')
+    # DO NOT recv here — wait_bp() will see the T05
 
-### Next Crash to Debug
-
-```bash
-# Collect precise NIP-before-restart for next crash:
-timeout 5 qemu-system-ppc -machine bamboo -m 256M -nographic \
-  -device "loader,file=reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on" \
-  -device "loader,cpu-num=0,data=0x0,data-len=4,data-be=on" \
-  -D /tmp/trace.log -d cpu 2>/dev/null < /dev/null
-
-python3 -c "
-with open('/tmp/trace.log') as f:
-    lines = f.readlines()
-nips = [l.split()[1] for l in lines if l.startswith('NIP ')]
-pre = {}
-for i in range(1, len(nips)):
-    if nips[i] == '00000000':
-        pre[nips[i-1]] = pre.get(nips[i-1], 0) + 1
-print(sorted(pre.items(), key=lambda x: -x[1])[:5])
-"
+def wait_bp(s, timeout=90):
+    t0 = time.time()
+    while time.time()-t0 < timeout:
+        try:
+            d = s.recv(4096)
+            if b'T05' in d or b'T03' in d: return True
+        except socket.timeout: pass
+    return False
 ```
 
-Current likely culprits (in order of probability):
-1. **`divwu` at `0x36D9F0` with r31=0** — check if `0x5477B8` can return 0; patch Patch #8: change `divwu` to `li r12, 1` if r31=0
-2. **`bctrl` at `0x36E038`** (calls `*[0xE2932C]` = `0x547150`) — verify `0x547150` is valid code
-3. **Hardware MMIO polling** after `fn_36DDF0` area — `sysHwInit_seq` at `0xDCB0` accesses `0xB260xxxx` (> 256MB RAM limit)
+**GDB RSP sequence for next session:**
+
+```python
+# 1. Halt QEMU (send interrupt byte)
+s.send(b'\x03'); time.sleep(0.5); s.recv(4096)  # drain T02
+
+# 2. Set SW-BPs at early fn_DCB0 checkpoints (before fn_9BC8)
+send_cmd(s, 'Z0,DCB0,4')   # fn_DCB0 entry
+send_cmd(s, 'Z0,DCE4,4')   # after fn_372054 (between '1' and '2')
+send_cmd(s, 'Z0,DCF8,4')   # after fn_DC28 (between '2' and '3')
+send_cmd(s, 'Z0,DD04,4')   # after fn_9BC8 ← the key one
+send_cmd(s, 'Z0,DD18,4')   # after fn_9E24
+send_cmd(s, 'Z0,DD24,4')   # after fn_1968
+send_cmd(s, 'Z0,DD40,4')   # after fn_19C
+send_cmd(s, 'Z0,DD4C,4')   # after fn_935C
+send_cmd(s, 'Z0,DD58,4')   # after fn_92C4
+send_cmd(s, 'Z0,DD88,4')   # after fn_A2D0
+send_cmd(s, 'Z0,DDB4,4')   # fn_DCB0 blr (fn completes!)
+
+# 3. Resume — DO NOT recv after this
+s.send(b'$c#63')
+
+# 4. wait_bp() loop: for each hit, step past BP, re-arm, resume
+```
+
+The **first checkpoint that never fires** is in the function that blocks or crashes.
+Once identified, disassemble that function to find the hardware poll loop and add a patch.
 
 ---
 
@@ -984,6 +1028,127 @@ r2 -a ppc -b 32 -e cfg.bigendian=true \
 # Add patch:
 python3 scripts/patch_firmware.py --probe 0x<CRASH_ADDR>
 # Copy the Patch entry output → add to KNOWN_PATCHES in patch_firmware.py
+```
+
+### GDB RSP Debugging — Correct Protocol (CRITICAL)
+
+#### Known QEMU PPC405 Bug: Hardware Breakpoints (Z1) Don't Work
+
+- **SW-BPs (Z0)** — WORK: replace instruction with PPC `trap`, QEMU traps it before firmware
+- **HW-BPs (Z1)** — BROKEN on this target: `Z1,addr,4` never fires on QEMU PPC405
+- **Always use `Z0`, never `Z1`**
+
+#### Connection + BP Protocol
+
+Always halt QEMU before setting/clearing BPs:
+
+```python
+import socket, time
+
+def gdb_connect(port=1237):
+    s = socket.socket(); s.settimeout(5); s.connect(('localhost', port))
+    return s
+
+def halt(s):
+    """Send interrupt and drain the T02 stop signal."""
+    s.send(b'\x03')
+    time.sleep(0.5)
+    try: s.recv(4096)
+    except: pass
+
+def send_cmd(s, cmd, timeout=5):
+    cs = sum(ord(c) for c in cmd) & 0xFF
+    s.send(f'${cmd}#{cs:02x}'.encode())
+    buf = b''; t0 = time.time()
+    while time.time()-t0 < timeout:
+        try:
+            chunk = s.recv(8192)
+            if chunk:
+                s.send(b'+')
+                buf += chunk
+                # complete packet = $..#xx
+                st = buf.find(b'$')
+                if st >= 0 and b'#' in buf[st+1:] and len(buf) > buf.find(b'#', st+1)+2:
+                    break
+        except socket.timeout: break
+    return buf
+
+def get_regs(s):
+    r = send_cmd(s, 'g', 10)
+    # Find the long register packet (not T02/T05 stop packets)
+    i = 0
+    while i < len(r):
+        if r[i:i+1] == b'$':
+            end = r.find(b'#', i+1)
+            if end >= 0:
+                d = r[i+1:end]
+                if len(d) >= 36*8:
+                    def reg(n): return int(d[n*8:(n+1)*8], 16)
+                    return reg(32), reg(35), reg(1)  # NIP, LR, SP
+            i = end+3 if end >= 0 else i+1
+        else:
+            i += 1
+    return 0, 0, 0
+
+def set_bp(s, addr):  send_cmd(s, f'Z0,{addr:X},4')
+def clr_bp(s, addr):  send_cmd(s, f'z0,{addr:X},4')
+def step(s):          send_cmd(s, 's', 5)
+
+def resume(s):
+    """IMPORTANT: Do NOT recv after $c — let wait_bp() catch T05."""
+    s.send(b'$c#63')
+
+def wait_bp(s, timeout=60):
+    """Returns (hit:bool, nip, lr, sp). Halts QEMU on return."""
+    t0 = time.time()
+    buf = b''
+    while time.time()-t0 < timeout:
+        try:
+            d = s.recv(4096)
+            buf += d
+            if b'T05' in buf or b'T03' in buf:
+                nip, lr, sp = get_regs(s)
+                return True, nip, lr, sp
+        except socket.timeout: pass
+    return False, 0, 0, 0
+```
+
+#### Typical BP-Step-Resume loop
+
+```python
+s = gdb_connect(1237)
+halt(s)                    # ← ALWAYS halt before setting BPs
+
+set_bp(s, 0xDCB0)          # fn_DCB0 entry
+resume(s)                  # DO NOT recv after this
+
+hit, nip, lr, sp = wait_bp(s, 60)
+if hit:
+    print(f"Stopped at 0x{nip:08X}")
+    clr_bp(s, nip)         # clear before stepping
+    step(s)                # single-step past the trap
+    nip2, _, _ = get_regs(s)
+    print(f"After step: 0x{nip2:08X}")
+    set_bp(s, nip)         # optionally re-arm
+    resume(s)
+
+# Close cleanly (QEMU resumes when socket closes)
+s.close()
+```
+
+#### QEMU State Recovery
+
+If QEMU stops responding (socket recv hangs), it may be stopped with a pending T05:
+
+```python
+s = gdb_connect(1237)
+s.send(b'+')               # ACK any pending packet
+time.sleep(0.2)
+s.send(b'$?#3f')           # query stop reason
+r = s.recv(4096)
+print(repr(r))             # should show T02/T05
+s.send(b'+')
+# then send_cmd('g') to read regs
 ```
 
 ---

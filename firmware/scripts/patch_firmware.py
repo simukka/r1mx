@@ -432,6 +432,126 @@ BUILD32_PATCHES: list[Patch] = [
     ),
 
     # -----------------------------------------------------------------------
+    # Patches #14–#20 — Bypass all remaining corrupted bctrl dispatch sites
+    # -----------------------------------------------------------------------
+    #
+    # At runtime, *(0xE2932C) = 0x38826C (a code address in the middle of a
+    # bdnz loop body, NOT a valid function pointer).  The file stores 0x00547150
+    # at that offset, but C++ init code overwrites it with 0x38826C due to the
+    # C++ dispatch table having been nulled by Patches #7–#9.
+    #
+    # Every call site uses the same pattern:
+    #   addis rX, r0, 0xE3       ; rX = 0xE30000
+    #   lwz   rY, -27860(rX)     ; rY = *(0xE2932C)
+    #   cmpwi rY, 0
+    #   beq   SKIP               ; ← PATCH: change to unconditional b SKIP
+    #   [compute args]
+    #   mtspr CTR, rY            ; CTR = 0x38826C = 3,736,172
+    #   bctrl                    ; → 0x38826C = bdnz loop body → infinite loop
+    # SKIP:
+    #
+    # Fix: convert each `beq SKIP` to `b SKIP` (always skip the bctrl).
+    #
+    # Patch #14 — second dispatch site (0x36E12C bctrl, confirmed via LR after Patch #13)
+    Patch(
+        offset=0x36E11C,
+        original=b'\x41\x82\x00\x14',   # beq cr0, 0x36E130  (conditional skip)
+        replacement=b'\x48\x00\x00\x14', # b 0x36E130          (always skip bctrl at 0x36E12C)
+        description="Bypass 2nd corrupted bctrl dispatch at 0x36E12C: *(0xE2932C)=0x38826C → infinite loop. Confirmed via LR=0x36E130 after Patch #13.",
+        phase=2,
+    ),
+    # Patch #15 — third dispatch site (0x36DC2C bctrl)
+    Patch(
+        offset=0x36DC24,
+        original=b'\x41\x82\x00\xCC',   # beq cr0, 0x36DCF0
+        replacement=b'\x48\x00\x00\xCC', # b 0x36DCF0
+        description="Bypass 3rd corrupted bctrl at 0x36DC2C: beq→b at 0x36DC24 skips bctrl that loads CTR=*(0xE2932C)=0x38826C.",
+        phase=2,
+    ),
+    # Patch #16 — fourth dispatch site (0x36DCEC bctrl)
+    Patch(
+        offset=0x36DCD8,
+        original=b'\x41\x82\x00\x18',   # beq cr0, 0x36DCF0
+        replacement=b'\x48\x00\x00\x18', # b 0x36DCF0
+        description="Bypass 4th corrupted bctrl at 0x36DCEC: beq→b at 0x36DCD8 skips bctrl.",
+        phase=2,
+    ),
+    # Patch #17 — fifth dispatch site (0x370EDC bctrl)
+    Patch(
+        offset=0x370E88,
+        original=b'\x41\x82\x00\x5C',   # beq cr0, 0x370EE4
+        replacement=b'\x48\x00\x00\x5C', # b 0x370EE4
+        description="Bypass 5th corrupted bctrl at 0x370EDC: beq→b at 0x370E88.",
+        phase=2,
+    ),
+    # Patch #18 — sixth dispatch site (0x370EE4 bctrl)
+    Patch(
+        offset=0x370ED0,
+        original=b'\x41\x82\x00\x14',   # beq cr0, 0x370EE4
+        replacement=b'\x48\x00\x00\x14', # b 0x370EE4
+        description="Bypass 6th corrupted bctrl at 0x370EE0: beq→b at 0x370ED0.",
+        phase=2,
+    ),
+    # Patch #19 — seventh dispatch site (0x370FD0 bctrl)
+    Patch(
+        offset=0x370F4C,
+        original=b'\x41\x82\x00\x8C',   # beq cr0, 0x370FD8
+        replacement=b'\x48\x00\x00\x8C', # b 0x370FD8
+        description="Bypass 7th corrupted bctrl at 0x370FD0: beq→b at 0x370F4C.",
+        phase=2,
+    ),
+    # Patch #20 — eighth dispatch site (0x370FD8 bctrl)
+    Patch(
+        offset=0x370FC4,
+        original=b'\x41\x82\x00\x14',   # beq cr0, 0x370FD8
+        replacement=b'\x48\x00\x00\x14', # b 0x370FD8
+        description="Bypass 8th corrupted bctrl at 0x370FD4: beq→b at 0x370FC4.",
+        phase=2,
+    ),
+
+    # -----------------------------------------------------------------------
+    # Patches #21–#33 — Null BSS sentinel values (0xFFFFFFFF) skipped by Patch #5
+    # -----------------------------------------------------------------------
+    #
+    # Patch #5 NOPs the BSS memset call (saves ~15s emulated time).  QEMU
+    # pre-zeros RAM before loading the binary, but the firmware file stores
+    # 0xFFFFFFFF at 13 locations in the BSS region as "uninitialized" sentinels.
+    # When code checks `cmpwi rX, 0 / beq skip / bctrl`, a sentinel 0xFFFFFFFF
+    # passes the non-zero test → bctrl to 0xFFFFFFFF → PPC exception → reset.
+    #
+    # Fix: zero all 13 sentinel locations in the binary so they behave as if
+    # the memset had run.  Confirmed by crash at NIP=0x0 with LR=0x36FB74:
+    #   0x36FB5C: lwz r31, 0x6D38(r31)  ; r31 = *(0xE26D38) = 0xFFFFFFFF
+    #   0x36FB70: bctrl                  ; → 0xFFFFFFFF → exception → reset
+    #
+    Patch(offset=0xE26D38, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE26D38: 0xFFFFFFFF → 0 (uninitialized callback, BSS memset was patched away)", phase=2),
+    Patch(offset=0xE26DDC, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE26DDC", phase=2),
+    Patch(offset=0xE27000, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE27000", phase=2),
+    Patch(offset=0xE276B8, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE276B8", phase=2),
+    Patch(offset=0xE27BD4, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE27BD4", phase=2),
+    Patch(offset=0xE29438, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE29438", phase=2),
+    Patch(offset=0xE2A3C8, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2A3C8", phase=2),
+    Patch(offset=0xE2A748, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2A748", phase=2),
+    Patch(offset=0xE2A918, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2A918", phase=2),
+    Patch(offset=0xE2A994, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2A994", phase=2),
+    Patch(offset=0xE2A9B4, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2A9B4", phase=2),
+    Patch(offset=0xE2B590, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2B590", phase=2),
+    Patch(offset=0xE2B7D8, original=b'\xff\xff\xff\xff', replacement=b'\x00\x00\x00\x00',
+          description="Null BSS sentinel at 0xE2B7D8", phase=2),
+
+    # -----------------------------------------------------------------------
     # Phase 3 — SSD model-string bypass (DigMag compatibility check)
     # -----------------------------------------------------------------------
     #
@@ -493,6 +613,49 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=b'\x38\x60\x00\x01', # li r3, 1     (always compatible)
         description="SSD bypass site B: replace bl IsCompatible with li r3,1; mr./beq at 0x5D58F0 then does NOT branch to the INCOMPATIBLE store at 0x5D5A28",
         phase=3,
+    ),
+
+    # -----------------------------------------------------------------------
+    # Patch #36 — NOP null bctrl in fn_6288 (VxWorks callback dispatch)
+    # -----------------------------------------------------------------------
+    #
+    # fn_6288 at 0x6288 dispatches callbacks stored in a struct field at r30+64.
+    # The code does:
+    #
+    #   0x62A8: r0 = *(r30+64)           ← first read: check for null
+    #   0x62AC: cmpwi cr7, r0, 0
+    #   0x62B0: beq cr7, 0x62E8          ← skip if initially null (correct guard)
+    #   ...
+    #   0x62C0: bl fn_2748               ← fn_2748 DEQUEUES/CLEARS *(r30+64) as side-effect
+    #   0x62C4: r0 = *(r30+64)           ← second read: now ZERO (fn_2748 consumed it)
+    #   0x62C8: mtspr 288, r0            ← CTR = 0
+    #   0x62CC: bctrl                    ← CRASH: calls address 0x0 (reset vector)
+    #
+    # fn_2748 is a VxWorks message-receive stub that pops a pending callback
+    # from the queue, clearing the stored pointer as it dequeues. Since the
+    # hardware queue is empty in QEMU, fn_2748 returns immediately without
+    # installing a valid callback, leaving *(r30+64) == 0 for the second read.
+    #
+    # Observed crash pattern (NIP sampling):
+    #   NIP=0x5C (dccci cache init loop) × 18/60 samples
+    #   NIP=0x0  (reset vector re-entered via null bctrl) × 12/60 samples
+    #   LR=0x62D0 during NIP=0x0 confirms the crash is at bctrl 0x62CC.
+    #
+    # Fix: NOP the bctrl. Execution falls through to 0x62D0 which checks
+    # fn_2748's return value (r3) and the retry/exit loop logic. With r3
+    # reflecting the message-receive result (likely an error code in empty-
+    # queue QEMU), the loop exits cleanly without calling address 0.
+    #
+    # fn_6288 is called from fn_638C (0x63B0) and fn_6558 (0x6590).
+    # Its return value is not used by fn_638C (caller checks a struct field
+    # instead). NOP-ing the bctrl prevents the CPU reset while still
+    # allowing the callback housekeeping (fn_2748 dequeue) to complete.
+    Patch(
+        offset=0x62CC,
+        original=b'\x4e\x80\x04\x21',   # bctrl (CTR=0 after fn_2748 clears *(r30+64))
+        replacement=PPC_NOP,             # nop → fall through to 0x62D0 post-call checks
+        description="NOP null bctrl in fn_6288: fn_2748 clears *(r30+64) as side-effect, making CTR=0; bctrl→0x0 resets CPU. NOP allows retry/exit logic at 0x62D0 to handle the empty-queue case.",
+        phase=2,
     ),
 ]
 
