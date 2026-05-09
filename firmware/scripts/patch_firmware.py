@@ -136,6 +136,99 @@ BUILD32_PATCHES: list[Patch] = [
         description="Skip bogus SSL verify-callback dispatch: fn_36F9F8 reads a string ptr (0xD7E680) as a function ptr; always branch past bctrl",
         phase=2,
     ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #2 — Skip BSS zeroing (redundant under QEMU)
+    # -----------------------------------------------------------------------
+    #
+    # At 0x36C3AC there is: bl 0x496698  (= bl memset)
+    # Arguments set up just before:
+    #   r3 = BSS_START (0x00E9BF20)
+    #   r4 = 0  (fill value = zero)
+    #   r5 = BSS_SIZE (~2.75 MB)
+    #
+    # QEMU initialises all RAM to zero at startup, so this memset is
+    # entirely redundant.  In hardware it takes <1ms; in QEMU's TCG
+    # the ~690k store-word iterations run at ~187 KB/s effective
+    # bandwidth, blocking boot for 15+ seconds before the VxWorks
+    # kernel even starts.
+    #
+    # Fix: NOP the bl so execution falls straight through to
+    #   0x36C3B0: li r4, 2
+    #   0x36C3B4: li r3, 1
+    #   0x36C3B8: bl 0x458A00  (kernelInit / usrRoot entry)
+    # Both r3 and r4 are unconditionally overwritten by li so there is
+    # no dependency on the skipped memset return value.
+    Patch(
+        offset=0x36C3AC,
+        original=b'\x48\x12\xa2\xed',   # bl 0x496698 (memset BSS)
+        replacement=PPC_NOP,
+        description="Skip BSS zero-fill memset: QEMU RAM is already zero; saves ~15 s of emulated stw loop",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #3 — Zero the bogus "restart" function pointer at 0xE26D2C
+    # -----------------------------------------------------------------------
+    #
+    # fn_36FA7C (the "invoke restart callback" helper) does:
+    #   r31 = *[0xE26D2C]
+    #   if r31 != 0: mtctr r31; bctrl  ← call it as function pointer
+    #   else: r3 = *[0xE26D48]; return
+    #
+    # The DATA segment at 0xE26D2C contains 0x00000008 — this is actually
+    # an integer table column value (the sequence 5,6,7,8 appears at
+    # offsets 0xE26D08, 0xE26D14, 0xE26D20, 0xE26D2C in an SSL callback
+    # table), NOT a real function pointer.  In the QEMU/emulation context
+    # no prior code writes a valid function address there, so the value 8
+    # is taken as the ROM-init entry point (0x0008) and called — causing
+    # an unconditional CPU reset on every call to fn_36FA7C.
+    #
+    # fn_36FA7C is called unconditionally from fn_36E168 (at 0x36E208 via
+    # bl 0x36FA7C) during the VxWorks boot init sequence.  With the value
+    # non-zero the boot loop restarts ~59 000 times per 10 seconds.
+    #
+    # Fix: zero the word at 0xE26D2C so fn_36FA7C takes the "no callback"
+    # path → returns with r3 = *[0xE26D48] = 0x00000000 and does NOT
+    # restart the CPU.  Boot proceeds to the next init stage.
+    Patch(
+        offset=0xE26D2C,
+        original=b'\x00\x00\x00\x08',   # integer 8, mistaken for fn ptr → calls 0x0008
+        replacement=b'\x00\x00\x00\x00', # null → fn_36FA7C skips bctrl, returns r3=0
+        description="Zero bogus restart callback at 0xE26D2C: value 0x8 was mistaken for a fn ptr to ROM-init (0x0008), causing unconditional restart loop in fn_36FA7C",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Phase 2 Patch #4 — Null C++ RTTI table pointer at 0xE293B4
+    # -----------------------------------------------------------------------
+    #
+    # fn_36D9A4 (called during VxWorks init) reads a dispatch struct at
+    # 0xE2939C and calls multiple function pointers from it:
+    #
+    #   r31 = *[0xE2939C+0x20] = 0x005477B8   ← valid code, returns in r3
+    #   r31 = r3 (fn return value, used as divisor)
+    #   r29 = *[0xE2939C+0x18] = 0x00E38B4C   ← NOT code! C++ RTTI table
+    #   cmpwi r29, 0
+    #   beq skip                               ← skip if null
+    #   mtctr r29
+    #   bctrl                                  ← CRASH: first word = 0x00000500
+    #                                          ← raises HV_EMU (illegal instr)
+    #
+    # 0xE38B4C is a C++ typeinfo/RTTI registration table — 5-word entries:
+    #   [0]=0x500(flags), [1]=0, [2]=string_ptr (mangled name), [3]=fn_ptr, [4]=0
+    # Names include "iptObjectPKc", "tingsPanelENS_6EPanelE", etc.
+    # The value 0x500 (primary opcode 0) is an illegal PPC instruction.
+    #
+    # The QEMU HV_EMU exception vector at 0x0700 (Program Check) eventually
+    # calls the restart chain again → 6177 restarts per 5-second run.
+    #
+    # Fix: null the pointer at 0xE293B4 → cmpwi r29,0 is true → beq taken
+    # → bctrl skipped entirely; function proceeds normally.
+    Patch(
+        offset=0xE293B4,
+        original=b'\x00\xE3\x8B\x4C',   # C++ RTTI table addr: mistaken for fn ptr
+        replacement=b'\x00\x00\x00\x00', # null → beq skip taken, bctrl avoided
+        description="Null C++ RTTI table ptr at 0xE293B4: value 0xE38B4C is a typeinfo table (illegal instr), not a function; nulling causes cmpwi/beq in fn_36D9A4 to skip the bctrl",
+        phase=2,
+    ),
     #
     # Known candidate crash sites (from static analysis — verify addresses):
     #   0x000012DB4  lis r0, 0x4010  → MMIO 0x4010E507 (unknown peripheral)
