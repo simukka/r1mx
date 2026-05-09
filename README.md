@@ -117,6 +117,27 @@ Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine
 #### Bottom
 ![bottom](audio_pci_board/bottom.JPG)
 
+## SSD Drive (REDMAG 256GB)
+
+The RED ONE MX records to a **REDMAG 256GB SSD** — a custom housing containing a
+standard 2.5-inch SATA SSD connected via a 26-pin iVDR connector.
+
+**Identified drive:** Toshiba HG3 Series `THNSNC256GBSJ`
+- Interface: SATA II (3 Gbit/s), 5V only
+- NAND: Toshiba 32nm MLC (TH58TEG series, Toggle Mode)
+- Controller: Toshiba TC58 "Type C" (proprietary)
+- Sequential read/write: 220 / 180 MB/s
+
+**Camera interface:** Silicon Image SiI3512 (2-port SATA PCI controller on AUDIO_PCI board)
+→ iVDR 26-pin connector (Amphenol 10033998-002LF) → SSD board → standard SATA drive
+
+**Firmware validation:** The camera reads the drive's ATA model string at boot and checks
+it against a hardcoded approved-drive list. Replacement drives must either match an approved
+model string or the firmware must be patched.
+
+See [`ssd_drive/README.md`](ssd_drive/README.md) for the full research summary including
+datasheets, interface mapping, firmware analysis, and replacement options.
+
 ## UI Board
 Provides the physical control interface for camera operators.
 
