@@ -270,34 +270,49 @@ class CalibrationGUI:
     # Coordinate helpers
     # ------------------------------------------------------------------
 
+    def _win_to_image(self, wx: int, wy: int) -> list[int]:
+        """Convert window pixel coords → original image pixel coords.
+        Uses cv2.getWindowImageRect so it stays correct if the window is resized."""
+        rect = self.cv2.getWindowImageRect(self.WINDOW)  # (x, y, w, h) of image area
+        ww, wh = max(1, rect[2]), max(1, rect[3])
+        ih, iw = self.original.shape[:2]
+        return [int(wx * iw / ww), int(wy * ih / wh)]
+
+    def _win_to_warp(self, wx: int, wy: int) -> list[int]:
+        """Convert window pixel coords → warped image pixel coords."""
+        rect = self.cv2.getWindowImageRect(self.WINDOW)
+        ww, wh = max(1, rect[2]), max(1, rect[3])
+        sw, sh = self._warp_size
+        return [int(wx * sw / ww), int(wy * sh / wh)]
+
+    # Keep old names as aliases (used in _handle_key / _on_mouse)
     def _to_orig(self, dx: int, dy: int) -> list[int]:
-        """Window display coords → original image pixel coords."""
-        s = self._orig_scale
-        return [int(dx / s), int(dy / s)]
+        return self._win_to_image(dx, dy)
 
     def _to_warp_orig(self, dx: int, dy: int) -> list[int]:
-        """Window display coords → warped image pixel coords."""
-        s = self._warp_scale
-        return [int(dx / s), int(dy / s)]
+        return self._win_to_warp(dx, dy)
 
     # ------------------------------------------------------------------
     # Drawing helpers
     # ------------------------------------------------------------------
 
-    def _draw_crosshair(self, img, cx: int, cy: int) -> None:
-        """Draw a crosshair at (cx, cy) in display-space pixels (ann_s=1)."""
+    def _draw_crosshair(self, img, cx: int, cy: int, ann_s: float = 1.0) -> None:
+        """Draw a crosshair centered on (cx, cy) in image coords."""
         cv2 = self.cv2
-        arm = 20
-        gap = 4
-        h, w = img.shape[:2]
+        arm   = int(20 * ann_s)   # half-length of each arm
+        gap   = int(4 * ann_s)    # gap around the centre point
+        thick = max(1, round(ann_s))
+        h, w  = img.shape[:2]
+
+        # Horizontal and vertical arms with a small gap at centre
         for (x0, x1), (y0, y1) in [
-            ((max(0, cx - arm), max(0, cx - gap)), (cy, cy)),
-            ((min(w - 1, cx + gap), min(w - 1, cx + arm)), (cy, cy)),
-            ((cx, cx), (max(0, cy - arm), max(0, cy - gap))),
-            ((cx, cx), (min(h - 1, cy + gap), min(h - 1, cy + arm))),
+            ((max(0, cx - arm), max(0, cx - gap)), (cy, cy)),  # left arm
+            ((min(w, cx + gap), min(w, cx + arm)), (cy, cy)),  # right arm
+            ((cx, cx), (max(0, cy - arm), max(0, cy - gap))),  # top arm
+            ((cx, cx), (min(h, cy + gap), min(h, cy + arm))),  # bottom arm
         ]:
-            cv2.line(img, (x0, y0), (x1, y1), (0, 0, 0),       3, cv2.LINE_AA)
-            cv2.line(img, (x0, y0), (x1, y1), (0, 255, 255), 1, cv2.LINE_AA)
+            cv2.line(img, (x0, y0), (x1, y1), (0, 0, 0),       thick + 2, cv2.LINE_AA)
+            cv2.line(img, (x0, y0), (x1, y1), (0, 255, 255), thick,     cv2.LINE_AA)
 
     def _overlay_text(self, img, lines: list[str], ann_s: float = 1.0) -> None:
         """Draw semi-transparent text box in the top-left corner."""
@@ -395,6 +410,9 @@ class CalibrationGUI:
             hints,
         ], ann_s=self._ann_s)
         self._draw_corners(img, ann_s=self._ann_s)
+        if self._mouse_win and n < 4:
+            mx, my = self._to_orig(*self._mouse_win)
+            self._draw_crosshair(img, mx, my, ann_s=self._ann_s)
         return img
 
     def _frame_refpts(self):
@@ -405,6 +423,9 @@ class CalibrationGUI:
             "[Enter] confirm (after 2)  [Backspace] undo",
         ], ann_s=self._warp_ann_s)
         self._draw_refs(img, ann_s=self._warp_ann_s)
+        if self._mouse_win and n < 2:
+            mx, my = self._to_warp_orig(*self._mouse_win)
+            self._draw_crosshair(img, mx, my, ann_s=self._warp_ann_s)
         return img
 
     def _frame_summary(self):
@@ -474,7 +495,7 @@ class CalibrationGUI:
                     cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
                 prev_phase = self.phase
 
-            # Render current phase (full-res with scaled annotations)
+            # Render current phase
             if self.phase == _Phase.ACCEPT:
                 frame = self._frame_accept()
             elif self.phase == _Phase.LAYER:
@@ -488,20 +509,7 @@ class CalibrationGUI:
             else:
                 break
 
-            # Downscale to display size (consistent coordinate space for the crosshair)
-            dw = self._warp_dw if self.phase in (_Phase.REFPTS, _Phase.SUMMARY) else self._dw
-            dh = self._warp_dh if self.phase in (_Phase.REFPTS, _Phase.SUMMARY) else self._dh
-            disp = cv2.resize(frame, (dw, dh), interpolation=cv2.INTER_AREA)
-
-            # Draw crosshair at raw mouse coords (already in display space — no conversion needed)
-            if self._mouse_win is not None:
-                mx, my = self._mouse_win
-                if (self.phase == _Phase.CORNERS and len(self._corners_d) < 4) or \
-                   (self.phase == _Phase.REFPTS  and len(self._refs_d)   < 2):
-                    if 0 <= mx < dw and 0 <= my < dh:
-                        self._draw_crosshair(disp, mx, my)
-
-            cv2.imshow(self.WINDOW, disp)
+            cv2.imshow(self.WINDOW, frame)
             key = cv2.waitKey(30) & 0xFF
 
             if key == 255:   # no key pressed
