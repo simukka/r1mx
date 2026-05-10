@@ -1,0 +1,22 @@
+# Core image processing
+opencv-python>=4.9
+pillow>=10.0
+numpy>=1.26
+
+# OCR engines
+easyocr>=1.7          # Primary: best accuracy, handles arbitrary text orientations
+pytesseract>=0.3.13   # Fallback: zero-download, uses system tesseract
+
+# Progress and output
+tqdm>=4.66
+
+# PaddleOCR (alternative high-accuracy engine)
+# NOTE: PaddlePaddle 3.x has a known oneDNN/PIR bug on some CPU configs with Python 3.13.
+# Kept here for future use once upstream fixes the issue.
+# paddlepaddle>=3.0.0
+# paddleocr>=2.9.0
+
+# Optional: VLM component inference (Florence-2, ~1 GB download)
+# Uncomment to enable --vlm flag support
+# transformers>=4.44
+# torch>=2.0
