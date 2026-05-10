@@ -287,6 +287,87 @@ class DB:
             c.execute("DELETE FROM objects WHERE layer_id=?", (layer_id,))
         c.commit()
 
+    def save_layout_objects(self, layer_id: int, layout: dict, layer_key: str):
+        """Import a layout dict (from extract_pcb_layers.process_board) into
+        the objects table.
+
+        Existing objects for this layer_id are deleted first so re-running is
+        idempotent.
+
+        Parameters
+        ----------
+        layer_id  : row id from the layers table
+        layout    : dict returned by process_board()
+        layer_key : "top" or "bottom" — determines which side of the layout
+                    dict to read (front/back for pads/tracks)
+        """
+        import json as _json
+
+        c = self.conn()
+        c.execute("DELETE FROM objects WHERE layer_id=?", (layer_id,))
+
+        rows = []
+
+        is_front = (layer_key == "top")
+        pad_key   = "pads_front"   if is_front else "pads_back"
+        track_key = "tracks_front" if is_front else "tracks_back"
+
+        # Vias (only stored on the front/top layer to avoid duplicates)
+        if is_front:
+            for v in layout.get("vias", []):
+                d = v["drill_mm"] + 2 * v.get("annular_mm", 0.15)
+                rows.append((
+                    layer_id, "via",
+                    v["x_mm"], v["y_mm"], d, d, 0.0,
+                    None, None,
+                    _json.dumps({"drill_mm": v["drill_mm"],
+                                 "annular_mm": v.get("annular_mm", 0.15)}),
+                ))
+
+        # Pads
+        for p in layout.get(pad_key, []):
+            rows.append((
+                layer_id, "pad",
+                p["x_mm"], p["y_mm"], p["w_mm"], p["h_mm"],
+                p.get("rotation_deg", 0.0),
+                p.get("ref", "") or None, None,
+                _json.dumps({"kicad_layer": p.get("layer", "")}),
+            ))
+
+        # Board outline (only on front/top)
+        pts = layout.get("board_outline", [])
+        if is_front and pts:
+            rows.append((
+                layer_id, "outline",
+                None, None, None, None, 0.0,
+                None, None,
+                _json.dumps({"points": pts}),
+            ))
+
+        # Traces — stored as individual segments (start/end in mm)
+        for t in layout.get(track_key, []):
+            s, e = t["start"], t["end"]
+            mx = (s[0] + e[0]) / 2
+            my = (s[1] + e[1]) / 2
+            rows.append((
+                layer_id, "trace",
+                mx, my, t.get("width_mm", 0.1), t.get("width_mm", 0.1), 0.0,
+                None, None,
+                _json.dumps({"start": s, "end": e,
+                             "width_mm": t.get("width_mm", 0.1),
+                             "kicad_layer": t.get("layer", "")}),
+            ))
+
+        c.executemany(
+            """INSERT INTO objects
+               (layer_id, type, x_mm, y_mm, width_mm, height_mm, rotation_deg,
+                label, confidence, properties)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
+        c.commit()
+        return len(rows)
+
     # ── Components ─────────────────────────────────────────────────────────
 
     def upsert_component(

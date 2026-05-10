@@ -531,7 +531,17 @@ def process_board(
     hsv_overrides: dict,
     cal: dict | None = None,
     review: bool = False,
+    layer_filter: str | None = None,
+    progress_cb=None,
 ) -> dict:
+    """Extract PCB features from board images.
+
+    Parameters
+    ----------
+    layer_filter : if set (e.g. "top" or "bottom"), only that layer is
+                   processed.  Corresponds to the cal_key / DB layer name.
+    progress_cb  : optional callable(message: str) for progress reporting.
+    """
     board_name = board_dir.name
     log.info("Processing board: %s (%.1f px/mm)", board_name, px_per_mm)
 
@@ -558,10 +568,22 @@ def process_board(
         lc = get_layer_cal(cal, cal_key)
         return lc.get("source_image") or fallback
 
-    for layer_name, cal_key, fallback_img, flip, kicad_layer in [
+    all_layers = [
         ("front", "top",    "top.JPG",    False, "F_Cu"),
         ("back",  "bottom", "bottom.JPG", True,  "B_Cu"),
-    ]:
+    ]
+    # Honour layer_filter: "top" → front, "bottom" → back, or any cal_key match
+    if layer_filter:
+        all_layers = [(ln, ck, fi, fl, kl)
+                      for ln, ck, fi, fl, kl in all_layers
+                      if ck == layer_filter]
+
+    for layer_name, cal_key, fallback_img, flip, kicad_layer in all_layers:
+        def _prog(msg: str):
+            log.info("  %s", msg)
+            if progress_cb:
+                progress_cb(msg)
+
         image_name = _layer_image(cal_key, fallback_img)
         img_path = board_dir / image_name
         if not img_path.exists():
@@ -573,9 +595,10 @@ def process_board(
                     break
             else:
                 log.warning("  No %s image found for %s", image_name, board_name)
+                _prog(f"No image found for {layer_name} layer — skipping")
                 continue
 
-        log.info("  Layer: %s (%s)", layer_name, img_path.name)
+        _prog(f"Loading {layer_name} layer ({img_path.name}) …")
         bgr = load_and_crop(img_path)
         bgr = apply_perspective_warp(bgr, get_layer_cal(cal, cal_key))
 
@@ -585,6 +608,7 @@ def process_board(
         reviewer = LayerReviewer(bgr, layer_name, px_per_mm, board_dir) if review else None
 
         # Copper mask — reviewed first; drives all subsequent steps
+        _prog("Extracting copper mask …")
         copper_mask = extract_copper_mask(bgr, hsv_cfg)
         if reviewer:
             copper_mask, hsv_cfg = reviewer.review_copper_mask(copper_mask, hsv_cfg)
@@ -593,6 +617,7 @@ def process_board(
 
         # Board outline (front layer only)
         if layer_name == "front":
+            _prog("Detecting board outline …")
             outline = detect_board_outline(bgr)
             if reviewer:
                 outline = reviewer.review_outline(outline)
@@ -601,15 +626,18 @@ def process_board(
                         round(float(p[0][1]) / px_per_mm, 3)]
                        for p in outline]
                 layout["board_outline"] = pts
-                log.info("  Board outline: %d points", len(pts))
+                _prog(f"Board outline: {len(pts)} points")
 
+        _prog("Detecting vias …")
         vias = detect_vias(bgr, copper_mask, px_per_mm, hsv_cfg)
         if reviewer:
             vias = reviewer.review_vias(vias)
         if layer_name == "front":
             layout["vias"] = vias
+        _prog(f"  → {len(vias)} vias")
 
         # Build pad exclusion mask (always from full detected set for trace quality)
+        _prog("Detecting pads …")
         pads_raw = detect_pads(copper_mask, px_per_mm, vias, layer=kicad_layer)
         pad_mask = np.zeros(copper_mask.shape, np.uint8)
         for pad in pads_raw:
@@ -629,10 +657,13 @@ def process_board(
         pads = assign_refs_to_pads(pads_raw, bom_path, px_per_mm)
         if reviewer:
             pads = reviewer.review_pads(pads)
+        _prog(f"  → {len(pads)} pads")
 
+        _prog("Vectorising traces (this may take a while) …")
         tracks = vectorise_traces(copper_mask, pad_mask, px_per_mm, layer=kicad_layer)
         if reviewer:
             tracks = reviewer.review_tracks(tracks)
+        _prog(f"  → {len(tracks)} trace segments")
 
         if reviewer:
             reviewer.close()

@@ -35,11 +35,13 @@ from PyQt6.QtCore import (
     Qt, QPointF, QRectF, QThread, pyqtSignal, QObject,
 )
 from PyQt6.QtGui import (
-    QAction, QBrush, QColor, QFont, QPen, QPixmap,
+    QAction, QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap,
+    QPolygonF, QTransform,
 )
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QDockWidget,
-    QFormLayout, QGraphicsEllipseItem, QGraphicsItemGroup, QGraphicsPixmapItem,
+    QFormLayout, QGraphicsEllipseItem, QGraphicsItemGroup, QGraphicsPathItem,
+    QGraphicsPixmapItem, QGraphicsPolygonItem,
     QGraphicsRectItem, QGraphicsScene, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
@@ -313,8 +315,9 @@ class EditLayerDialog(QDialog):
         self.accept()
 
 class WorkerSignals(QObject):
-    line       = pyqtSignal(str)
-    finished   = pyqtSignal(bool, str)   # success, message
+    line     = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)   # success, message
+    layout   = pyqtSignal(dict)        # emitted by ExtractLayerWorker with the layout dict
 
 
 class SubprocessWorker(QThread):
@@ -339,6 +342,70 @@ class SubprocessWorker(QThread):
             ok = proc.returncode == 0
             self.signals.finished.emit(ok, "Done" if ok else f"Exit {proc.returncode}")
         except Exception as exc:
+            self.signals.finished.emit(False, str(exc))
+
+
+class ExtractLayerWorker(QThread):
+    """Run extract_pcb_layers.process_board() in-process for a single layer.
+
+    Emits:
+        signals.line(str)        — progress messages
+        signals.layout(dict)     — the completed layout dict
+        signals.finished(ok, msg)
+    """
+
+    def __init__(self, board_name: str, layer_name: str, parent=None):
+        super().__init__(parent)
+        self._board_name = board_name
+        self._layer_name = layer_name
+        self.signals = WorkerSignals()
+
+    def run(self):
+        try:
+            sys.path.insert(0, str(_SCRIPTS))
+            from extract_pcb_layers import (
+                process_board, load_calibration, save_layout,
+            )
+
+            board_dir = _REPO / "components" / self._board_name
+
+            self.signals.line.emit(
+                f"Extracting {self._board_name} / {self._layer_name} …"
+            )
+
+            cal = load_calibration(board_dir)
+
+            # Derive px_per_mm from the layer's calibration entry
+            layers_cal = cal.get("layers", {})
+            layer_cal = layers_cal.get(self._layer_name, {})
+            px_per_mm = layer_cal.get("px_per_mm", 20.0)
+
+            layout = process_board(
+                board_dir=board_dir,
+                px_per_mm=px_per_mm,
+                debug=False,
+                hsv_overrides={},
+                cal=cal,
+                review=False,
+                layer_filter=self._layer_name,
+                progress_cb=lambda msg: self.signals.line.emit(f"  {msg}"),
+            )
+
+            # Also save the legacy layout.json for other tools
+            save_layout(layout, board_dir)
+
+            self.signals.layout.emit(layout)
+            n_vias   = len(layout.get("vias", []))
+            is_front = self._layer_name == "top"
+            n_pads   = len(layout.get("pads_front" if is_front else "pads_back", []))
+            n_tracks = len(layout.get("tracks_front" if is_front else "tracks_back", []))
+            self.signals.finished.emit(
+                True,
+                f"{n_vias} vias  {n_pads} pads  {n_tracks} trace segments",
+            )
+        except Exception as exc:
+            import traceback
+            self.signals.line.emit(traceback.format_exc())
             self.signals.finished.emit(False, str(exc))
 
 
@@ -837,31 +904,74 @@ class LayerScene:
         g = self._groups["photo"]
         g.addToGroup(item)
 
-    def load_objects(self, db: DB, layer_id: int):
-        """Load extracted objects from DB and create scene items."""
+    def load_objects(self, db: DB, layer_id: int, px_per_mm: float = 20.0):
+        """Load extracted objects from DB and create scene items.
+
+        Traces are batched into a single QGraphicsPathItem per group for
+        performance — rendering 250k line items individually is too slow.
+        """
+        # colour map by type
+        _color = {key: col for key, _, col in OBJECT_TYPES}
+
         for key, _, color in OBJECT_TYPES:
             if key == "photo":
                 continue
             g = self._groups[key]
-            # Remove old items
+            # Clear old children
             for child in list(g.childItems()):
-                self._scene.removeItem(child)
                 g.removeFromGroup(child)
+                self._scene.removeItem(child)
 
             objects = db.list_objects(layer_id, type_filter=key)
-            for obj in objects:
-                item = self._make_item(obj, color)
-                if item:
-                    g.addToGroup(item)
+            if not objects:
+                continue
 
-    def _make_item(self, obj, color: QColor):
+            if key == "trace":
+                # Batch all segments into one QPainterPath per layer group
+                path = QPainterPath()
+                for obj in objects:
+                    props = json.loads(obj["properties"] or "{}")
+                    s = props.get("start")
+                    e = props.get("end")
+                    if s and e:
+                        path.moveTo(s[0] * px_per_mm, s[1] * px_per_mm)
+                        path.lineTo(e[0] * px_per_mm, e[1] * px_per_mm)
+                pen = QPen(color, 0)        # width=0 → cosmetic hairline
+                pen.setCosmetic(True)
+                path_item = QGraphicsPathItem(path)
+                path_item.setPen(pen)
+                path_item.setZValue(2)
+                g.addToGroup(path_item)
+
+            elif key == "outline":
+                for obj in objects:
+                    props = json.loads(obj["properties"] or "{}")
+                    pts = props.get("points", [])
+                    if len(pts) >= 2:
+                        poly = QPolygonF([
+                            QPointF(p[0] * px_per_mm, p[1] * px_per_mm)
+                            for p in pts
+                        ])
+                        item = QGraphicsPolygonItem(poly)
+                        pen = QPen(color, 2)
+                        pen.setCosmetic(True)
+                        item.setPen(pen)
+                        item.setBrush(QBrush(Qt.GlobalColor.transparent))
+                        item.setZValue(5)
+                        g.addToGroup(item)
+
+            else:
+                for obj in objects:
+                    item = self._make_item(obj, color, px_per_mm)
+                    if item:
+                        g.addToGroup(item)
+
+    def _make_item(self, obj, color: QColor, px_per_mm: float = 20.0):
         """Convert a DB object row into a QGraphicsItem."""
-        # For now we need px_per_mm to convert mm → px. Use 20 px/mm as fallback.
-        px = 20.0
-        x  = (obj["x_mm"]  or 0) * px
-        y  = (obj["y_mm"]  or 0) * px
-        w  = (obj["width_mm"]  or 1) * px
-        h  = (obj["height_mm"] or 1) * px
+        x  = (obj["x_mm"]      or 0) * px_per_mm
+        y  = (obj["y_mm"]      or 0) * px_per_mm
+        w  = (obj["width_mm"]  or 1) * px_per_mm
+        h  = (obj["height_mm"] or 1) * px_per_mm
         t  = obj["type"]
 
         if t == "via":
@@ -875,17 +985,20 @@ class LayerScene:
             return item
 
         if t in ("pad", "component"):
-            item = QGraphicsRectItem(x - w / 2, y - h / 2, w, h)
+            rot = obj["rotation_deg"] or 0.0
+            item = QGraphicsRectItem(-w / 2, -h / 2, w, h)
             pen = QPen(color, 1)
             pen.setCosmetic(True)
             item.setPen(pen)
             item.setBrush(QBrush(Qt.GlobalColor.transparent))
             item.setZValue(4)
             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable)
-            item.setData(0, obj["id"])       # store object id
+            item.setData(0, obj["id"])
+            item.setPos(x, y)
+            if rot:
+                item.setRotation(rot)
             return item
 
-        # outline / copper_area / trace: skip for now (need polygon data)
         return None
 
 
@@ -1033,7 +1146,8 @@ class MainWindow(QMainWindow):
         ana_label.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
         tb.addWidget(ana_label)
 
-        ext_act = QAction("Extract Layers", self)
+        ext_act = QAction("Extract Layer", self)
+        ext_act.setToolTip("Extract copper, vias, pads, traces for the active board & layer")
         ext_act.setToolTip("Extract copper, vias, outline from calibrated photo")
         ext_act.triggered.connect(self._run_extract_layers)
         tb.addAction(ext_act)
@@ -1137,6 +1251,7 @@ class MainWindow(QMainWindow):
         cal = json.loads(layer_row["calibration"]) if layer_row["calibration"] else {}
         warp_matrix  = cal.get("warp_matrix")
         warped_size  = cal.get("warped_size")
+        px_per_mm    = cal.get("px_per_mm", 20.0)
         source_image = layer_row["source_image"] or ""
 
         scene = LayerScene(self._viewer.scene(), board_name, layer_name)
@@ -1146,9 +1261,29 @@ class MainWindow(QMainWindow):
         self._log.append(f"Loading {board_name}/{layer_name} …")
         scene.load_photo(board_name, layer_name, source_image, warp_matrix, warped_size)
 
-        # Load extracted objects (may be empty)
-        if layer_row["id"]:
-            scene.load_objects(self._db, layer_row["id"])
+        # Load extracted objects from DB
+        n_objs = self._db.conn().execute(
+            "SELECT COUNT(*) FROM objects WHERE layer_id=?", (layer_row["id"],)
+        ).fetchone()[0]
+
+        if n_objs > 0:
+            self._log.append(f"  Rendering {n_objs} objects …")
+            scene.load_objects(self._db, layer_row["id"], px_per_mm)
+        else:
+            # Fall back to layout.json if present and import it now
+            layout_path = _REPO / "components" / board_name / "layout.json"
+            if layout_path.exists():
+                self._log.append("  Importing layout.json → DB …")
+                try:
+                    with layout_path.open() as f:
+                        layout = json.load(f)
+                    n = self._db.save_layout_objects(
+                        layer_row["id"], layout, layer_name
+                    )
+                    self._log.append(f"  Imported {n} objects from layout.json")
+                    scene.load_objects(self._db, layer_row["id"], px_per_mm)
+                except Exception as exc:
+                    self._log.append(f"  layout.json import failed: {exc}")
 
         # Update viewer image size from the scene bounding rect
         rect = self._viewer.scene().itemsBoundingRect()
@@ -1287,20 +1422,72 @@ class MainWindow(QMainWindow):
                 del self._layer_scenes[key]
             self._open_layer(self._active_board, self._active_layer)
 
+    def _require_board_and_layer(self) -> tuple[str | None, str | None]:
+        if not self._active_board:
+            QMessageBox.warning(self, "No board selected", "Select a board first.")
+            return None, None
+        if not self._active_layer:
+            QMessageBox.warning(self, "No layer selected",
+                                "Select a layer in the tree first.")
+            return None, None
+        return self._active_board, self._active_layer
+
     def _run_extract_layers(self):
-        board = self._require_board()
-        if not board:
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
             return
+
+        # Check calibration exists
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row or not layer_row["calibrated"]:
+            QMessageBox.warning(
+                self, "Not calibrated",
+                f"{board} / {layer} must be calibrated before extraction.\n"
+                "Right-click the layer → Calibrate…"
+            )
+            return
+
         self._log.clear()
-        self._log.append(f"Extracting layers for {board} …")
+        self._log.append(f"Extracting layers: {board} / {layer} …")
         self._log.set_busy(True)
 
-        cmd = [sys.executable, str(_SCRIPTS / "extract_pcb_layers.py"), "--board", board]
-        w = SubprocessWorker(cmd, self)
+        w = ExtractLayerWorker(board, layer, self)
         w.signals.line.connect(self._log.append)
-        w.signals.finished.connect(lambda ok, m: self._on_step_done("extract_layers", ok, m))
+        w.signals.layout.connect(
+            lambda layout: self._on_extract_layer_done(layout, board, layer)
+        )
+        w.signals.finished.connect(
+            lambda ok, msg: self._on_extract_finished(ok, msg, board, layer)
+        )
         self._workers.append(w)
         w.start()
+
+    def _on_extract_layer_done(self, layout: dict, board: str, layer: str):
+        """Store layout objects to DB and reload the canvas."""
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+
+        n = self._db.save_layout_objects(layer_row["id"], layout, layer)
+        self._log.append(f"  Stored {n} objects to DB for {board}/{layer}")
+
+        # Reload the canvas overlay for this layer
+        key = (board, layer)
+        if key in self._layer_scenes:
+            cal = json.loads(layer_row["calibration"] or "{}")
+            px_per_mm = cal.get("px_per_mm", 20.0)
+            self._layer_scenes[key].load_objects(
+                self._db, layer_row["id"], px_per_mm
+            )
+            self._viewer.scene().update()
+
+    def _on_extract_finished(self, ok: bool, msg: str, board: str, layer: str):
+        self._log.set_busy(False)
+        self._log.append(
+            f"Extract layers {'complete' if ok else 'FAILED'} — {board}/{layer}: {msg}"
+        )
 
     def _run_extract_bom(self):
         board = self._require_board()
@@ -1355,14 +1542,6 @@ class MainWindow(QMainWindow):
     def _on_step_done(self, step: str, ok: bool, msg: str):
         self._log.set_busy(False)
         self._log.append(f"{step} {'complete' if ok else 'failed'}: {msg}")
-        if ok and self._active_board and self._active_layer:
-            # Refresh scene overlays
-            key = (self._active_board, self._active_layer)
-            if key in self._layer_scenes:
-                board_id = self._db.get_or_create_board(self._active_board)
-                layer_row = self._db.get_layer(board_id, self._active_layer)
-                if layer_row:
-                    self._layer_scenes[key].load_objects(self._db, layer_row["id"])
 
     def _run_coord_calibrate(self):
         self._log.clear()
