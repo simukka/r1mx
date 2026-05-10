@@ -66,6 +66,23 @@ COMPONENTS_DIR = REPO_ROOT / "components"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
 # ---------------------------------------------------------------------------
+# PyQt6 — imported at module level; only QApplication creation needs display
+# ---------------------------------------------------------------------------
+try:
+    from PyQt6.QtCore import QEventLoop, QPointF, Qt
+    from PyQt6.QtGui import QColor, QPen
+    from PyQt6.QtWidgets import (
+        QApplication, QGraphicsRectItem, QGraphicsTextItem,
+        QMainWindow, QStatusBar,
+    )
+    _PYQT6 = True
+except ImportError:
+    _PYQT6 = False
+
+# r1mx_gui lives in the same directory as this script
+sys.path.insert(0, str(Path(__file__).parent))
+
+# ---------------------------------------------------------------------------
 # Image discovery
 # ---------------------------------------------------------------------------
 
@@ -186,39 +203,53 @@ class _Phase(Enum):
     QUIT     = auto()
 
 
-class CalibrationGUI:
+_TERMINAL_PHASES = {_Phase.DONE, _Phase.SKIP, _Phase.QUIT}
+
+
+class CalibrationGUI(QMainWindow):
     """
-    Single-window OpenCV GUI that guides the user through calibrating one image.
+    PyQt6 calibration window for a single board image.
+
+    Coordinate conversion is handled by QGraphicsView.mapToScene() — no manual
+    scale factors or device-pixel-ratio math required.
 
     Usage::
 
+        app = QApplication.instance() or QApplication(sys.argv)
         gui = CalibrationGUI(image_path, ref_mm=2.54, index=0, total=3)
-        layer, layer_cal = gui.run()  # returns (None, None) if skipped
-        if gui.quit_all: break        # user pressed Q
+        layer, layer_cal = gui.run()   # blocks via nested QEventLoop
+        if gui.quit_all: break         # user pressed Q or closed the window
     """
 
-    WINDOW     = "r1mx Board Calibration"
-    MAX_W      = 1600
-    MAX_H      = 900
-    FONT       = None          # set in __init__ after cv2 import
+    TITLE      = "r1mx Board Calibration"
     CORNER_SEQ = ["TL", "TR", "BR", "BL"]
 
-    def __init__(self, image_path: Path, ref_mm: float, index: int, total: int):
-        try:
-            import cv2
-            import numpy as np
-        except ImportError:
-            log.error("opencv-python is required. Run: pip install opencv-python")
+    def __init__(
+        self,
+        image_path: Path,
+        ref_mm: float,
+        index: int,
+        total: int,
+    ) -> None:
+        if not _PYQT6:
+            log.error("PyQt6 is required for the GUI.  Run: pip install PyQt6")
             sys.exit(1)
-
-        self.cv2 = cv2
-        self.np  = np
-        self.FONT = cv2.FONT_HERSHEY_SIMPLEX
+        super().__init__()
 
         self.image_path = image_path
         self.ref_mm     = ref_mm
         self.index      = index
         self.total      = total
+
+        # ── Load image ──────────────────────────────────────────────────────
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            log.error("opencv-python is required: pip install opencv-python")
+            sys.exit(1)
+        self._cv2 = cv2
+        self._np  = np
 
         bgr = cv2.imread(str(image_path))
         if bgr is None:
@@ -226,368 +257,295 @@ class CalibrationGUI:
         self.original = bgr
         h, w = bgr.shape[:2]
 
-        self._orig_scale = min(1.0, self.MAX_W / w, self.MAX_H / h)
-        dw = int(w * self._orig_scale)
-        dh = int(h * self._orig_scale)
-        # Annotation sizes are scaled up so they look the same physical size in the
-        # window when drawn on the full-resolution image.
-        self._ann_s = 1.0 / self._orig_scale
+        # ── State ───────────────────────────────────────────────────────────
+        self.phase        = _Phase.ACCEPT
+        self._layer_buf   = ""
+        self.result_layer = None
+        self.result_cal   = None
+        self.quit_all     = False
 
-        # State
-        self.phase           = _Phase.ACCEPT
-        self._layer_buf      = ""          # typed label characters
-        self.result_layer    = None
-        self.result_cal      = None
-        self.quit_all        = False
+        # Corner coords (original image pixels)
+        self._corners: list[list[int]] = []
+        # Ref-point coords (warped image pixels)
+        self._refs: list[list[int]]    = []
+        # Tracked QGraphicsItems for annotations (cleared between phases)
+        self._overlay_items: list      = []
 
-        # Corner click state — only original-scale coords; display-scale kept for mouse→image conversion
-        self._corners_d: list[tuple[int, int]] = []
-        self._corners_o: list[list[int]]       = []
+        # Warp
+        self._warped    = None
+        self._warp_M    = None
+        self._warp_size = None
+        self._px_per_mm = 0.0
 
-        # Warped image state (populated after corners confirmed)
-        self._warped_o       = None
-        self._warp_scale     = 1.0
-        self._warp_ann_s     = 1.0
-        self._warp_M         = None
-        self._warp_size      = None
-        self._warp_dw        = dw       # display size; updated in _build_warp
-        self._warp_dh        = dh
+        # Event loop handle (set in run())
+        self._loop: QEventLoop | None = None
 
-        # Ref-point state — only original-scale coords
-        self._refs_d: list[tuple[int, int]] = []
-        self._refs_o: list[list[int]]       = []
+        # ── Import shared gui helpers ────────────────────────────────────────
+        from r1mx_gui import (
+            ImageViewer, draw_corner, draw_ref_point, draw_polyline,
+        )
+        self._draw_corner     = draw_corner
+        self._draw_ref_point  = draw_ref_point
+        self._draw_polyline   = draw_polyline
 
-        self._px_per_mm      = 0.0
+        # ── Build UI ─────────────────────────────────────────────────────────
+        self._viewer = ImageViewer(self)
+        self.setCentralWidget(self._viewer)
+        self._status = QStatusBar(self)
+        self.setStatusBar(self._status)
 
-        # Live mouse position in window coords (updated on MOUSEMOVE)
-        self._mouse_win: tuple[int, int] | None = None
+        # Size window to ~85 % of available screen, preserving aspect ratio
+        screen = QApplication.primaryScreen().availableGeometry()
+        max_w  = int(screen.width()  * 0.85)
+        max_h  = int(screen.height() * 0.85)
+        scale  = min(1.0, max_w / w, max_h / h)
+        self.resize(int(w * scale), int(h * scale))
+        self.setWindowTitle(
+            f"{self.TITLE}  [{index + 1}/{total}]  {image_path.name}"
+        )
 
-        # Store display dimensions for window sizing
-        self._dw = dw
-        self._dh = dh
-
-    # ------------------------------------------------------------------
-    # Coordinate helpers
-    # ------------------------------------------------------------------
-
-    def _win_to_image(self, wx: int, wy: int) -> list[int]:
-        """Convert window pixel coords → original image pixel coords.
-        Formula A (confirmed correct): image = win / orig_scale."""
-        s = self._orig_scale
-        return [int(wx / s), int(wy / s)]
-
-    def _win_to_warp(self, wx: int, wy: int) -> list[int]:
-        """Convert window pixel coords → warped image pixel coords."""
-        s = self._warp_scale
-        return [int(wx / s), int(wy / s)]
-
-    # Keep old names as aliases (used in _handle_key / _on_mouse)
-    def _to_orig(self, dx: int, dy: int) -> list[int]:
-        return self._win_to_image(dx, dy)
-
-    def _to_warp_orig(self, dx: int, dy: int) -> list[int]:
-        return self._win_to_warp(dx, dy)
+        self._viewer.set_image(self.original)
+        self._viewer.set_crosshair_visible(False)
+        self._viewer.imageClicked.connect(self._on_click)
+        self._update_ui()
 
     # ------------------------------------------------------------------
-    # Drawing helpers
+    # Run — blocking via nested QEventLoop
     # ------------------------------------------------------------------
 
-    def _draw_crosshair(self, img, cx: int, cy: int, ann_s: float = 1.0) -> None:
-        """Draw a crosshair centered on (cx, cy) in image coords."""
-        cv2 = self.cv2
-        arm   = int(20 * ann_s)   # half-length of each arm
-        gap   = int(4 * ann_s)    # gap around the centre point
-        thick = max(1, round(ann_s))
-        h, w  = img.shape[:2]
-
-        # Horizontal and vertical arms with a small gap at centre
-        for (x0, x1), (y0, y1) in [
-            ((max(0, cx - arm), max(0, cx - gap)), (cy, cy)),  # left arm
-            ((min(w, cx + gap), min(w, cx + arm)), (cy, cy)),  # right arm
-            ((cx, cx), (max(0, cy - arm), max(0, cy - gap))),  # top arm
-            ((cx, cx), (min(h, cy + gap), min(h, cy + arm))),  # bottom arm
-        ]:
-            cv2.line(img, (x0, y0), (x1, y1), (0, 0, 0),       thick + 2, cv2.LINE_AA)
-            cv2.line(img, (x0, y0), (x1, y1), (0, 255, 255), thick,     cv2.LINE_AA)
-
-    def _overlay_text(self, img, lines: list[str], ann_s: float = 1.0) -> None:
-        """Draw semi-transparent text box in the top-left corner."""
-        cv2 = self.cv2
-        s = ann_s
-        fscale = 0.55 * s
-        thick  = max(1, round(s))
-        lh     = int(22 * s)
-        pad    = int(8 * s)
-        box_w = max(
-            cv2.getTextSize(l, self.FONT, fscale, thick)[0][0]
-            for l in lines
-        ) + pad * 2
-        box_h = len(lines) * lh + pad * 2
-
-        overlay = img.copy()
-        cv2.rectangle(overlay, (0, 0), (box_w, box_h), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.65, img, 0.35, 0, img)
-
-        for i, line in enumerate(lines):
-            y = (i + 1) * lh + pad // 2
-            cv2.putText(img, line, (pad, y), self.FONT, fscale,
-                        (255, 255, 255), thick, cv2.LINE_AA)
-
-    def _draw_corners(self, img, ann_s: float = 1.0) -> None:
-        cv2, np = self.cv2, self.np
-        s = ann_s
-        r  = max(4, round(7 * s))
-        lw = max(1, round(2 * s))
-        fs = 0.6 * s
-        for i, co in enumerate(self._corners_o):
-            cx, cy = co[0], co[1]
-            cv2.circle(img, (cx, cy), r, (0, 255, 0), -1)
-            cv2.putText(img, self.CORNER_SEQ[i], (cx + round(10 * s), cy - round(6 * s)),
-                        self.FONT, fs, (0, 255, 0), lw, cv2.LINE_AA)
-        n = len(self._corners_o)
-        if n >= 2:
-            for i in range(n - 1):
-                p1 = tuple(self._corners_o[i])
-                p2 = tuple(self._corners_o[i + 1])
-                cv2.line(img, p1, p2, (0, 200, 255), max(1, round(s)))
-        if n == 4:
-            pts = np.array(self._corners_o, dtype=np.int32)
-            cv2.polylines(img, [pts[[0, 1, 2, 3]]], isClosed=True,
-                          color=(0, 200, 255), thickness=lw)
-
-    def _draw_refs(self, img, ann_s: float = 1.0) -> None:
-        cv2 = self.cv2
-        s = ann_s
-        r  = max(4, round(7 * s))
-        lw = max(1, round(2 * s))
-        fs = 0.6 * s
-        for i, ro in enumerate(self._refs_o):
-            rx, ry = ro[0], ro[1]
-            cv2.circle(img, (rx, ry), r, (0, 80, 255), -1)
-            cv2.putText(img, f"P{i + 1}", (rx + round(10 * s), ry - round(6 * s)),
-                        self.FONT, fs, (0, 80, 255), lw, cv2.LINE_AA)
-        if len(self._refs_o) == 2:
-            p1 = tuple(self._refs_o[0])
-            p2 = tuple(self._refs_o[1])
-            cv2.line(img, p1, p2, (255, 100, 0), lw)
-            ppm = compute_px_per_mm(self._refs_o[0], self._refs_o[1], self.ref_mm)
-            mid = (int((p1[0] + p2[0]) / 2 + 5 * s), int((p1[1] + p2[1]) / 2 - 8 * s))
-            cv2.putText(img, f"{ppm:.1f} px/mm", mid,
-                        self.FONT, 0.55 * s, (255, 100, 0), lw, cv2.LINE_AA)
+    def run(self) -> tuple:
+        """Show window and block until the user finishes, skips, or quits."""
+        self._loop = QEventLoop()
+        self.show()
+        self._loop.exec()
+        self.hide()
+        return self.result_layer, self.result_cal
 
     # ------------------------------------------------------------------
-    # Per-phase frame renderers
+    # Phase transitions
     # ------------------------------------------------------------------
 
-    def _frame_accept(self):
-        img = self.original.copy()
-        self._overlay_text(img, [
-            f"Image {self.index + 1}/{self.total}: {self.image_path.name}",
-            "[Y] Use this image   [N] Skip   [Q] Quit all",
-        ], ann_s=self._ann_s)
-        return img
+    def _set_phase(self, phase: _Phase) -> None:
+        self.phase = phase
+        if phase in (_Phase.REFPTS, _Phase.SUMMARY) and self._warped is not None:
+            self._viewer.set_image(self._warped)
+        elif phase in (_Phase.ACCEPT, _Phase.LAYER, _Phase.CORNERS):
+            self._viewer.set_image(self.original)
+        self._update_ui()
+        if phase in _TERMINAL_PHASES and self._loop is not None:
+            self._loop.quit()
 
-    def _frame_layer(self):
-        img = self.original.copy()
-        typed = self._layer_buf
-        self._overlay_text(img, [
-            "[T] top   [B] bottom   or type a label + [Enter]",
-            f"Layer: {typed}_",
-        ], ann_s=self._ann_s)
-        return img
+    def _update_ui(self) -> None:
+        """Refresh status bar and crosshair visibility for the current phase."""
+        p = self.phase
+        if p == _Phase.ACCEPT:
+            self._status.showMessage(
+                f"Image {self.index + 1}/{self.total}: {self.image_path.name}"
+                "  |  [Y] Use   [N] Skip   [Q] Quit all"
+            )
+            self._viewer.set_crosshair_visible(False)
 
-    def _frame_corners(self):
-        img = self.original.copy()
-        n = len(self._corners_o)
-        next_lbl = self.CORNER_SEQ[n] if n < 4 else "—"
-        hints = "[Enter] confirm (after 4)  [Backspace] undo  [R] redo all"
-        self._overlay_text(img, [
-            f"Click corners: TL \u2192 TR \u2192 BR \u2192 BL  |  next: {next_lbl}  ({n}/4)",
-            hints,
-        ], ann_s=self._ann_s)
-        self._draw_corners(img, ann_s=self._ann_s)
-        if self._mouse_win and n < 4:
-            wx, wy = self._mouse_win
-            mx, my = self._to_orig(wx, wy)
-            self._draw_crosshair(img, mx, my, ann_s=self._ann_s)
-        return img
+        elif p == _Phase.LAYER:
+            self._status.showMessage(
+                f"Layer: {self._layer_buf}_"
+                "  |  [T] top   [B] bottom   or type a label + [Enter]"
+            )
+            self._viewer.set_crosshair_visible(False)
 
-    def _frame_refpts(self):
-        img = self._warped_o.copy()
-        n = len(self._refs_o)
-        self._overlay_text(img, [
-            f"Perspective corrected. Click 2 reference points {self.ref_mm} mm apart  ({n}/2)",
-            "[Enter] confirm (after 2)  [Backspace] undo",
-        ], ann_s=self._warp_ann_s)
-        self._draw_refs(img, ann_s=self._warp_ann_s)
-        if self._mouse_win and n < 2:
-            mx, my = self._to_warp_orig(*self._mouse_win)
-            self._draw_crosshair(img, mx, my, ann_s=self._warp_ann_s)
-        return img
+        elif p == _Phase.CORNERS:
+            n   = len(self._corners)
+            nxt = self.CORNER_SEQ[n] if n < 4 else "—"
+            self._status.showMessage(
+                f"Click board corners  TL → TR → BR → BL  |  next: {nxt}  ({n}/4)"
+                "  |  [Backspace] undo   [R] redo all   [Enter] confirm (after 4)"
+            )
+            self._viewer.set_crosshair_visible(True)
 
-    def _frame_summary(self):
-        img = self._warped_o.copy()
-        self._overlay_text(img, [
-            f"Layer: {self.result_layer}   Source: {self.image_path.name}",
-            f"px/mm: {self._px_per_mm:.2f}   Warp: {self._warp_size[0]}x{self._warp_size[1]} px",
-            "[S] Save   [R] Redo corners   [N] Discard",
-        ], ann_s=self._warp_ann_s)
-        return img
+        elif p == _Phase.REFPTS:
+            n = len(self._refs)
+            self._status.showMessage(
+                f"Click 2 reference points {self.ref_mm} mm apart  ({n}/2)"
+                "  |  [Backspace] undo   [Enter] confirm (after 2)"
+            )
+            self._viewer.set_crosshair_visible(True)
+
+        elif p == _Phase.SUMMARY:
+            self._status.showMessage(
+                f"Layer: {self.result_layer}   "
+                f"px/mm: {self._px_per_mm:.2f}   "
+                f"Warp: {self._warp_size[0]}×{self._warp_size[1]} px"
+                "  |  [S] Save   [R] Redo corners   [N] Discard"
+            )
+            self._viewer.set_crosshair_visible(False)
+
+    # ------------------------------------------------------------------
+    # Overlay management
+    # ------------------------------------------------------------------
+
+    def _add_items(self, items: list) -> None:
+        self._overlay_items.extend(items)
+
+    def _clear_overlays(self) -> None:
+        scene = self._viewer.scene()
+        for item in self._overlay_items:
+            scene.removeItem(item)
+        self._overlay_items.clear()
+
+    def _redraw_corners(self) -> None:
+        """Redraw all placed corners and the connecting polyline."""
+        self._clear_overlays()
+        scene = self._viewer.scene()
+        for i, c in enumerate(self._corners):
+            self._add_items(self._draw_corner(scene, c[0], c[1], self.CORNER_SEQ[i]))
+        pts = [(c[0], c[1]) for c in self._corners]
+        if len(pts) == 4:
+            self._add_items(self._draw_polyline(scene, pts, closed=True))
+        elif len(pts) >= 2:
+            self._add_items(self._draw_polyline(scene, pts, closed=False))
+
+    def _redraw_refs(self) -> None:
+        """Redraw all placed ref points and the connecting line."""
+        self._clear_overlays()
+        scene = self._viewer.scene()
+        for i, r in enumerate(self._refs):
+            self._add_items(self._draw_ref_point(scene, r[0], r[1], f"P{i + 1}"))
+        if len(self._refs) == 2:
+            r0, r1 = self._refs[0], self._refs[1]
+            self._add_items(
+                self._draw_polyline(scene, [(r0[0], r0[1]), (r1[0], r1[1])])
+            )
+
+    # ------------------------------------------------------------------
+    # Click handler (QPointF already in image-pixel coords via mapToScene)
+    # ------------------------------------------------------------------
+
+    def _on_click(self, pt: QPointF) -> None:
+        x, y = int(pt.x()), int(pt.y())
+        if self.phase == _Phase.CORNERS and len(self._corners) < 4:
+            self._corners.append([x, y])
+            self._redraw_corners()
+            self._update_ui()
+
+        elif self.phase == _Phase.REFPTS and len(self._refs) < 2:
+            self._refs.append([x, y])
+            self._redraw_refs()
+            if len(self._refs) == 2:
+                ppm = compute_px_per_mm(self._refs[0], self._refs[1], self.ref_mm)
+                self._status.showMessage(
+                    f"2 points placed — {ppm:.2f} px/mm"
+                    "  |  [Enter] confirm   [Backspace] undo"
+                )
+            else:
+                self._update_ui()
+
+    # ------------------------------------------------------------------
+    # Key handler
+    # ------------------------------------------------------------------
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        key = event.key()
+        p   = self.phase
+
+        if p == _Phase.ACCEPT:
+            if key == Qt.Key.Key_Y:
+                self._set_phase(_Phase.LAYER)
+            elif key == Qt.Key.Key_N:
+                self._set_phase(_Phase.SKIP)
+            elif key == Qt.Key.Key_Q:
+                self.quit_all = True
+                self._set_phase(_Phase.QUIT)
+
+        elif p == _Phase.LAYER:
+            if key == Qt.Key.Key_T and not self._layer_buf:
+                self.result_layer = "top"
+                self._set_phase(_Phase.CORNERS)
+            elif key == Qt.Key.Key_B and not self._layer_buf:
+                self.result_layer = "bottom"
+                self._set_phase(_Phase.CORNERS)
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.result_layer = self._layer_buf.strip() or "top"
+                self._layer_buf   = ""
+                self._set_phase(_Phase.CORNERS)
+            elif key == Qt.Key.Key_Backspace:
+                self._layer_buf = self._layer_buf[:-1]
+                self._update_ui()
+            else:
+                ch = event.text()
+                if ch.isprintable() and ch:
+                    self._layer_buf += ch
+                    self._update_ui()
+
+        elif p == _Phase.CORNERS:
+            if key == Qt.Key.Key_Backspace and self._corners:
+                self._corners.pop()
+                self._redraw_corners()
+                self._update_ui()
+            elif key == Qt.Key.Key_R:
+                self._corners.clear()
+                self._clear_overlays()
+                self._update_ui()
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and len(self._corners) == 4:
+                self._build_warp()
+                self._clear_overlays()
+                self._set_phase(_Phase.REFPTS)
+
+        elif p == _Phase.REFPTS:
+            if key == Qt.Key.Key_Backspace and self._refs:
+                self._refs.pop()
+                self._redraw_refs()
+                self._update_ui()
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and len(self._refs) == 2:
+                self._px_per_mm = compute_px_per_mm(
+                    self._refs[0], self._refs[1], self.ref_mm
+                )
+                self._set_phase(_Phase.SUMMARY)
+
+        elif p == _Phase.SUMMARY:
+            if key == Qt.Key.Key_S:
+                self.result_cal = make_layer_calibration(
+                    source_image=self.image_path.name,
+                    corners_px=self._corners,
+                    warp_matrix=self._warp_M,
+                    warped_size=self._warp_size,
+                    px_per_mm=self._px_per_mm,
+                    ref_points_warped_px=self._refs,
+                    ref_distance_mm=self.ref_mm,
+                )
+                self._set_phase(_Phase.DONE)
+            elif key == Qt.Key.Key_R:
+                self._corners.clear()
+                self._refs.clear()
+                self._clear_overlays()
+                self._set_phase(_Phase.CORNERS)
+            elif key == Qt.Key.Key_N:
+                self._set_phase(_Phase.SKIP)
+
+        else:
+            super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
     # Perspective warp
     # ------------------------------------------------------------------
 
     def _build_warp(self) -> None:
-        M_list, size = compute_homography(self._corners_o)
-        M_np = self.np.array(M_list, dtype=self.np.float64)
+        np  = self._np
+        cv2 = self._cv2
+        M_list, size    = compute_homography(self._corners)
+        M_np            = np.array(M_list, dtype=np.float64)
+        self._warped    = cv2.warpPerspective(self.original, M_np, tuple(size))
         self._warp_M    = M_list
         self._warp_size = size
-        warped = self.cv2.warpPerspective(self.original, M_np, tuple(size))
-        self._warped_o  = warped
-        self._warp_scale = min(1.0, self.MAX_W / size[0], self.MAX_H / size[1])
-        self._warp_ann_s = 1.0 / self._warp_scale
-        self._warp_dw = int(size[0] * self._warp_scale)
-        self._warp_dh = int(size[1] * self._warp_scale)
 
     # ------------------------------------------------------------------
-    # Mouse callback
+    # Window close
     # ------------------------------------------------------------------
 
-    def _on_mouse(self, event, x, y, flags, param):
-        cv2 = self.cv2
-        if event == cv2.EVENT_MOUSEMOVE:
-            self._mouse_win = (x, y)
-        elif event == cv2.EVENT_LBUTTONDOWN:
-            if self.phase == _Phase.CORNERS and len(self._corners_d) < 4:
-                xhair_o = self._to_orig(x, y)
-                self._corners_d.append((x, y))
-                self._corners_o.append(xhair_o)
-            elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
-                self._refs_d.append((x, y))
-                self._refs_o.append(self._to_warp_orig(x, y))
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
+    def closeEvent(self, event) -> None:
+        if self._loop and self._loop.isRunning():
+            self.quit_all = True
+            self._loop.quit()
+        super().closeEvent(event)
 
-    def run(self) -> tuple:
-        """
-        Block until the user finishes or skips.
-        Returns (layer_label, layer_cal_dict) on save, or (None, None) on skip.
-        Sets self.quit_all = True if the user pressed Q.
-        """
-        cv2 = self.cv2
-        cv2.namedWindow(self.WINDOW, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
-        cv2.setMouseCallback(self.WINDOW, self._on_mouse)
-
-        terminal_phases = {_Phase.DONE, _Phase.SKIP, _Phase.QUIT}
-        prev_phase = None
-
-        while self.phase not in terminal_phases:
-            # When switching to the warp-based phases, resize the window
-            if self.phase != prev_phase:
-                if self.phase in (_Phase.REFPTS, _Phase.SUMMARY):
-                    cv2.resizeWindow(self.WINDOW, self._warp_dw, self._warp_dh)
-                elif self.phase in (_Phase.ACCEPT, _Phase.LAYER, _Phase.CORNERS):
-                    cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
-                prev_phase = self.phase
-
-            # Render current phase
-            if self.phase == _Phase.ACCEPT:
-                frame = self._frame_accept()
-            elif self.phase == _Phase.LAYER:
-                frame = self._frame_layer()
-            elif self.phase == _Phase.CORNERS:
-                frame = self._frame_corners()
-            elif self.phase == _Phase.REFPTS:
-                frame = self._frame_refpts()
-            elif self.phase == _Phase.SUMMARY:
-                frame = self._frame_summary()
-            else:
-                break
-
-            cv2.imshow(self.WINDOW, frame)
-            key = cv2.waitKey(30) & 0xFF
-
-            if key == 255:   # no key pressed
-                continue
-
-            self._handle_key(key)
-
-        cv2.destroyWindow(self.WINDOW)
-        return self.result_layer, self.result_cal
-
-    def _handle_key(self, key: int) -> None:
-        """Dispatch key presses for the current phase."""
-        p = self.phase
-
-        if p == _Phase.ACCEPT:
-            if key in (ord('y'), ord('Y')):
-                self.phase = _Phase.LAYER
-            elif key in (ord('n'), ord('N')):
-                self.phase = _Phase.SKIP
-            elif key in (ord('q'), ord('Q')):
-                self.quit_all = True
-                self.phase = _Phase.QUIT
-
-        elif p == _Phase.LAYER:
-            if key in (ord('t'), ord('T')) and not self._layer_buf:
-                self.result_layer = "top"
-                self.phase = _Phase.CORNERS
-            elif key in (ord('b'), ord('B')) and not self._layer_buf:
-                self.result_layer = "bottom"
-                self.phase = _Phase.CORNERS
-            elif key == 13:   # Enter
-                self.result_layer = self._layer_buf.strip() or "top"
-                self._layer_buf = ""
-                self.phase = _Phase.CORNERS
-            elif key == 8:    # Backspace
-                self._layer_buf = self._layer_buf[:-1]
-            elif 32 <= key < 127:
-                self._layer_buf += chr(key)
-
-        elif p == _Phase.CORNERS:
-            if key == 8 and self._corners_d:      # Backspace — undo last
-                self._corners_d.pop()
-                self._corners_o.pop()
-            elif key in (ord('r'), ord('R')):     # Redo all corners
-                self._corners_d.clear()
-                self._corners_o.clear()
-            elif key == 13 and len(self._corners_d) == 4:   # Enter — confirm
-                self._build_warp()
-                self.phase = _Phase.REFPTS
-
-        elif p == _Phase.REFPTS:
-            if key == 8 and self._refs_d:         # Backspace — undo last
-                self._refs_d.pop()
-                self._refs_o.pop()
-            elif key == 13 and len(self._refs_d) == 2:      # Enter — confirm
-                self._px_per_mm = compute_px_per_mm(
-                    self._refs_o[0], self._refs_o[1], self.ref_mm
-                )
-                self.phase = _Phase.SUMMARY
-
-        elif p == _Phase.SUMMARY:
-            if key in (ord('s'), ord('S')):
-                self.result_cal = make_layer_calibration(
-                    source_image=self.image_path.name,
-                    corners_px=self._corners_o,
-                    warp_matrix=self._warp_M,
-                    warped_size=self._warp_size,
-                    px_per_mm=self._px_per_mm,
-                    ref_points_warped_px=self._refs_o,
-                    ref_distance_mm=self.ref_mm,
-                )
-                self.phase = _Phase.DONE
-            elif key in (ord('r'), ord('R')):     # Redo from corners
-                self._corners_d.clear()
-                self._corners_o.clear()
-                self._refs_d.clear()
-                self._refs_o.clear()
-                self.phase = _Phase.CORNERS
-            elif key in (ord('n'), ord('N')):
-                self.phase = _Phase.SKIP
 
 
 # ---------------------------------------------------------------------------
@@ -627,30 +585,30 @@ def headless_calibrate(
     )
 
 
+
 # ---------------------------------------------------------------------------
-# Coordinate calibration diagnostic
+# Coordinate calibration diagnostic (PyQt6)
 # ---------------------------------------------------------------------------
 
 def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
     """
-    Diagnostic tool for verifying mouse↔image coordinate conversion formulas.
+    Diagnostic tool for verifying that QGraphicsView.mapToScene() correctly maps
+    window mouse coordinates to image-pixel coordinates on this platform.
 
-    The test image contains two sets of targets:
+    The test image has two sets of targets:
 
-      CLICK targets (cyan ⊕):
-        Click the centre of each.  On click, stdout prints the raw callback
-        coords plus what each conversion formula computes, alongside the
-        known expected image coords and pixel error.  The formula with
-        ~0 px error is correct.
+      CYAN ⊕ (click targets)   — click the centre; stdout prints image coords
+                                 and pixel error vs the known position.
+                                 ~0 px error means mapToScene() is correct.
 
-      CROSSHAIR targets (orange □):
-        Hover over each.  Two live crosshairs are drawn simultaneously:
-          RED   = orig_scale formula  (x / orig_scale)
-          GREEN = rect formula        (x * img_w / rendered_w)
-        The crosshair that visually lands on the orange target is correct.
+      ORANGE □ (hover targets) — hover over each; the crosshair should land on
+                                 the square.  If not, report the platform issue.
 
-    Press [Q] or [Esc] to quit.
+    Close the window to print a summary.
     """
+    if not _PYQT6:
+        print("PyQt6 required: pip install PyQt6")
+        return
     try:
         import cv2
         import numpy as np
@@ -658,253 +616,143 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
         print("opencv-python required: pip install opencv-python")
         return
 
-    WINDOW = "r1mx Coord Calibration"
-    font   = cv2.FONT_HERSHEY_SIMPLEX
+    from r1mx_gui import ImageViewer, draw_crosshair as _static_xhair
 
-    # ------------------------------------------------------------------
-    # Click targets — cyan crosshairs at known positions
-    # ------------------------------------------------------------------
     click_targets = [
-        (0,           0),
-        (img_w - 1,   0),
-        (img_w - 1,   img_h - 1),
-        (0,           img_h - 1),
-        (img_w // 2,  img_h // 2),
-        (img_w // 4,  img_h // 4),
-        (3 * img_w // 4, img_h // 4),
-        (img_w // 4,  3 * img_h // 4),
-        (3 * img_w // 4, 3 * img_h // 4),
+        (0,               0),
+        (img_w - 1,       0),
+        (img_w - 1,       img_h - 1),
+        (0,               img_h - 1),
+        (img_w // 2,      img_h // 2),
+        (img_w // 4,      img_h // 4),
+        (3 * img_w // 4,  img_h // 4),
+        (img_w // 4,      3 * img_h // 4),
+        (3 * img_w // 4,  3 * img_h // 4),
     ]
-
-    # ------------------------------------------------------------------
-    # Crosshair targets — orange squares at different known positions
-    # so they don't overlap with click targets
-    # ------------------------------------------------------------------
     xhair_targets = [
-        (img_w // 2,  0),
-        (img_w - 1,   img_h // 2),
-        (img_w // 2,  img_h - 1),
-        (0,           img_h // 2),
-        (img_w // 3,  img_h // 3),
-        (2 * img_w // 3, img_h // 3),
-        (img_w // 3,  2 * img_h // 3),
-        (2 * img_w // 3, 2 * img_h // 3),
+        (img_w // 2,      0),
+        (img_w - 1,       img_h // 2),
+        (img_w // 2,      img_h - 1),
+        (0,               img_h // 2),
+        (img_w // 3,      img_h // 3),
+        (2 * img_w // 3,  img_h // 3),
+        (img_w // 3,      2 * img_h // 3),
+        (2 * img_w // 3,  2 * img_h // 3),
     ]
 
-    # Build static background image
-    img = np.full((img_h, img_w, 3), 30, dtype=np.uint8)
-
-    # Grid
-    for gx in range(0, img_w, img_w // 8):
-        cv2.line(img, (gx, 0), (gx, img_h), (55, 55, 55), 1)
-    for gy in range(0, img_h, img_h // 8):
-        cv2.line(img, (0, gy), (img_w, gy), (55, 55, 55), 1)
-
-    ARM = 20
-    # Draw click targets (cyan ⊕)
-    for tx, ty in click_targets:
-        cv2.line(img, (max(0, tx - ARM), ty), (min(img_w-1, tx + ARM), ty), (0, 220, 255), 1)
-        cv2.line(img, (tx, max(0, ty - ARM)), (tx, min(img_h-1, ty + ARM)), (0, 220, 255), 1)
-        cv2.circle(img, (tx, ty), 5, (0, 220, 255), 1)
-        cv2.circle(img, (tx, ty), 1, (0, 220, 255), -1)
-        label = f"C({tx},{ty})"
-        lx = tx + 8 if tx + 140 < img_w else tx - 135
-        ly = ty - 10 if ty > 25 else ty + 22
-        cv2.putText(img, label, (lx, ly), font, 0.38, (0, 220, 255), 1, cv2.LINE_AA)
-
-    # Draw crosshair targets (orange □ squares)
-    SZ = 12
-    for tx, ty in xhair_targets:
-        x0, y0 = max(0, tx - SZ), max(0, ty - SZ)
-        x1, y1 = min(img_w-1, tx + SZ), min(img_h-1, ty + SZ)
-        cv2.rectangle(img, (x0, y0), (x1, y1), (0, 120, 255), 1)
-        cv2.line(img, (max(0, tx-4), ty), (min(img_w-1, tx+4), ty), (0, 120, 255), 1)
-        cv2.line(img, (tx, max(0, ty-4)), (tx, min(img_h-1, ty+4)), (0, 120, 255), 1)
-        label = f"H({tx},{ty})"
-        lx = tx + SZ + 4 if tx + SZ + 120 < img_w else tx - SZ - 120
-        ly = ty - SZ - 4 if ty > SZ + 20 else ty + SZ + 16
-        cv2.putText(img, label, (lx, ly), font, 0.38, (0, 120, 255), 1, cv2.LINE_AA)
-
-    # Legend
-    legend_y = img_h - 32
-    cv2.putText(img, "CYAN ⊕  = click targets  (check stdout formula errors)",
-                (10, legend_y),      font, 0.40, (0, 220, 255), 1, cv2.LINE_AA)
-    cv2.putText(img, "ORANGE □ = hover targets  RED crosshair=orig_scale  GREEN crosshair=rect",
-                (10, legend_y + 18), font, 0.40, (0, 120, 255), 1, cv2.LINE_AA)
-    cv2.putText(img, "[Q] quit",
-                (img_w - 80, legend_y + 18), font, 0.40, (180, 180, 180), 1, cv2.LINE_AA)
-
-    # Display dims
-    MAX_W, MAX_H = 1600, 900
-    orig_scale = min(1.0, MAX_W / img_w, MAX_H / img_h)
-    dw = int(img_w * orig_scale)
-    dh = int(img_h * orig_scale)
-
-    print(f"\n[COORD-CAL] Image: {img_w}×{img_h}  orig_scale={orig_scale:.6f}  window request: {dw}×{dh}")
-    print(f"[COORD-CAL] Click targets (cyan):       {click_targets}")
-    print(f"[COORD-CAL] Crosshair targets (orange): {xhair_targets}")
+    # ── Instructions ─────────────────────────────────────────────────────────
     print()
     print("════════════════════════════════════════════════════════════════════")
-    print("  COORDINATE CALIBRATION DIAGNOSTIC")
+    print("  COORDINATE CALIBRATION DIAGNOSTIC  (PyQt6)")
     print("════════════════════════════════════════════════════════════════════")
     print()
-    print("  This tool tests two candidate formulas for converting mouse window")
-    print("  coordinates into image pixel coordinates.")
+    print("  Coordinate mapping: QGraphicsView.mapToScene(event.pos())")
     print()
-    print("  Formula A  (RED crosshair)   :  image_x = win_x / orig_scale")
-    print("  Formula B  (GREEN crosshair) :  image_x = win_x * img_w / rendered_w")
-    print("                                  where rendered_w = getWindowImageRect()[2]")
+    print(f"  Image: {img_w}×{img_h}")
+    print(f"  Click targets (cyan ⊕):       {click_targets}")
+    print(f"  Crosshair targets (orange □):  {xhair_targets}")
     print()
     print("  ── STEP 1: Hover over ORANGE □ targets ─────────────────────────")
-    print("  Watch which coloured crosshair visually lands on the orange square")
-    print("  as you move the mouse over it.")
-    print("    • RED crosshair lands on target  → press [R] to record Formula A")
-    print("    • GREEN crosshair lands on target → press [G] to record Formula B")
-    print("    • Neither / unsure               → skip, rely on click results")
+    print("  The crosshair should visually land on the orange square.")
+    print("  If it does not, mapToScene() has a platform-specific issue.")
     print()
     print("  ── STEP 2: Click CYAN ⊕ targets ────────────────────────────────")
-    print("  Click the exact centre of each cyan crosshair.")
-    print("  stdout prints both formula results + pixel error vs the known position.")
-    print("    • ~0 px error  → that formula is correct for click placement")
-    print("    • Large error  → that formula is wrong")
+    print("  Click the exact centre of each cyan crosshair marker.")
+    print("  stdout prints the image-pixel result and error vs the known position.")
+    print("    • ~0 px error → mapToScene() is correct")
+    print("    • Large error → report this; a workaround will be needed")
     print()
-    print("  ── STEP 3: Quit and read the summary ────────────────────────────")
-    print("  Press [Q] or [Esc]. A summary will print combining hover vote + click")
-    print("  errors with a clear recommendation.")
-    print()
-    print("  [R] RED aligns   [G] GREEN aligns   [Q]/[Esc] quit")
+    print("  Close the window to print a summary.")
     print("════════════════════════════════════════════════════════════════════")
     print()
 
-    mouse_win = [None]
-    alignment_vote: list[str | None] = [None]   # 'A'=RED, 'B'=GREEN
-    click_errors: list[tuple[float, float]] = []  # (err_scale, err_rect) per click
+    # ── Build synthetic test image (numpy BGR) ────────────────────────────────
+    img = np.full((img_h, img_w, 3), 40, dtype=np.uint8)
+    for x in range(0, img_w, img_w // 8):
+        cv2.line(img, (x, 0), (x, img_h - 1), (70, 70, 70), 1)
+    for y in range(0, img_h, img_h // 6):
+        cv2.line(img, (0, y), (img_w - 1, y), (70, 70, 70), 1)
 
-    def _xhair(frame, ix, iy, color, arm=14):
-        h, w = frame.shape[:2]
-        cv2.line(frame, (max(0, ix-arm), iy), (min(w-1, ix+arm), iy), (0,0,0), 3, cv2.LINE_AA)
-        cv2.line(frame, (ix, max(0, iy-arm)), (ix, min(h-1, iy+arm)), (0,0,0), 3, cv2.LINE_AA)
-        cv2.line(frame, (max(0, ix-arm), iy), (min(w-1, ix+arm), iy), color,   1, cv2.LINE_AA)
-        cv2.line(frame, (ix, max(0, iy-arm)), (ix, min(h-1, iy+arm)), color,   1, cv2.LINE_AA)
+    # ── Qt window ────────────────────────────────────────────────────────────
+    app    = QApplication.instance() or QApplication(sys.argv)
+    viewer = ImageViewer()
+    viewer.setWindowTitle("r1mx Coord Calibration")
+    viewer.resize(min(img_w, 1400), min(img_h, 800))
+    viewer.set_image(img)
+    viewer.set_crosshair_visible(True)
 
-    def on_mouse(event, x, y, flags, param):
-        if event == cv2.EVENT_MOUSEMOVE:
-            mouse_win[0] = (x, y)
-            return
-        if event != cv2.EVENT_LBUTTONDOWN:
-            return
+    scene    = viewer.scene()
+    sq_half  = max(8, img_w // 80)
 
-        rect = cv2.getWindowImageRect(WINDOW)
-        rw = max(1, rect[2])
-        rh = max(1, rect[3])
+    # Draw orange □ hover targets
+    for tx, ty in xhair_targets:
+        rect = QGraphicsRectItem(tx - sq_half, ty - sq_half, sq_half * 2, sq_half * 2)
+        rect.setPen(QPen(QColor(255, 140, 0), 3))
+        rect.setZValue(3)
+        scene.addItem(rect)
+        lbl = QGraphicsTextItem(f"({tx},{ty})")
+        lbl.setDefaultTextColor(QColor(255, 180, 0))
+        lbl.setPos(tx + sq_half + 4, ty - 10)
+        lbl.setZValue(3)
+        scene.addItem(lbl)
 
-        cx_scale = int(x / orig_scale)
-        cy_scale = int(y / orig_scale)
-        cx_rect  = int(x * img_w / rw)
-        cy_rect  = int(y * img_h / rh)
+    # Draw cyan ⊕ click targets (static crosshairs)
+    arm = max(12, img_w // 100)
+    for tx, ty in click_targets:
+        _static_xhair(scene, tx, ty, color=QColor(0, 255, 255), arm=arm)
+        lbl = QGraphicsTextItem(f"({tx},{ty})")
+        lbl.setDefaultTextColor(QColor(0, 220, 220))
+        lbl.setPos(tx + arm + 4, ty - 10)
+        lbl.setZValue(3)
+        scene.addItem(lbl)
 
-        # Nearest click target (using average of both formulas to pick best match)
-        cx_avg = (cx_scale + cx_rect) // 2
-        cy_avg = (cy_scale + cy_rect) // 2
-        nearest = min(click_targets, key=lambda t: (t[0]-cx_avg)**2 + (t[1]-cy_avg)**2)
+    click_errors: list[float] = []
+
+    def on_click(pt: QPointF) -> None:
+        x, y    = pt.x(), pt.y()
+        nearest = min(click_targets, key=lambda t: (t[0] - x) ** 2 + (t[1] - y) ** 2)
         tx_exp, ty_exp = nearest
-
-        err_scale = ((cx_scale - tx_exp)**2 + (cy_scale - ty_exp)**2)**0.5
-        err_rect  = ((cx_rect  - tx_exp)**2 + (cy_rect  - ty_exp)**2)**0.5
-
+        err = math.sqrt((x - tx_exp) ** 2 + (y - ty_exp) ** 2)
+        click_errors.append(err)
         print(
-            f"[CLICK]  win=({x:5d},{y:5d})"
-            f"  rect={rect}  rw={rw} rh={rh}"
-            f"  orig_scale={orig_scale:.4f}"
+            f"[CLICK]  image=({x:7.1f},{y:7.1f})"
             f"  expected=({tx_exp:5d},{ty_exp:5d})"
-            f"  orig_scale→({cx_scale:5d},{cy_scale:5d}) err={err_scale:6.1f}px"
-            f"  rect→({cx_rect:5d},{cy_rect:5d}) err={err_rect:6.1f}px",
+            f"  err={err:6.2f} px",
             flush=True,
         )
-        click_errors.append((err_scale, err_rect))
 
-    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW, dw, dh)
-    cv2.setMouseCallback(WINDOW, on_mouse)
+    viewer.imageClicked.connect(on_click)
 
-    while True:
-        frame = img.copy()
+    loop = QEventLoop()
 
-        if mouse_win[0] is not None:
-            mx_w, my_w = mouse_win[0]
-            rect = cv2.getWindowImageRect(WINDOW)
-            rw, rh = max(1, rect[2]), max(1, rect[3])
+    class _Win(QMainWindow):
+        def closeEvent(self, event):          # type: ignore[override]
+            loop.quit()
+            super().closeEvent(event)
 
-            # RED crosshair — orig_scale formula
-            ix_s = int(mx_w / orig_scale)
-            iy_s = int(my_w / orig_scale)
-            if 0 <= ix_s < img_w and 0 <= iy_s < img_h:
-                _xhair(frame, ix_s, iy_s, (60, 60, 255))   # red (BGR)
-
-            # GREEN crosshair — rect formula
-            ix_r = int(mx_w * img_w / rw)
-            iy_r = int(my_w * img_h / rh)
-            if 0 <= ix_r < img_w and 0 <= iy_r < img_h:
-                _xhair(frame, ix_r, iy_r, (60, 220, 60))   # green (BGR)
-
-        cv2.imshow(WINDOW, frame)
-        key = cv2.waitKey(30) & 0xFF
-        if key in (ord('r'), ord('R')):
-            alignment_vote[0] = 'A'
-            print("[COORD-CAL] You marked: RED crosshair (Formula A = orig_scale) aligns with the orange target.", flush=True)
-        elif key in (ord('g'), ord('G')):
-            alignment_vote[0] = 'B'
-            print("[COORD-CAL] You marked: GREEN crosshair (Formula B = rect) aligns with the orange target.", flush=True)
-        elif key in (ord('q'), ord('Q'), 27):
-            break
-
-    cv2.destroyWindow(WINDOW)
+    win = _Win()
+    win.setCentralWidget(viewer)
+    win.setWindowTitle("r1mx Coord Calibration")
+    win.resize(min(img_w, 1400), min(img_h, 800))
+    win.show()
+    loop.exec()
 
     # ── Summary ──────────────────────────────────────────────────────────────
     print()
     print("════════════════════════════════════════════════════════════════════")
     print("  RESULTS SUMMARY")
     print("════════════════════════════════════════════════════════════════════")
-
-    vote = alignment_vote[0]
-    if vote == 'A':
-        print("  Hover vote : RED  (Formula A — orig_scale)")
-    elif vote == 'B':
-        print("  Hover vote : GREEN (Formula B — rect)")
-    else:
-        print("  Hover vote : (none recorded)")
-
     if click_errors:
-        avg_a = sum(e[0] for e in click_errors) / len(click_errors)
-        avg_b = sum(e[1] for e in click_errors) / len(click_errors)
-        print(f"  Click avg error — Formula A (orig_scale): {avg_a:.1f} px  ({len(click_errors)} clicks)")
-        print(f"  Click avg error — Formula B (rect)      : {avg_b:.1f} px")
-        click_winner = 'A' if avg_a < avg_b else 'B'
-    else:
-        avg_a = avg_b = None
-        click_winner = None
-        print("  Click errors : (no clicks recorded)")
-
-    print()
-    agree = (vote == click_winner) if (vote and click_winner) else None
-    if vote and click_winner:
-        if agree:
-            winner = vote
-            print(f"  ✓ Both methods agree: Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
+        avg = sum(click_errors) / len(click_errors)
+        worst = max(click_errors)
+        print(f"  Clicks: {len(click_errors)}   avg error: {avg:.2f} px   worst: {worst:.2f} px")
+        if avg < 2.0:
+            print("  ✓ mapToScene() is correct on this platform.")
         else:
-            print("  ✗ Methods DISAGREE — hover and click suggest different formulas.")
-            print("    Please re-run and try to click more precisely on the targets.")
-    elif click_winner:
-        winner = click_winner
-        print(f"  Click data suggests Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
-        print("  (No hover vote recorded — hover over orange squares and press [R] or [G] next time.)")
-    elif vote:
-        winner = vote
-        print(f"  Hover vote suggests Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
-        print("  (No clicks recorded — click cyan ⊕ targets next time for confirmation.)")
+            print("  ✗ Large error — mapToScene() may have a platform-specific issue.")
+            print("    Please report: avg error, OS, display scale factor.")
     else:
-        print("  No data collected. Run again: hover over orange squares (press R/G) and click cyan targets.")
-
+        print("  No clicks recorded.  Click the cyan ⊕ targets to measure error.")
     print("════════════════════════════════════════════════════════════════════")
     print()
 

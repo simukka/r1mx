@@ -1,3 +1,6 @@
+# GUI
+PyQt6>=6.6
+
 # Core image processing
 opencv-python>=4.9
 pillow>=10.0

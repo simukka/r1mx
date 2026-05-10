@@ -18,3 +18,4 @@ __pycache__/
 .env
 datasheet_db/
 datasheet_index.json
+r1mx.db
