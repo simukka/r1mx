@@ -230,16 +230,29 @@ class CalibrationGUI(QMainWindow):
         ref_mm: float,
         index: int,
         total: int,
+        preset_layer: str | None = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        image_path    : path to the board photograph
+        ref_mm        : known distance between the two reference points
+        index / total : used for the window title (e.g. "1 / 3")
+        preset_layer  : when set, the ACCEPT and LAYER phases are skipped —
+                        the window goes straight to corner selection.  Use
+                        this when the caller already knows which layer the
+                        image belongs to (e.g. via right-click in the tree).
+        """
         if not _PYQT6:
             log.error("PyQt6 is required for the GUI.  Run: pip install PyQt6")
             sys.exit(1)
         super().__init__()
 
-        self.image_path = image_path
-        self.ref_mm     = ref_mm
-        self.index      = index
-        self.total      = total
+        self.image_path   = image_path
+        self.ref_mm       = ref_mm
+        self.index        = index
+        self.total        = total
+        self._preset_layer = preset_layer   # None → normal ACCEPT→LAYER flow
 
         # ── Load image ──────────────────────────────────────────────────────
         try:
@@ -260,7 +273,7 @@ class CalibrationGUI(QMainWindow):
         # ── State ───────────────────────────────────────────────────────────
         self.phase        = _Phase.ACCEPT
         self._layer_buf   = ""
-        self.result_layer = None
+        self.result_layer = preset_layer    # pre-fill if given
         self.result_cal   = None
         self.quit_all     = False
 
@@ -300,8 +313,10 @@ class CalibrationGUI(QMainWindow):
         max_h  = int(screen.height() * 0.85)
         scale  = min(1.0, max_w / w, max_h / h)
         self.resize(int(w * scale), int(h * scale))
+
+        layer_tag = f"  [layer: {preset_layer}]" if preset_layer else ""
         self.setWindowTitle(
-            f"{self.TITLE}  [{index + 1}/{total}]  {image_path.name}"
+            f"{self.TITLE}  [{index + 1}/{total}]  {image_path.name}{layer_tag}"
         )
 
         self._viewer.set_image(self.original)
@@ -317,6 +332,9 @@ class CalibrationGUI(QMainWindow):
         """Show window and block until the user finishes, skips, or quits."""
         self._loop = QEventLoop()
         self.show()
+        # When the layer is already known, skip straight to corner selection.
+        if self._preset_layer:
+            self._set_phase(_Phase.CORNERS)
         self._loop.exec()
         self.hide()
         return self.result_layer, self.result_cal

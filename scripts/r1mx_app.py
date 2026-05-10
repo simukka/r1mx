@@ -233,10 +233,11 @@ class BoardTreePanel(QWidget):
     """Left dock: tree of boards → layers → object types with visibility checkboxes."""
 
     # Emitted when a node is selected (board/layer) or visibility toggled
-    boardSelected     = pyqtSignal(str)                    # board name
-    layerSelected     = pyqtSignal(str, str)               # board, layer
-    visibilityChanged = pyqtSignal(str, str, str, bool)    # board, layer, objtype, visible
-    imageSelectRequested = pyqtSignal(str, str)            # board, layer
+    boardSelected        = pyqtSignal(str)                    # board name
+    layerSelected        = pyqtSignal(str, str)               # board, layer
+    visibilityChanged    = pyqtSignal(str, str, str, bool)    # board, layer, objtype, visible
+    imageSelectRequested = pyqtSignal(str, str)               # board, layer
+    calibrateRequested   = pyqtSignal(str, str)               # board, layer
 
     def __init__(self, db: DB, parent=None):
         super().__init__(parent)
@@ -354,8 +355,10 @@ class BoardTreePanel(QWidget):
 
         menu = QMenu(self)
         if kind == "layer":
-            act = menu.addAction("Select image…")
-            act.triggered.connect(lambda: self.imageSelectRequested.emit(board, layer))
+            sel_act = menu.addAction("Select image…")
+            sel_act.triggered.connect(lambda: self.imageSelectRequested.emit(board, layer))
+            cal_act = menu.addAction("Calibrate…")
+            cal_act.triggered.connect(lambda: self.calibrateRequested.emit(board, layer))
         elif kind == "board":
             act = menu.addAction("Refresh")
             act.triggered.connect(self.refresh)
@@ -718,6 +721,7 @@ class MainWindow(QMainWindow):
         self._tree.layerSelected.connect(self._open_layer)
         self._tree.visibilityChanged.connect(self._on_visibility_changed)
         self._tree.imageSelectRequested.connect(self._pick_layer_image)
+        self._tree.calibrateRequested.connect(self._calibrate_layer)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -766,6 +770,7 @@ class MainWindow(QMainWindow):
         board_menu = mb.addMenu("&Board")
         board_menu.addAction("Show in filesystem…", self._open_board_dir)
         board_menu.addAction("Select layer image…", self._pick_active_layer_image)
+        board_menu.addAction("Calibrate layer…", self._calibrate_active_layer)
 
         # View
         view_menu = mb.addMenu("&View")
@@ -979,33 +984,73 @@ class MainWindow(QMainWindow):
         return None
 
     def _run_calibrate(self):
+        """
+        Toolbar 'Calibrate Board' button.
+
+        Runs the full interactive calibration over all images in the board
+        directory (normal ACCEPT → LAYER → CORNERS → REFPTS flow).
+        If a specific layer is active, that layer's source image is offered first.
+        """
         board = self._require_board()
         if not board:
             return
+
+        sys.path.insert(0, str(_SCRIPTS))
+        try:
+            from calibrate_board import CalibrationGUI, save_calibration, find_all_images
+        except ImportError as exc:
+            QMessageBox.critical(self, "Import error",
+                                 f"Cannot import calibrate_board:\n{exc}")
+            return
+
+        board_dir = _REPO / "components" / board
+        images = find_all_images(board_dir)
+        if not images:
+            QMessageBox.warning(self, "No images",
+                                f"No image files found in:\n{board_dir}")
+            return
+
         self._log.clear()
-        self._log.append(f"Starting calibration for {board} …")
-        self._log.set_busy(True)
+        self._log.append(f"Calibrating {board}  ({len(images)} image(s)) …")
+        board_id = self._db.get_or_create_board(board)
+        saved = 0
 
-        cmd = [sys.executable, str(_SCRIPTS / "calibrate_board.py"), "--board", board]
-        w = SubprocessWorker(cmd, self)
-        w.signals.line.connect(self._log.append)
-        w.signals.finished.connect(self._on_calibrate_done)
-        self._workers.append(w)
-        w.start()
+        for i, img_path in enumerate(images):
+            try:
+                # No preset_layer — let the GUI ask [Y/N] and [T/B]
+                gui = CalibrationGUI(img_path, 2.54, index=i, total=len(images))
+            except ValueError as exc:
+                self._log.append(f"  Skipping {img_path.name}: {exc}")
+                continue
 
-    def _on_calibrate_done(self, ok: bool, msg: str):
-        self._log.set_busy(False)
-        self._log.append(f"Calibration {'complete' if ok else 'failed'}: {msg}")
-        if ok:
-            # Migrate JSON → DB for the active board
-            self._db.migrate_calibration_json(self._active_board)
-            self._tree.refresh()
-            # Reload scene
-            if self._active_board and self._active_layer:
-                key = (self._active_board, self._active_layer)
-                if key in self._layer_scenes:
-                    del self._layer_scenes[key]
-                self._open_layer(self._active_board, self._active_layer)
+            layer_result, layer_cal = gui.run()
+
+            if gui.quit_all:
+                self._log.append("  Calibration cancelled.")
+                break
+
+            if layer_result is not None and layer_cal is not None:
+                save_calibration(board, layer_result, layer_cal, board_dir)
+                self._db.save_layer_calibration(
+                    board_id, layer_result, layer_cal["source_image"], layer_cal
+                )
+                saved += 1
+                self._log.append(
+                    f"  Saved: {board}/{layer_result}  "
+                    f"{layer_cal['px_per_mm']:.2f} px/mm"
+                )
+            else:
+                self._log.append(f"  Skipped: {img_path.name}")
+
+        self._log.append(
+            f"Done — {saved} layer(s) calibrated." if saved else "No layers calibrated."
+        )
+        self._tree.refresh()
+        if saved and self._active_board and self._active_layer:
+            key = (self._active_board, self._active_layer)
+            if key in self._layer_scenes:
+                del self._layer_scenes[key]
+            self._open_layer(self._active_board, self._active_layer)
 
     def _run_extract_layers(self):
         board = self._require_board()
@@ -1164,6 +1209,118 @@ class MainWindow(QMainWindow):
 
         # If this is the active layer, reload the canvas
         if board_name == self._active_board and layer_name == self._active_layer:
+            key = (board_name, layer_name)
+            if key in self._layer_scenes:
+                del self._layer_scenes[key]
+            self._open_layer(board_name, layer_name)
+
+    def _calibrate_active_layer(self):
+        """Board menu shortcut: calibrate the currently active layer."""
+        if self._active_board and self._active_layer:
+            self._calibrate_layer(self._active_board, self._active_layer)
+        else:
+            QMessageBox.information(self, "No layer active",
+                                    "Select a board and layer first.")
+
+    def _calibrate_layer(self, board_name: str, layer_name: str):
+        """
+        Run CalibrationGUI for the source image of the given layer.
+
+        If no source image is set yet, the image picker opens first so the
+        user can choose one.  The calibration runs in-process via a nested
+        QEventLoop — no subprocess needed.
+
+        On completion, results are written to:
+          • components/<board>/calibration.json  (for CLI tool compatibility)
+          • r1mx.db  layers table                (single source of truth)
+        """
+        # Import calibration helpers from calibrate_board.py
+        sys.path.insert(0, str(_SCRIPTS))
+        try:
+            from calibrate_board import (
+                CalibrationGUI, save_calibration, find_all_images,
+            )
+        except ImportError as exc:
+            QMessageBox.critical(self, "Import error",
+                                 f"Cannot import calibrate_board:\n{exc}")
+            return
+
+        board_dir = _REPO / "components" / board_name
+        if not board_dir.is_dir():
+            QMessageBox.warning(self, "Board not found",
+                                f"Directory not found:\n{board_dir}")
+            return
+
+        board_id  = self._db.get_or_create_board(board_name)
+        layer_row = self._db.get_layer(board_id, layer_name)
+        source_image = layer_row["source_image"] if layer_row else ""
+
+        # If no image is assigned, open the picker first
+        if not source_image:
+            dlg = ImagePickerDialog(board_dir, "", parent=self)
+            if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_file:
+                return
+            source_image = dlg.selected_file
+            # Save choice immediately
+            layer_id = self._db.get_or_create_layer(board_id, layer_name)
+            self._db.conn().execute(
+                "UPDATE layers SET source_image=? WHERE id=?",
+                (source_image, layer_id),
+            )
+            self._db.conn().commit()
+
+        image_path = board_dir / source_image
+        if not image_path.exists():
+            QMessageBox.warning(self, "Image not found",
+                                f"Image file not found:\n{image_path}\n\n"
+                                "Use right-click → Select image… to reassign.")
+            return
+
+        images = [image_path]
+
+        self._log.append(
+            f"Calibrating {board_name}/{layer_name}  ({source_image}) …"
+        )
+
+        saved = 0
+        ref_mm = 2.54   # standard 0.1″ header pitch — could be a dialog option later
+
+        for i, img_path in enumerate(images):
+            try:
+                gui = CalibrationGUI(
+                    img_path, ref_mm,
+                    index=i, total=len(images),
+                    preset_layer=layer_name,
+                )
+            except ValueError as exc:
+                self._log.append(f"  Skipping {img_path.name}: {exc}")
+                continue
+
+            layer_result, layer_cal = gui.run()
+
+            if gui.quit_all:
+                self._log.append("  Calibration cancelled.")
+                break
+
+            if layer_result is not None and layer_cal is not None:
+                # Write calibration.json (keeps CLI scripts working)
+                save_calibration(board_name, layer_result, layer_cal, board_dir)
+                # Write to DB
+                self._db.save_layer_calibration(
+                    board_id, layer_result, layer_cal["source_image"], layer_cal
+                )
+                saved += 1
+                self._log.append(
+                    f"  Saved: {board_name}/{layer_result}  "
+                    f"{layer_cal['px_per_mm']:.2f} px/mm"
+                )
+            else:
+                self._log.append(f"  Skipped: {img_path.name}")
+
+        if saved:
+            self._log.append(f"Calibration complete — {saved} layer(s) saved.")
+            self._tree.refresh()
+            # Reload canvas for the calibrated layer
             key = (board_name, layer_name)
             if key in self._layer_scenes:
                 del self._layer_scenes[key]
