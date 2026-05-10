@@ -426,13 +426,30 @@ def process_image(
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     log.info("  Image size: %dx%d", gray.shape[1], gray.shape[0])
 
+    # For very dark images (mean < 80), apply gamma correction to lift shadows
+    mean_brightness = float(gray.mean())
+    if mean_brightness < 80:
+        gamma = 1 / max(0.3, mean_brightness / 128)
+        gamma = min(gamma, 3.0)
+        log.info("  Dark image (mean=%.0f) — applying gamma %.2f", mean_brightness, gamma)
+        lut = np.array([min(255, int(((i / 255.0) ** (1.0 / gamma)) * 255))
+                        for i in range(256)], dtype=np.uint8)
+        bgr = cv2.LUT(bgr, lut)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
 
     if engine == "easyocr":
         enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
         inverted_bgr = cv2.cvtColor(255 - enhanced, cv2.COLOR_GRAY2BGR)
-        variants = [enhanced_bgr, inverted_bgr]
+        # For dark boards, also add sharpened variant to catch fine silkscreen
+        if mean_brightness < 80:
+            sharp_kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+            sharpened = cv2.filter2D(enhanced_bgr, -1, sharp_kernel)
+            variants = [enhanced_bgr, inverted_bgr, sharpened]
+        else:
+            variants = [enhanced_bgr, inverted_bgr]
     else:
         variants = preprocess(gray)
 
@@ -552,6 +569,34 @@ def write_master_bom(all_entries: list[BomEntry], output_dir: Path) -> None:
     log.info("Wrote master BOM: %s (%d total entries)", out, len(all_entries))
 
 
+def rebuild_master_bom(output_dir: Path) -> None:
+    """
+    Re-read all per-board bom.csv files and write a fresh master BOM.
+    Used after single-board runs to avoid clobbering the full master.
+    """
+    all_entries: list[BomEntry] = []
+    for board_csv in sorted((COMPONENTS_DIR).glob("*/bom.csv")):
+        with board_csv.open() as f:
+            for row in csv.DictReader(f):
+                try:
+                    all_entries.append(BomEntry(
+                        board=row["board"],
+                        reference=row["reference"],
+                        ref_type=row["ref_type"],
+                        source_image=row["source_image"],
+                        engine=row["engine"],
+                        raw_text=row["raw_text"],
+                        x_px=int(row.get("x_px", -1)),
+                        y_px=int(row.get("y_px", -1)),
+                    ))
+                except (KeyError, ValueError):
+                    continue
+    if all_entries:
+        write_master_bom(all_entries, output_dir)
+    else:
+        log.warning("No per-board bom.csv files found")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -623,7 +668,11 @@ def main() -> None:
             all_entries.extend(entries)
 
     if all_entries:
-        write_master_bom(all_entries, output_dir)
+        if args.board:
+            # Single-board run: board CSV already written above; rebuild master from all boards
+            rebuild_master_bom(output_dir)
+        else:
+            write_master_bom(all_entries, output_dir)
     else:
         log.warning("No entries found — check image paths and OCR output.")
 
