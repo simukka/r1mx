@@ -210,6 +210,99 @@ and AUDIO_PCI board has broken traces on the CPU_IO board.
 3. https://www.xilinx.com/member/forms/download/xef.html?filename=EDK91.zip
 4. https://www.xilinx.com/member/10x_and_prior_regids.html
 
+# Tooling
+
+## BOM Extraction
+
+Extracts component text from PCB photographs using EasyOCR:
+
+```bash
+source .venv/bin/activate
+python scripts/extract_bom.py          # all boards
+python scripts/extract_bom.py --board cpu_io_board  # single board
+```
+
+Output: `bom_master.csv` (727 entries with pixel positions across all boards)
+
+## Datasheet RAG + MCP Server
+
+A local AI pipeline that lets agents query component datasheets using natural language.
+
+**Architecture:**
+- **Embeddings:** `fastembed` with `BAAI/bge-small-en-v1.5` (runs in-process, ~0.25s/32 chunks CPU)
+- **Vector DB:** ChromaDB (Docker, port 8000)
+- **LLM:** `mistral:7b` via ollama (Docker, port 11434)
+- **Interface:** MCP stdio server
+
+**Quick start:**
+
+```bash
+# 1. Start services
+docker compose up -d
+
+# 2. Pull LLM models (first run only)
+docker compose run --rm --profile init init-models
+
+# 3. Index all datasheets (57 PDFs, ~1929 chunks, takes ~5 min)
+source .venv/bin/activate
+python scripts/index_datasheets.py
+
+# 4. Fetch missing datasheets (searches alldatasheet.com, DDG, Wayback Machine)
+python scripts/fetch_datasheets.py
+
+# 5. Check index status
+python scripts/index_datasheets.py --status
+```
+
+**MCP Tools:**
+
+| Tool | Description |
+|---|---|
+| `search_datasheets(query, top_k=5)` | Semantic search across all indexed chunks |
+| `lookup_component(reference, board?)` | Look up a reference designator (e.g. "U7") in BOM + datasheets |
+| `ask_component(question)` | Full RAG Q&A via mistral:7b |
+| `list_datasheets()` | List all indexed PDFs with chunk counts |
+
+**Claude Desktop configuration** (`~/.config/claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "r1mx-datasheets": {
+      "command": "/home/simukka/src/RED/r1mx/.venv/bin/python",
+      "args": ["/home/simukka/src/RED/r1mx/scripts/datasheet_mcp_server.py"]
+    }
+  }
+}
+```
+
+**Example queries:**
+- *"What is the I2C address of the PCA9698?"*
+- *"What sample rates does the DAC23 support?"*
+- *"How do I configure the SiI3512 for AHCI mode?"*
+- *"What are the power supply requirements for the ISP1562?"*
+
+**Note:** 24 of 57 existing PDFs are image-only scans (no extractable text). These include
+the Xilinx Virtex-4 overview, SiI3512 datasheet, and XC2C256 CPLD datasheet — all
+important for firmware RE. Use `pdfimages` + tesseract to OCR these manually if needed.
+
+## PCB Layout Extraction (experimental)
+
+Scripts for reverse-engineering copper layer geometry from board photographs:
+
+```bash
+# Step 1: Calibrate pixel/mm scale from a known reference distance
+python scripts/calibrate_board.py --board cpu_io_board
+
+# Step 2: Segment copper, detect vias/pads, vectorise traces
+python scripts/extract_pcb_layers.py --board cpu_io_board
+
+# Step 3: Generate KiCad .kicad_pcb file (must use system Python)
+/usr/bin/python3 scripts/generate_kicad_pcb.py --board cpu_io_board
+```
+
+
+
 ### About me
 I'm the proud owner of several RED ONE MX digital cinema cameras.
 Some of them work, and some don't. These cameras provide me both a utility and
