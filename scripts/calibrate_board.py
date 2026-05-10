@@ -784,8 +784,9 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
     print("  ── STEP 1: Hover over ORANGE □ targets ─────────────────────────")
     print("  Watch which coloured crosshair visually lands on the orange square")
     print("  as you move the mouse over it.")
-    print("    • RED crosshair lands on target  → Formula A is correct for crosshair")
-    print("    • GREEN crosshair lands on target → Formula B is correct for crosshair")
+    print("    • RED crosshair lands on target  → press [R] to record Formula A")
+    print("    • GREEN crosshair lands on target → press [G] to record Formula B")
+    print("    • Neither / unsure               → skip, rely on click results")
     print()
     print("  ── STEP 2: Click CYAN ⊕ targets ────────────────────────────────")
     print("  Click the exact centre of each cyan crosshair.")
@@ -793,15 +794,17 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
     print("    • ~0 px error  → that formula is correct for click placement")
     print("    • Large error  → that formula is wrong")
     print()
-    print("  ── STEP 3: Compare results ──────────────────────────────────────")
-    print("  Both steps should agree on which formula is correct.")
-    print("  Report the winning formula so the calibration code can be fixed.")
+    print("  ── STEP 3: Quit and read the summary ────────────────────────────")
+    print("  Press [Q] or [Esc]. A summary will print combining hover vote + click")
+    print("  errors with a clear recommendation.")
     print()
-    print("  [Q] or [Esc] to quit")
+    print("  [R] RED aligns   [G] GREEN aligns   [Q]/[Esc] quit")
     print("════════════════════════════════════════════════════════════════════")
     print()
 
     mouse_win = [None]
+    alignment_vote: list[str | None] = [None]   # 'A'=RED, 'B'=GREEN
+    click_errors: list[tuple[float, float]] = []  # (err_scale, err_rect) per click
 
     def _xhair(frame, ix, iy, color, arm=14):
         h, w = frame.shape[:2]
@@ -844,6 +847,7 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
             f"  rect→({cx_rect:5d},{cy_rect:5d}) err={err_rect:6.1f}px",
             flush=True,
         )
+        click_errors.append((err_scale, err_rect))
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW, dw, dh)
@@ -871,11 +875,64 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
 
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
-        if key in (ord('q'), ord('Q'), 27):
+        if key in (ord('r'), ord('R')):
+            alignment_vote[0] = 'A'
+            print("[COORD-CAL] You marked: RED crosshair (Formula A = orig_scale) aligns with the orange target.", flush=True)
+        elif key in (ord('g'), ord('G')):
+            alignment_vote[0] = 'B'
+            print("[COORD-CAL] You marked: GREEN crosshair (Formula B = rect) aligns with the orange target.", flush=True)
+        elif key in (ord('q'), ord('Q'), 27):
             break
 
     cv2.destroyWindow(WINDOW)
-    print("[COORD-CAL] done.")
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    print()
+    print("════════════════════════════════════════════════════════════════════")
+    print("  RESULTS SUMMARY")
+    print("════════════════════════════════════════════════════════════════════")
+
+    vote = alignment_vote[0]
+    if vote == 'A':
+        print("  Hover vote : RED  (Formula A — orig_scale)")
+    elif vote == 'B':
+        print("  Hover vote : GREEN (Formula B — rect)")
+    else:
+        print("  Hover vote : (none recorded)")
+
+    if click_errors:
+        avg_a = sum(e[0] for e in click_errors) / len(click_errors)
+        avg_b = sum(e[1] for e in click_errors) / len(click_errors)
+        print(f"  Click avg error — Formula A (orig_scale): {avg_a:.1f} px  ({len(click_errors)} clicks)")
+        print(f"  Click avg error — Formula B (rect)      : {avg_b:.1f} px")
+        click_winner = 'A' if avg_a < avg_b else 'B'
+    else:
+        avg_a = avg_b = None
+        click_winner = None
+        print("  Click errors : (no clicks recorded)")
+
+    print()
+    agree = (vote == click_winner) if (vote and click_winner) else None
+    if vote and click_winner:
+        if agree:
+            winner = vote
+            print(f"  ✓ Both methods agree: Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
+        else:
+            print("  ✗ Methods DISAGREE — hover and click suggest different formulas.")
+            print("    Please re-run and try to click more precisely on the targets.")
+    elif click_winner:
+        winner = click_winner
+        print(f"  Click data suggests Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
+        print("  (No hover vote recorded — hover over orange squares and press [R] or [G] next time.)")
+    elif vote:
+        winner = vote
+        print(f"  Hover vote suggests Formula {'A (orig_scale)' if winner == 'A' else 'B (rect)'} is correct.")
+        print("  (No clicks recorded — click cyan ⊕ targets next time for confirmation.)")
+    else:
+        print("  No data collected. Run again: hover over orange squares (press R/G) and click cyan targets.")
+
+    print("════════════════════════════════════════════════════════════════════")
+    print()
 
 
 def main() -> None:
