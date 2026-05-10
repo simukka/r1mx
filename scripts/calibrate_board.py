@@ -272,18 +272,14 @@ class CalibrationGUI:
 
     def _win_to_image(self, wx: int, wy: int) -> list[int]:
         """Convert window pixel coords → original image pixel coords.
-        Uses cv2.getWindowImageRect so it stays correct if the window is resized."""
-        rect = self.cv2.getWindowImageRect(self.WINDOW)  # (x, y, w, h) of image area
-        ww, wh = max(1, rect[2]), max(1, rect[3])
-        ih, iw = self.original.shape[:2]
-        return [int(wx * iw / ww), int(wy * ih / wh)]
+        Formula A (confirmed correct): image = win / orig_scale."""
+        s = self._orig_scale
+        return [int(wx / s), int(wy / s)]
 
     def _win_to_warp(self, wx: int, wy: int) -> list[int]:
         """Convert window pixel coords → warped image pixel coords."""
-        rect = self.cv2.getWindowImageRect(self.WINDOW)
-        ww, wh = max(1, rect[2]), max(1, rect[3])
-        sw, sh = self._warp_size
-        return [int(wx * sw / ww), int(wy * sh / wh)]
+        s = self._warp_scale
+        return [int(wx / s), int(wy / s)]
 
     # Keep old names as aliases (used in _handle_key / _on_mouse)
     def _to_orig(self, dx: int, dy: int) -> list[int]:
@@ -413,17 +409,6 @@ class CalibrationGUI:
         if self._mouse_win and n < 4:
             wx, wy = self._mouse_win
             mx, my = self._to_orig(wx, wy)
-            rect = self.cv2.getWindowImageRect(self.WINDOW)
-            img_h, img_w = img.shape[:2]
-            print(
-                f"[XHAIR] win=({wx},{wy})  "
-                f"getWindowImageRect={rect}  "
-                f"orig_scale={self._orig_scale:.4f}  "
-                f"_dw={self._dw} _dh={self._dh}  "
-                f"image_size=({img_w},{img_h})  "
-                f"→ xhair_image=({mx},{my})",
-                flush=True,
-            )
             self._draw_crosshair(img, mx, my, ann_s=self._ann_s)
         return img
 
@@ -474,19 +459,8 @@ class CalibrationGUI:
         if event == cv2.EVENT_MOUSEMOVE:
             self._mouse_win = (x, y)
         elif event == cv2.EVENT_LBUTTONDOWN:
-            rect = cv2.getWindowImageRect(self.WINDOW)
-            img_h, img_w = self.original.shape[:2]
-            xhair_o = self._to_orig(x, y)
-            print(
-                f"[CLICK] win=({x},{y})  "
-                f"getWindowImageRect={rect}  "
-                f"orig_scale={self._orig_scale:.4f}  "
-                f"image_size=({img_w},{img_h})  "
-                f"_dw={self._dw} _dh={self._dh}  "
-                f"→ image_coords={xhair_o}",
-                flush=True,
-            )
             if self.phase == _Phase.CORNERS and len(self._corners_d) < 4:
+                xhair_o = self._to_orig(x, y)
                 self._corners_d.append((x, y))
                 self._corners_o.append(xhair_o)
             elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
