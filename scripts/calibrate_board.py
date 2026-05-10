@@ -229,7 +229,9 @@ class CalibrationGUI:
         self._orig_scale = min(1.0, self.MAX_W / w, self.MAX_H / h)
         dw = int(w * self._orig_scale)
         dh = int(h * self._orig_scale)
-        self._disp = cv2.resize(bgr, (dw, dh))
+        # Annotation sizes are scaled up so they look the same physical size in the
+        # window when drawn on the full-resolution image.
+        self._ann_s = 1.0 / self._orig_scale
 
         # State
         self.phase           = _Phase.ACCEPT
@@ -238,22 +240,28 @@ class CalibrationGUI:
         self.result_cal      = None
         self.quit_all        = False
 
-        # Corner click state (display-scale and original-scale coords)
+        # Corner click state — only original-scale coords; display-scale kept for mouse→image conversion
         self._corners_d: list[tuple[int, int]] = []
         self._corners_o: list[list[int]]       = []
 
         # Warped image state (populated after corners confirmed)
-        self._warped_d       = None
         self._warped_o       = None
         self._warp_scale     = 1.0
+        self._warp_ann_s     = 1.0
         self._warp_M         = None
         self._warp_size      = None
+        self._warp_dw        = dw       # display size; updated in _build_warp
+        self._warp_dh        = dh
 
-        # Ref-point state (warped-display and warped-original coords)
+        # Ref-point state — only original-scale coords
         self._refs_d: list[tuple[int, int]] = []
         self._refs_o: list[list[int]]       = []
 
         self._px_per_mm      = 0.0
+
+        # Store display dimensions for window sizing
+        self._dw = dw
+        self._dh = dh
 
     # ------------------------------------------------------------------
     # Coordinate helpers
@@ -271,10 +279,14 @@ class CalibrationGUI:
     # Drawing helpers
     # ------------------------------------------------------------------
 
-    def _overlay_text(self, img, lines: list[str], y_start: int = 8) -> None:
+    def _overlay_text(self, img, lines: list[str], ann_s: float = 1.0) -> None:
         """Draw semi-transparent text box in the top-left corner."""
         cv2 = self.cv2
-        fscale, thick, lh, pad = 0.55, 1, 22, 8
+        s = ann_s
+        fscale = 0.55 * s
+        thick  = max(1, round(s))
+        lh     = int(22 * s)
+        pad    = int(8 * s)
         box_w = max(
             cv2.getTextSize(l, self.FONT, fscale, thick)[0][0]
             for l in lines
@@ -282,97 +294,106 @@ class CalibrationGUI:
         box_h = len(lines) * lh + pad * 2
 
         overlay = img.copy()
-        cv2.rectangle(overlay, (0, y_start - pad), (box_w, y_start + box_h), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (0, 0), (box_w, box_h), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.65, img, 0.35, 0, img)
 
         for i, line in enumerate(lines):
-            y = y_start + (i + 1) * lh - 4
+            y = (i + 1) * lh + pad // 2
             cv2.putText(img, line, (pad, y), self.FONT, fscale,
                         (255, 255, 255), thick, cv2.LINE_AA)
 
-    def _draw_corners(self, img) -> None:
+    def _draw_corners(self, img, ann_s: float = 1.0) -> None:
         cv2, np = self.cv2, self.np
-        for i, (cx, cy) in enumerate(self._corners_d):
-            cv2.circle(img, (cx, cy), 7, (0, 255, 0), -1)
-            cv2.putText(img, self.CORNER_SEQ[i], (cx + 10, cy - 6),
-                        self.FONT, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-        n = len(self._corners_d)
+        s = ann_s
+        r  = max(4, round(7 * s))
+        lw = max(1, round(2 * s))
+        fs = 0.6 * s
+        for i, co in enumerate(self._corners_o):
+            cx, cy = co[0], co[1]
+            cv2.circle(img, (cx, cy), r, (0, 255, 0), -1)
+            cv2.putText(img, self.CORNER_SEQ[i], (cx + round(10 * s), cy - round(6 * s)),
+                        self.FONT, fs, (0, 255, 0), lw, cv2.LINE_AA)
+        n = len(self._corners_o)
         if n >= 2:
             for i in range(n - 1):
-                cv2.line(img, self._corners_d[i], self._corners_d[i + 1],
-                         (0, 200, 255), 1)
+                p1 = tuple(self._corners_o[i])
+                p2 = tuple(self._corners_o[i + 1])
+                cv2.line(img, p1, p2, (0, 200, 255), max(1, round(s)))
         if n == 4:
-            pts = np.array(self._corners_d, dtype=np.int32)
+            pts = np.array(self._corners_o, dtype=np.int32)
             cv2.polylines(img, [pts[[0, 1, 2, 3]]], isClosed=True,
-                          color=(0, 200, 255), thickness=2)
+                          color=(0, 200, 255), thickness=lw)
 
-    def _draw_refs(self, img) -> None:
+    def _draw_refs(self, img, ann_s: float = 1.0) -> None:
         cv2 = self.cv2
-        for i, (rx, ry) in enumerate(self._refs_d):
-            cv2.circle(img, (rx, ry), 7, (0, 80, 255), -1)
-            cv2.putText(img, f"P{i + 1}", (rx + 10, ry - 6),
-                        self.FONT, 0.6, (0, 80, 255), 2, cv2.LINE_AA)
-        if len(self._refs_d) == 2:
-            p1, p2 = self._refs_d
-            cv2.line(img, p1, p2, (255, 100, 0), 2)
-            dist_d = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-            ppm = compute_px_per_mm(
-                self._to_warp_orig(*p1), self._to_warp_orig(*p2), self.ref_mm
-            )
-            mid = ((p1[0] + p2[0]) // 2 + 5, (p1[1] + p2[1]) // 2 - 8)
+        s = ann_s
+        r  = max(4, round(7 * s))
+        lw = max(1, round(2 * s))
+        fs = 0.6 * s
+        for i, ro in enumerate(self._refs_o):
+            rx, ry = ro[0], ro[1]
+            cv2.circle(img, (rx, ry), r, (0, 80, 255), -1)
+            cv2.putText(img, f"P{i + 1}", (rx + round(10 * s), ry - round(6 * s)),
+                        self.FONT, fs, (0, 80, 255), lw, cv2.LINE_AA)
+        if len(self._refs_o) == 2:
+            p1 = tuple(self._refs_o[0])
+            p2 = tuple(self._refs_o[1])
+            cv2.line(img, p1, p2, (255, 100, 0), lw)
+            ppm = compute_px_per_mm(self._refs_o[0], self._refs_o[1], self.ref_mm)
+            mid = (int((p1[0] + p2[0]) / 2 + 5 * s), int((p1[1] + p2[1]) / 2 - 8 * s))
             cv2.putText(img, f"{ppm:.1f} px/mm", mid,
-                        self.FONT, 0.55, (255, 100, 0), 2, cv2.LINE_AA)
+                        self.FONT, 0.55 * s, (255, 100, 0), lw, cv2.LINE_AA)
 
     # ------------------------------------------------------------------
     # Per-phase frame renderers
     # ------------------------------------------------------------------
 
     def _frame_accept(self):
-        img = self._disp.copy()
+        img = self.original.copy()
         self._overlay_text(img, [
             f"Image {self.index + 1}/{self.total}: {self.image_path.name}",
             "[Y] Use this image   [N] Skip   [Q] Quit all",
-        ])
+        ], ann_s=self._ann_s)
         return img
 
     def _frame_layer(self):
-        img = self._disp.copy()
+        img = self.original.copy()
         typed = self._layer_buf
         self._overlay_text(img, [
             "[T] top   [B] bottom   or type a label + [Enter]",
             f"Layer: {typed}_",
-        ])
+        ], ann_s=self._ann_s)
         return img
 
     def _frame_corners(self):
-        img = self._disp.copy()
-        n = len(self._corners_d)
+        img = self.original.copy()
+        n = len(self._corners_o)
         next_lbl = self.CORNER_SEQ[n] if n < 4 else "—"
         hints = "[Enter] confirm (after 4)  [Backspace] undo  [R] redo all"
         self._overlay_text(img, [
             f"Click corners: TL \u2192 TR \u2192 BR \u2192 BL  |  next: {next_lbl}  ({n}/4)",
             hints,
-        ])
-        self._draw_corners(img)
+        ], ann_s=self._ann_s)
+        self._draw_corners(img, ann_s=self._ann_s)
         return img
 
     def _frame_refpts(self):
-        img = self._warped_d.copy()
-        n = len(self._refs_d)
+        img = self._warped_o.copy()
+        n = len(self._refs_o)
         self._overlay_text(img, [
             f"Perspective corrected. Click 2 reference points {self.ref_mm} mm apart  ({n}/2)",
             "[Enter] confirm (after 2)  [Backspace] undo",
-        ])
-        self._draw_refs(img)
+        ], ann_s=self._warp_ann_s)
+        self._draw_refs(img, ann_s=self._warp_ann_s)
         return img
 
     def _frame_summary(self):
-        img = self._warped_d.copy()
+        img = self._warped_o.copy()
         self._overlay_text(img, [
             f"Layer: {self.result_layer}   Source: {self.image_path.name}",
             f"px/mm: {self._px_per_mm:.2f}   Warp: {self._warp_size[0]}x{self._warp_size[1]} px",
             "[S] Save   [R] Redo corners   [N] Discard",
-        ])
+        ], ann_s=self._warp_ann_s)
         return img
 
     # ------------------------------------------------------------------
@@ -387,9 +408,9 @@ class CalibrationGUI:
         warped = self.cv2.warpPerspective(self.original, M_np, tuple(size))
         self._warped_o  = warped
         self._warp_scale = min(1.0, self.MAX_W / size[0], self.MAX_H / size[1])
-        dw = int(size[0] * self._warp_scale)
-        dh = int(size[1] * self._warp_scale)
-        self._warped_d  = self.cv2.resize(warped, (dw, dh))
+        self._warp_ann_s = 1.0 / self._warp_scale
+        self._warp_dw = int(size[0] * self._warp_scale)
+        self._warp_dh = int(size[1] * self._warp_scale)
 
     # ------------------------------------------------------------------
     # Mouse callback
@@ -404,7 +425,6 @@ class CalibrationGUI:
         elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
             self._refs_d.append((x, y))
             self._refs_o.append(self._to_warp_orig(x, y))
-
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
@@ -417,11 +437,21 @@ class CalibrationGUI:
         """
         cv2 = self.cv2
         cv2.namedWindow(self.WINDOW, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
         cv2.setMouseCallback(self.WINDOW, self._on_mouse)
 
         terminal_phases = {_Phase.DONE, _Phase.SKIP, _Phase.QUIT}
+        prev_phase = None
 
         while self.phase not in terminal_phases:
+            # When switching to the warp-based phases, resize the window
+            if self.phase != prev_phase:
+                if self.phase in (_Phase.REFPTS, _Phase.SUMMARY):
+                    cv2.resizeWindow(self.WINDOW, self._warp_dw, self._warp_dh)
+                elif self.phase in (_Phase.ACCEPT, _Phase.LAYER, _Phase.CORNERS):
+                    cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
+                prev_phase = self.phase
+
             # Render current phase
             if self.phase == _Phase.ACCEPT:
                 frame = self._frame_accept()
