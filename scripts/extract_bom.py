@@ -158,6 +158,8 @@ class BomEntry(NamedTuple):
     source_image: str
     engine: str
     raw_text: str        # full OCR token as found
+    x_px: int = -1       # centroid X in source image pixels (-1 = unknown)
+    y_px: int = -1       # centroid Y in source image pixels (-1 = unknown)
 
 
 def ref_type_from_designator(ref: str) -> str:
@@ -274,40 +276,46 @@ def ocr_with_easyocr(
     tiles: list[tuple[np.ndarray, int, int]],
     min_confidence: float = 0.35,
     gpu: bool = False,
-) -> list[str]:
+) -> list[tuple[str, int, int]]:
     """
-    Run EasyOCR on all tiles and return text tokens above min_confidence.
-    EasyOCR handles arbitrary text orientations internally.
+    Run EasyOCR on all tiles.
+    Returns list of (text, abs_x_px, abs_y_px) — pixel position is
+    the centroid of the text bbox in the original (pre-tiling) image.
     """
+    from tqdm import tqdm
     reader = _get_easyocr_reader(gpu=gpu)
-    tokens: list[str] = []
-    for tile, _x, _y in tiles:
+    tokens: list[tuple[str, int, int]] = []
+    for tile, tile_x, tile_y in tqdm(tiles, desc="  tiles", leave=False, unit="tile"):
         try:
             results = reader.readtext(tile, detail=1)
         except Exception as exc:
             log.debug("EasyOCR tile error: %s", exc)
             continue
-        for _bbox, text, conf in results:
+        for bbox, text, conf in results:
             if conf >= min_confidence and text.strip():
-                tokens.append(text.strip())
+                # bbox = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] (four corners)
+                xs = [pt[0] for pt in bbox]
+                ys = [pt[1] for pt in bbox]
+                cx = int(sum(xs) / 4) + tile_x
+                cy = int(sum(ys) / 4) + tile_y
+                tokens.append((text.strip(), cx, cy))
     return tokens
 
 
-def ocr_with_tesseract(tiles: list[tuple[np.ndarray, int, int]]) -> list[str]:
+def ocr_with_tesseract(tiles: list[tuple[np.ndarray, int, int]]) -> list[tuple[str, int, int]]:
     """
     Run Tesseract OCR in sparse-text mode on all tiles.
-    Tries both PSM 11 (sparse) and PSM 6 (block) to capture more text.
+    Returns list of (text, abs_x_px, abs_y_px).
     """
     import subprocess
     import tempfile
     import os
 
-    tokens: list[str] = []
-    for tile, _x, _y in tiles:
-        # Scale up small tiles — Tesseract works better at 300+ DPI equivalent
+    tokens: list[tuple[str, int, int]] = []
+    for tile, tile_x, tile_y in tiles:
         h, w = tile.shape[:2]
-        if max(h, w) < 600:
-            scale = 2
+        scale = 2 if max(h, w) < 600 else 1
+        if scale > 1:
             tile = cv2.resize(tile, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
@@ -322,7 +330,8 @@ def ocr_with_tesseract(tiles: list[tuple[np.ndarray, int, int]]) -> list[str]:
                     for word in re.split(r"\s+", result.stdout):
                         w_tok = word.strip()
                         if w_tok:
-                            tokens.append(w_tok)
+                            # Tesseract stdout mode doesn't give positions; use tile centre
+                            tokens.append((w_tok, tile_x + w // 2, tile_y + h // 2))
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     pass
             os.unlink(f.name)
@@ -359,17 +368,19 @@ def normalize_ref(ref: str) -> str:
     return prefix + suffix
 
 
-def filter_tokens(tokens: list[str]) -> tuple[set[str], set[str]]:
+def filter_tokens(
+    tokens: list[tuple[str, int, int]],
+) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
     """
-    Separate tokens into:
-    - ref_designators: matches known component reference patterns
-    - part_numbers: other plausible identifiers (IC part numbers, etc.)
+    Separate tokens into dicts mapping clean text → (x_px, y_px):
+    - refs: component reference designators (R12, C201, U7 …)
+    - parts: other plausible part-number-like identifiers
+    First occurrence position wins when a ref appears in multiple tiles.
     """
-    refs: set[str] = set()
-    parts: set[str] = set()
+    refs: dict[str, tuple[int, int]] = {}
+    parts: dict[str, tuple[int, int]] = {}
 
-    for token in tokens:
-        # Normalise: strip punctuation at edges, uppercase
+    for token, x, y in tokens:
         clean = re.sub(r"^[^A-Z0-9]+|[^A-Z0-9]+$", "", token.upper())
         if not clean or len(clean) < 2:
             continue
@@ -379,10 +390,12 @@ def filter_tokens(tokens: list[str]) -> tuple[set[str], set[str]]:
             continue
 
         if REF_PATTERN.fullmatch(clean):
-            refs.add(normalize_ref(clean))
+            norm = normalize_ref(clean)
+            if norm not in refs:
+                refs[norm] = (x, y)
         elif PARTNUM_PATTERN.fullmatch(clean) and len(clean) >= 4:
-            if re.search(r"\d", clean):
-                parts.add(clean)
+            if re.search(r"\d", clean) and clean not in parts:
+                parts[clean] = (x, y)
 
     return refs, parts
 
@@ -398,32 +411,29 @@ def process_image(
     debug_dir: Path | None,
     min_confidence: float = 0.35,
     gpu: bool = False,
-) -> tuple[set[str], set[str]]:
+) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
     """
     Load, preprocess, tile, and OCR a single PCB image.
-    Returns (ref_designators, part_numbers).
+    Returns (refs, parts) where each is a dict of clean_text → (x_px, y_px).
     """
     log.info("  Processing %s", image_path.name)
 
     bgr = cv2.imread(str(image_path))
     if bgr is None:
         log.warning("  Could not load %s", image_path)
-        return set(), set()
+        return {}, {}
 
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     log.info("  Image size: %dx%d", gray.shape[1], gray.shape[0])
 
-    # Build preprocessing variants
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
 
     if engine == "easyocr":
-        # EasyOCR handles binarisation internally; give it colour-enhanced variants
         enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
         inverted_bgr = cv2.cvtColor(255 - enhanced, cv2.COLOR_GRAY2BGR)
         variants = [enhanced_bgr, inverted_bgr]
     else:
-        # Tesseract: provide binary images
         variants = preprocess(gray)
 
     if debug_dir:
@@ -432,7 +442,7 @@ def process_image(
         for i, v in enumerate(variants):
             cv2.imwrite(str(debug_dir / f"{stem}_variant{i}.png"), v)
 
-    all_tokens: list[str] = []
+    all_tokens: list[tuple[str, int, int]] = []
     for vi, variant in enumerate(variants):
         tile_size = TILE_SIZE_EASYOCR if engine == "easyocr" else TILE_SIZE_TESSERACT
         tiles = tile_image(variant, tile_size, TILE_OVERLAP)
@@ -481,7 +491,7 @@ def process_board(
             min_confidence=min_confidence, gpu=gpu,
         )
 
-        for ref in sorted(refs):
+        for ref, (x, y) in sorted(refs.items()):
             if ref in seen_refs:
                 continue
             seen_refs.add(ref)
@@ -492,9 +502,11 @@ def process_board(
                 source_image=img_path.name,
                 engine=engine,
                 raw_text=ref,
+                x_px=x,
+                y_px=y,
             ))
 
-        for part in sorted(parts):
+        for part, (x, y) in sorted(parts.items()):
             if part in seen_refs:
                 continue
             entries.append(BomEntry(
@@ -504,6 +516,8 @@ def process_board(
                 source_image=img_path.name,
                 engine=engine,
                 raw_text=part,
+                x_px=x,
+                y_px=y,
             ))
 
     log.info("Board %s: %d total entries", board_name, len(entries))
@@ -514,7 +528,8 @@ def process_board(
 # Output
 # ---------------------------------------------------------------------------
 
-BOM_FIELDS = ["board", "reference", "ref_type", "source_image", "engine", "raw_text"]
+BOM_FIELDS = ["board", "reference", "ref_type", "source_image", "engine",
+              "raw_text", "x_px", "y_px"]
 
 
 def write_board_bom(board_dir: Path, entries: list[BomEntry]) -> None:

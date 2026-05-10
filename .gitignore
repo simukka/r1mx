@@ -2,8 +2,8 @@
 .venv/
 
 # Generated OCR output — re-run extract_bom.py to regenerate
-bom_master.csv
-components/**/bom.csv
+#bom_master.csv
+#components/**/bom.csv
 components/**/_debug/
 
 # Raw camera files
