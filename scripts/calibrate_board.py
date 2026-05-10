@@ -270,13 +270,27 @@ class CalibrationGUI:
     # Coordinate helpers
     # ------------------------------------------------------------------
 
+    def _win_to_image(self, wx: int, wy: int) -> list[int]:
+        """Convert window pixel coords → original image pixel coords.
+        Uses cv2.getWindowImageRect so it stays correct if the window is resized."""
+        rect = self.cv2.getWindowImageRect(self.WINDOW)  # (x, y, w, h) of image area
+        ww, wh = max(1, rect[2]), max(1, rect[3])
+        ih, iw = self.original.shape[:2]
+        return [int(wx * iw / ww), int(wy * ih / wh)]
+
+    def _win_to_warp(self, wx: int, wy: int) -> list[int]:
+        """Convert window pixel coords → warped image pixel coords."""
+        rect = self.cv2.getWindowImageRect(self.WINDOW)
+        ww, wh = max(1, rect[2]), max(1, rect[3])
+        sw, sh = self._warp_size
+        return [int(wx * sw / ww), int(wy * sh / wh)]
+
+    # Keep old names as aliases (used in _handle_key / _on_mouse)
     def _to_orig(self, dx: int, dy: int) -> list[int]:
-        s = self._orig_scale
-        return [int(dx / s), int(dy / s)]
+        return self._win_to_image(dx, dy)
 
     def _to_warp_orig(self, dx: int, dy: int) -> list[int]:
-        s = self._warp_scale
-        return [int(dx / s), int(dy / s)]
+        return self._win_to_warp(dx, dy)
 
     # ------------------------------------------------------------------
     # Drawing helpers
