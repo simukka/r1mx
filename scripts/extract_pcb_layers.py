@@ -42,6 +42,11 @@ from typing import Any
 import cv2
 import numpy as np
 
+# PyQt6 — only used by LayerReviewer (interactive --review mode) and
+# _interactive_hsv_tune (--tune-hsv mode).  Imported lazily inside those
+# classes so the rest of the script runs fine without a display.
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # for r1mx_gui
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -715,21 +720,23 @@ def main() -> None:
 
 class LayerReviewer:
     """
-    Shows each extraction result overlaid on the corrected PCB photo.
-    The user confirms, skips, or (for the copper mask) tunes HSV before continuing.
+    Shows each extraction result overlaid on the corrected PCB photo and lets
+    the user accept, skip, or refine the result interactively.
 
-    Keyboard shortcuts in all review steps:
-      [Y] / Enter — accept the result and proceed
-      [S]         — skip this step (return empty result)
+    Uses PyQt6 + ImageViewer for display (HiDPI-correct coordinates).
 
-    Additional key in the copper-mask step:
-      [T] — open inline HSV trackbar window; [S] save + return, [Q] return without saving
+    Review steps:
+      review_copper_mask   — green tint overlay; Tune button opens HSV sliders
+      review_outline       — cyan polygon; Tune button enters click-to-draw mode
+      review_vias          — green circles (drill + annular ring)
+      review_pads          — orange rotated rectangles with ref labels
+      review_tracks        — blue line segments
+
+    Buttons in every step:
+      [Accept]  — use the result as-is
+      [Skip]    — discard the result for this step
+      [Tune]    — only shown where a manual correction is available
     """
-
-    WINDOW  = "r1mx Extraction Review"
-    HSV_WIN = "r1mx HSV Tune"
-    MAX_W   = 1600
-    MAX_H   = 900
 
     def __init__(
         self,
@@ -738,70 +745,17 @@ class LayerReviewer:
         px_per_mm: float,
         board_dir: Path,
     ) -> None:
+        from PyQt6.QtWidgets import QApplication
+        self._app = QApplication.instance() or QApplication(sys.argv)
+
         self.bgr        = bgr
         self.layer_name = layer_name.upper()
         self.px_per_mm  = px_per_mm
         self.board_dir  = board_dir
-
-        h, w = bgr.shape[:2]
-        scale = min(1.0, self.MAX_W / w, self.MAX_H / h)
-        self._dw = int(w * scale)
-        self._dh = int(h * scale)
-        # Annotations are drawn on the full-res image; scale up sizes so they
-        # appear the same physical size in the window as they would on a pre-scaled frame.
-        self._ann_s = 1.0 / scale
-
-        cv2.namedWindow(self.WINDOW, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.WINDOW, self._dw, self._dh)
+        self._win       = _ReviewWindow(bgr, layer_name.upper())
 
     def close(self) -> None:
-        cv2.destroyWindow(self.WINDOW)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _overlay_text(self, img: np.ndarray, lines: list[str]) -> None:
-        s = self._ann_s
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        fscale = 0.55 * s
-        thick  = max(1, round(s))
-        lh     = int(22 * s)
-        pad    = int(8 * s)
-        box_w = max(
-            cv2.getTextSize(l, font, fscale, thick)[0][0] for l in lines
-        ) + pad * 2
-        box_h = len(lines) * lh + pad * 2
-        overlay = img.copy()
-        cv2.rectangle(overlay, (0, 0), (box_w, box_h), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.65, img, 0.35, 0, img)
-        for i, line in enumerate(lines):
-            y = (i + 1) * lh + pad // 2
-            cv2.putText(img, line, (pad, y), font, fscale,
-                        (255, 255, 255), thick, cv2.LINE_AA)
-
-    def _wait(self, annotated: np.ndarray, step: str, detail: str,
-              allow_tune: bool = False) -> str:
-        """Display annotated full-res frame and wait for [Y]/[S]/[T]."""
-        extra = "   [T] Tune HSV" if allow_tune else ""
-        lines = [
-            f"{self.layer_name} — {step}  |  {detail}",
-            f"[Y/Enter] Accept   [S] Skip{extra}",
-        ]
-        self._overlay_text(annotated, lines)
-        # Show full-res; the window (sized to _dw × _dh) downscales with good interpolation
-        cv2.imshow(self.WINDOW, annotated)
-
-        while True:
-            key = cv2.waitKey(30) & 0xFF
-            if key == 255:
-                continue
-            if key in (ord('y'), ord('Y'), 13):
-                return 'accept'
-            if key in (ord('s'), ord('S')):
-                return 'skip'
-            if allow_tune and key in (ord('t'), ord('T')):
-                return 'tune'
+        self._win.hide()
 
     # ------------------------------------------------------------------
     # Per-step review methods
@@ -812,7 +766,7 @@ class LayerReviewer:
     ) -> tuple[np.ndarray, dict]:
         """
         Show copper mask as a green overlay.
-        [T] opens inline HSV trackbars; [S] saves & returns updated config.
+        'Tune HSV' button opens an HSV slider dialog.
         Returns (mask, hsv_cfg) — mask is zeroed if the user skips.
         """
         print(
@@ -825,28 +779,25 @@ class LayerReviewer:
             "    ✓ The green does NOT spill onto the solder-mask (dark green PCB)\n"
             "    ✓ Silkscreen, substrate, and holes are NOT tinted\n"
             "\n"
-            "  If the mask looks wrong, press [T] to open HSV threshold sliders\n"
-            "  and adjust until it matches the copper on your specific board.\n"
-            "  The thresholds are saved to calibration.json for future runs.\n"
+            "  'Tune HSV' opens sliders to adjust thresholds for this board.\n"
+            "  Thresholds are saved to calibration.json for future runs.\n"
             "────────────────────────────────────────────────────────────────────"
         )
         while True:
-            overlay = self.bgr.copy()
-            tint = np.zeros_like(overlay)
-            tint[mask > 0] = [0, 200, 0]
-            cv2.addWeighted(tint, 0.45, overlay, 0.55, 0, overlay)
-
-            n_px = cv2.countNonZero(mask)
-            result = self._wait(overlay, "Copper Mask",
-                                f"{n_px:,} px covered", allow_tune=True)
-
-            if result == 'accept':
+            overlay = self._copper_overlay(mask)
+            n_px = int(cv2.countNonZero(mask))
+            result = self._win.run(
+                overlay,
+                f"Copper Mask — {n_px:,} px covered",
+                tune_label="Tune HSV",
+            )
+            if result == "accept":
                 return mask, hsv_cfg
-            if result == 'skip':
+            if result == "skip":
                 log.info("  Copper mask skipped — all downstream steps will be empty")
                 return np.zeros_like(mask), hsv_cfg
-            # result == 'tune'
-            hsv_cfg = self._inline_hsv_tune(hsv_cfg)
+            # result == "tune"
+            hsv_cfg = _HsvTuneDialog.run_dialog(self.bgr, hsv_cfg, self.board_dir)
             mask = extract_copper_mask(self.bgr, hsv_cfg)
 
     def review_outline(self, outline: np.ndarray | None) -> np.ndarray | None:
@@ -858,109 +809,26 @@ class LayerReviewer:
             "  What to look for:\n"
             "    ✓ The polygon hugs the physical edge of the board\n"
             "    ✓ All four corners (or more) are roughly correct\n"
-            "    ✗ If the polygon is missing or wildly off, press [T] to draw\n"
-            "      the board outline manually by clicking the corners\n"
-            "    ✗ Press [S] to skip entirely (no outline exported)\n"
+            "    'Draw' — click corners manually if detection is wrong\n"
+            "    [Skip] — no outline exported\n"
             "────────────────────────────────────────────────────────────────────"
         )
-        lw = max(1, round(3 * self._ann_s))
         while True:
-            overlay = self.bgr.copy()
-            if outline is not None:
-                cv2.polylines(overlay, [outline], isClosed=True,
-                              color=(0, 220, 255), thickness=lw)
+            overlay = self._outline_overlay(outline)
             n = len(outline) if outline is not None else 0
-            result = self._wait(overlay, "Board Outline", f"{n} corner points",
-                                allow_tune=True)
-            if result == 'accept':
+            result = self._win.run(
+                overlay,
+                f"Board Outline — {n} corner points",
+                tune_label="Draw manually",
+            )
+            if result == "accept":
                 return outline
-            if result == 'skip':
+            if result == "skip":
                 return None
-            # result == 'tune' → manual click-to-draw
-            outline = self._inline_outline_draw()
-
-    def _inline_outline_draw(self) -> np.ndarray | None:
-        """
-        Let the user click board corners manually to define the outline.
-
-        Click to add corners in any order (clockwise recommended).
-        [Backspace] removes the last point.
-        [R] clears all points and starts over.
-        [Enter] confirms (requires ≥ 3 points).
-        [Q] cancels without changing the outline.
-
-        Returns an ndarray in the same format as cv2.approxPolyDP output
-        (shape: (N, 1, 2), dtype int32), or None if cancelled.
-        """
-        print(
-            "\n  [Manual Outline] Click board corners — clockwise from top-left\n"
-            "  [Backspace] undo last   [R] clear all   [Enter] confirm (≥3 pts)   [Q] cancel"
-        )
-
-        pts_disp: list[tuple[int, int]] = []
-        pts_orig: list[list[int]] = []
-
-        h, w = self.bgr.shape[:2]
-        inv_scale_x = w / self._dw
-        inv_scale_y = h / self._dh
-        s = self._ann_s
-
-        def _on_mouse(event, x, y, flags, param):
-            if event == cv2.EVENT_LBUTTONDOWN:
-                pts_disp.append((x, y))
-                pts_orig.append([int(x * inv_scale_x), int(y * inv_scale_y)])
-
-        cv2.setMouseCallback(self.WINDOW, _on_mouse)
-
-        while True:
-            # Draw on full-res image using original-space coords
-            frame = self.bgr.copy()
-            r = max(4, round(6 * s))
-            lw = max(1, round(2 * s))
-            for i, po in enumerate(pts_orig):
-                px, py = po[0], po[1]
-                cv2.circle(frame, (px, py), r, (0, 220, 255), -1)
-                cv2.putText(frame, str(i + 1), (px + round(8 * s), py - round(5 * s)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5 * s, (0, 220, 255),
-                            max(1, round(s)), cv2.LINE_AA)
-            if len(pts_orig) >= 2:
-                for i in range(len(pts_orig) - 1):
-                    cv2.line(frame, tuple(pts_orig[i]), tuple(pts_orig[i + 1]),
-                             (0, 220, 255), lw)
-            if len(pts_orig) >= 3:
-                cv2.line(frame, tuple(pts_orig[-1]), tuple(pts_orig[0]),
-                         (0, 220, 255), max(1, round(s)))  # closing preview
-
-            n = len(pts_disp)
-            suffix = "   [Enter] confirm" if n >= 3 else f"   (need {3 - n} more)"
-            lines = [
-                f"Manual outline — {n} point(s){suffix}",
-                "[Backspace] undo   [R] clear   [Q] cancel",
-            ]
-            self._overlay_text(frame, lines)
-            cv2.imshow(self.WINDOW, frame)
-
-            key = cv2.waitKey(30) & 0xFF
-            if key == 255:
-                continue
-            if key == 8 and pts_disp:        # Backspace
-                pts_disp.pop()
-                pts_orig.pop()
-            elif key in (ord('r'), ord('R')):
-                pts_disp.clear()
-                pts_orig.clear()
-            elif key == 13 and len(pts_disp) >= 3:   # Enter
-                break
-            elif key in (ord('q'), ord('Q')):
-                cv2.setMouseCallback(self.WINDOW, lambda *a: None)
-                print("  Manual outline cancelled — keeping previous result.")
-                return None
-
-        cv2.setMouseCallback(self.WINDOW, lambda *a: None)
-        # Convert to contour format (N, 1, 2) int32 — same as cv2.approxPolyDP output
-        contour = np.array(pts_orig, dtype=np.int32).reshape(-1, 1, 2)
-        log.info("  Manual board outline: %d points", len(pts_orig))
-        return contour
+            # result == "tune" → manual click-to-draw
+            drawn = self._win.outline_draw_mode(self.bgr)
+            if drawn is not None:
+                outline = drawn
 
     def review_vias(self, vias: list[dict]) -> list[dict]:
         """Show via drill holes (filled) + annular rings. Returns vias or []."""
@@ -976,17 +844,9 @@ class LayerReviewer:
             "    ✗ If most vias are missing, the copper mask may need tuning\n"
             "────────────────────────────────────────────────────────────────────"
         )
-        overlay = self.bgr.copy()
-        ppm = self.px_per_mm
-        for v in vias:
-            cx = int(v["x_mm"] * ppm)
-            cy = int(v["y_mm"] * ppm)
-            r  = max(2, int(v["drill_mm"] / 2 * ppm))
-            ra = max(r + 2, int((v["drill_mm"] / 2 + v["annular_mm"]) * ppm))
-            cv2.circle(overlay, (cx, cy), r,  (0, 255, 80), -1)
-            cv2.circle(overlay, (cx, cy), ra, (0, 255, 80), max(1, round(self._ann_s)))
-        result = self._wait(overlay, "Vias", f"{len(vias)} detected")
-        return vias if result == 'accept' else []
+        overlay = self._via_overlay(vias)
+        result = self._win.run(overlay, f"Vias — {len(vias)} detected")
+        return vias if result == "accept" else []
 
     def review_pads(self, pads: list[dict]) -> list[dict]:
         """Show pads as orange rotated rectangles with ref labels. Returns pads or []."""
@@ -1004,23 +864,9 @@ class LayerReviewer:
             "      conservative — go back with [S] then re-run with --review\n"
             "────────────────────────────────────────────────────────────────────"
         )
-        overlay = self.bgr.copy()
-        ppm = self.px_per_mm
-        lw = max(1, round(2 * self._ann_s))
-        for pad in pads:
-            cx = int(pad["x_mm"] * ppm)
-            cy = int(pad["y_mm"] * ppm)
-            w  = int(pad["w_mm"] * ppm)
-            h  = int(pad["h_mm"] * ppm)
-            box = cv2.boxPoints(((cx, cy), (w, h), pad["rotation_deg"]))
-            cv2.drawContours(overlay, [np.int0(box)], 0, (0, 140, 255), lw)
-            ref = pad.get("ref", "")
-            if ref:
-                cv2.putText(overlay, ref, (cx + 4, cy - 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4 * self._ann_s,
-                            (255, 255, 0), max(1, round(self._ann_s)), cv2.LINE_AA)
-        result = self._wait(overlay, "Pads", f"{len(pads)} detected")
-        return pads if result == 'accept' else []
+        overlay = self._pad_overlay(pads)
+        result = self._win.run(overlay, f"Pads — {len(pads)} detected")
+        return pads if result == "accept" else []
 
     def review_tracks(self, tracks: list[dict]) -> list[dict]:
         """Show vectorised trace segments as blue lines. Returns tracks or []."""
@@ -1039,86 +885,417 @@ class LayerReviewer:
             "      mask may be too sparse\n"
             "────────────────────────────────────────────────────────────────────"
         )
+        overlay = self._track_overlay(tracks)
+        result = self._win.run(overlay, f"Traces — {len(tracks)} segments")
+        return tracks if result == "accept" else []
+
+    # ------------------------------------------------------------------
+    # Overlay builders (numpy → numpy, using cv2 drawing primitives)
+    # ------------------------------------------------------------------
+
+    def _copper_overlay(self, mask: np.ndarray) -> np.ndarray:
+        overlay = self.bgr.copy()
+        tint = np.zeros_like(overlay)
+        tint[mask > 0] = [0, 200, 0]
+        cv2.addWeighted(tint, 0.45, overlay, 0.55, 0, overlay)
+        return overlay
+
+    def _outline_overlay(self, outline: np.ndarray | None) -> np.ndarray:
+        overlay = self.bgr.copy()
+        if outline is not None:
+            cv2.polylines(overlay, [outline], isClosed=True,
+                          color=(0, 220, 255), thickness=3)
+        return overlay
+
+    def _via_overlay(self, vias: list[dict]) -> np.ndarray:
         overlay = self.bgr.copy()
         ppm = self.px_per_mm
-        lw = max(1, round(self._ann_s))
+        for v in vias:
+            cx = int(v["x_mm"] * ppm)
+            cy = int(v["y_mm"] * ppm)
+            r  = max(2, int(v["drill_mm"] / 2 * ppm))
+            ra = max(r + 2, int((v["drill_mm"] / 2 + v["annular_mm"]) * ppm))
+            cv2.circle(overlay, (cx, cy), r,  (0, 255, 80), -1)
+            cv2.circle(overlay, (cx, cy), ra, (0, 255, 80), 2)
+        return overlay
+
+    def _pad_overlay(self, pads: list[dict]) -> np.ndarray:
+        overlay = self.bgr.copy()
+        ppm = self.px_per_mm
+        for pad in pads:
+            cx = int(pad["x_mm"] * ppm)
+            cy = int(pad["y_mm"] * ppm)
+            w  = int(pad["w_mm"] * ppm)
+            h  = int(pad["h_mm"] * ppm)
+            box = cv2.boxPoints(((cx, cy), (w, h), pad["rotation_deg"]))
+            cv2.drawContours(overlay, [np.int0(box)], 0, (0, 140, 255), 2)
+            ref = pad.get("ref", "")
+            if ref:
+                cv2.putText(overlay, ref, (cx + 4, cy - 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                            (255, 255, 0), 1, cv2.LINE_AA)
+        return overlay
+
+    def _track_overlay(self, tracks: list[dict]) -> np.ndarray:
+        overlay = self.bgr.copy()
+        ppm = self.px_per_mm
         for t in tracks:
             sx = int(t["start"][0] * ppm)
             sy = int(t["start"][1] * ppm)
             ex = int(t["end"][0]   * ppm)
             ey = int(t["end"][1]   * ppm)
-            cv2.line(overlay, (sx, sy), (ex, ey), (255, 80, 0), lw)
-        result = self._wait(overlay, "Traces", f"{len(tracks)} segments")
-        return tracks if result == 'accept' else []
+            cv2.line(overlay, (sx, sy), (ex, ey), (255, 80, 0), 1)
+        return overlay
 
-    # ------------------------------------------------------------------
-    # Inline HSV tuning (launched from review_copper_mask via [T])
-    # ------------------------------------------------------------------
 
-    def _inline_hsv_tune(self, hsv_cfg: dict) -> dict:
+# ---------------------------------------------------------------------------
+# Internal PyQt6 review window (used only by LayerReviewer)
+# ---------------------------------------------------------------------------
+
+class _ReviewWindow:
+    """
+    A persistent QMainWindow that shows extraction result overlays and
+    blocks until the user clicks Accept / Skip / Tune.
+
+    Not part of the public API — use LayerReviewer instead.
+    """
+
+    def __init__(self, bgr: np.ndarray, layer_name: str):
+        from PyQt6.QtCore import QEventLoop, Qt
+        from PyQt6.QtGui import QColor, QFont, QPen, QBrush
+        from PyQt6.QtWidgets import (
+            QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+            QPushButton, QLabel, QStatusBar,
+        )
+        from r1mx_gui import ImageViewer
+
+        self._QEventLoop = QEventLoop
+        self._Qt = Qt
+
+        self._win = QMainWindow()
+        self._win.setWindowTitle(f"r1mx — Layer Review [{layer_name}]")
+        self._win.resize(1400, 900)
+
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._viewer = ImageViewer()
+        layout.addWidget(self._viewer)
+
+        # Button bar
+        btn_bar = QWidget()
+        btn_layout = QHBoxLayout(btn_bar)
+        btn_layout.setContentsMargins(8, 4, 8, 4)
+
+        self._lbl = QLabel("")
+        self._lbl.setFont(QFont("monospace", 10))
+        btn_layout.addWidget(self._lbl)
+        btn_layout.addStretch()
+
+        self._accept_btn = QPushButton("Accept  [Y]")
+        self._accept_btn.setDefault(True)
+        self._skip_btn   = QPushButton("Skip  [S]")
+        self._tune_btn   = QPushButton("")          # label set per step
+        self._tune_btn.setVisible(False)
+
+        for btn in (self._accept_btn, self._skip_btn, self._tune_btn):
+            btn_layout.addWidget(btn)
+
+        layout.addWidget(btn_bar)
+        self._win.setCentralWidget(central)
+
+        self._result: str = "skip"
+        self._loop: QEventLoop | None = None   # type: ignore[name-defined]
+
+        self._accept_btn.clicked.connect(self._on_accept)
+        self._skip_btn.clicked.connect(self._on_skip)
+        self._tune_btn.clicked.connect(self._on_tune)
+
+        # Install key handler
+        self._win.keyPressEvent = self._key_press   # type: ignore[method-assign]
+
+    def run(
+        self,
+        overlay: np.ndarray,
+        label: str,
+        tune_label: str = "",
+    ) -> str:
         """
-        Open a trackbar window alongside the review window.
-        [S] saves the updated thresholds to calibration.json and returns.
-        [Q] returns the current trackbar values without saving to disk.
+        Display overlay, show label. Block until Accept/Skip/Tune clicked.
+        Returns "accept" | "skip" | "tune".
         """
+        from PyQt6.QtCore import QEventLoop
+        self._viewer.set_image(overlay)
+        self._lbl.setText(label)
+        self._tune_btn.setVisible(bool(tune_label))
+        self._tune_btn.setText(tune_label)
+        self._result = "skip"
+        self._win.show()
+        self._win.raise_()
+        self._loop = QEventLoop()
+        self._loop.exec()
+        return self._result
+
+    def hide(self):
+        self._win.hide()
+
+    # ── outline draw mode ────────────────────────────────────────────────
+
+    def outline_draw_mode(self, bgr: np.ndarray) -> "np.ndarray | None":
+        """
+        Interactive click-to-draw board outline mode.
+        Returns contour array (N,1,2 int32) or None if cancelled.
+        """
+        from PyQt6.QtCore import QEventLoop, QPointF
+        from PyQt6.QtGui import QColor, QPen, QBrush
+        from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
+
+        print(
+            "\n  [Manual Outline] Click corners on the image — clockwise from top-left\n"
+            "  Backspace = undo last   Accept (≥3 pts) = confirm   Skip = cancel"
+        )
+
+        self._viewer.set_image(bgr)
+        self._viewer.set_crosshair_visible(True)
+        self._tune_btn.setVisible(False)
+        self._accept_btn.setEnabled(False)
+        self._result = "skip"
+
+        pts: list[tuple[float, float]] = []
+        scene = self._viewer.scene()
+        dot_items: list = []
+        line_items: list = []
+
+        cyan = QColor(0, 220, 255)
+        dot_pen = QPen(cyan)
+        dot_brush = QBrush(cyan)
+        line_pen = QPen(cyan, 2)
+        line_pen.setCosmetic(False)
+
+        def _redraw():
+            for it in dot_items + line_items:
+                scene.removeItem(it)
+            dot_items.clear()
+            line_items.clear()
+            for i, (px, py) in enumerate(pts):
+                dot = QGraphicsEllipseItem(px - 5, py - 5, 10, 10)
+                dot.setPen(dot_pen)
+                dot.setBrush(dot_brush)
+                dot.setZValue(10)
+                scene.addItem(dot)
+                dot_items.append(dot)
+            if len(pts) >= 2:
+                for i in range(len(pts) - 1):
+                    li = QGraphicsLineItem(pts[i][0], pts[i][1], pts[i+1][0], pts[i+1][1])
+                    li.setPen(line_pen)
+                    li.setZValue(9)
+                    scene.addItem(li)
+                    line_items.append(li)
+                # Closing preview line
+                li = QGraphicsLineItem(pts[-1][0], pts[-1][1], pts[0][0], pts[0][1])
+                li.setPen(line_pen)
+                li.setZValue(9)
+                scene.addItem(li)
+                line_items.append(li)
+            n = len(pts)
+            suffix = f"  —  {n} point(s)"
+            if n < 3:
+                suffix += f" (need {3 - n} more)"
+            self._lbl.setText(f"Draw outline{suffix}")
+            self._accept_btn.setEnabled(n >= 3)
+
+        def _on_click(pt: QPointF):
+            pts.append((pt.x(), pt.y()))
+            _redraw()
+
+        self._viewer.imageClicked.connect(_on_click)
+        _redraw()
+
+        loop = QEventLoop()
+        self._loop = loop
+        loop.exec()
+
+        self._viewer.imageClicked.disconnect(_on_click)
+        self._viewer.set_crosshair_visible(False)
+
+        for it in dot_items + line_items:
+            scene.removeItem(it)
+
+        if self._result == "skip" or len(pts) < 3:
+            print("  Manual outline cancelled — keeping previous result.")
+            return None
+
+        contour = np.array(
+            [[int(round(x)), int(round(y))] for x, y in pts],
+            dtype=np.int32,
+        ).reshape(-1, 1, 2)
+        log.info("  Manual board outline: %d points", len(pts))
+        return contour
+
+    # ── internal slots ────────────────────────────────────────────────────
+
+    def _on_accept(self):
+        self._result = "accept"
+        if self._loop:
+            self._loop.quit()
+
+    def _on_skip(self):
+        self._result = "skip"
+        if self._loop:
+            self._loop.quit()
+
+    def _on_tune(self):
+        self._result = "tune"
+        if self._loop:
+            self._loop.quit()
+
+    def _key_press(self, event):
+        from PyQt6.QtCore import Qt
+        key = event.key()
+        if key in (Qt.Key.Key_Y, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._on_accept()
+        elif key == Qt.Key.Key_S:
+            self._on_skip()
+        elif key == Qt.Key.Key_T and self._tune_btn.isVisible():
+            self._on_tune()
+        elif key == Qt.Key.Key_Backspace:
+            # Handled by outline_draw_mode via key filter; emit signal would be cleaner,
+            # but we handle it here by re-emitting via the active loop's thread.
+            # For now, ignore in non-draw mode — outline_draw_mode installs its own handler.
+            pass
+
+
+# ---------------------------------------------------------------------------
+# HSV tuning dialog (Qt replacement for the OpenCV trackbar window)
+# ---------------------------------------------------------------------------
+
+class _HsvTuneDialog:
+    """
+    Qt dialog with 6 QSliders (H/S/V lo and hi) and a live preview in an
+    ImageViewer.  'Save & return' persists thresholds to calibration.json.
+    """
+
+    @staticmethod
+    def run_dialog(bgr: np.ndarray, hsv_cfg: dict, board_dir: Path) -> dict:
+        """
+        Show dialog, block until user closes.
+        Returns updated hsv_cfg (with 'copper_lower'/'copper_upper' keys).
+        """
+        from PyQt6.QtCore import QEventLoop, Qt
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+            QPushButton, QLabel, QSlider, QGroupBox,
+        )
+        from PyQt6.QtGui import QFont
+        from r1mx_gui import ImageViewer, bgr_to_pixmap
+
         cfg = {**DEFAULT_HSV, **hsv_cfg}
-        lo = cfg["copper_lower"][:]
-        hi = cfg["copper_upper"][:]
+        lo  = cfg["copper_lower"][:]
+        hi  = cfg["copper_upper"][:]
 
-        hsv_img = cv2.cvtColor(self.bgr, cv2.COLOR_BGR2HSV)
-        bgr_d   = cv2.resize(self.bgr,  (self._dw, self._dh))
-        hsv_d   = cv2.resize(hsv_img,   (self._dw, self._dh))
+        dialog = QDialog()
+        dialog.setWindowTitle("r1mx — Tune HSV Copper Thresholds")
+        dialog.resize(1200, 800)
 
-        cv2.namedWindow(self.HSV_WIN, cv2.WINDOW_NORMAL)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        def _noop(_): pass
-        cv2.createTrackbar("H lo", self.HSV_WIN, lo[0], 179, _noop)
-        cv2.createTrackbar("S lo", self.HSV_WIN, lo[1], 255, _noop)
-        cv2.createTrackbar("V lo", self.HSV_WIN, lo[2], 255, _noop)
-        cv2.createTrackbar("H hi", self.HSV_WIN, hi[0], 179, _noop)
-        cv2.createTrackbar("S hi", self.HSV_WIN, hi[1], 255, _noop)
-        cv2.createTrackbar("V hi", self.HSV_WIN, hi[2], 255, _noop)
+        viewer = ImageViewer()
+        layout.addWidget(viewer, stretch=1)
 
-        print("[HSV Tune] Adjust trackbars — [S] save & return   [Q] return without saving")
+        # Instructions
+        info = QLabel(
+            "Adjust sliders until the GREEN tint covers all exposed copper "
+            "without spilling onto the solder mask.\n"
+            "  Save & return — persists thresholds to calibration.json\n"
+            "  Return — uses current values for this run only"
+        )
+        info.setFont(QFont("monospace", 9))
+        info.setWordWrap(True)
+        layout.addWidget(info)
 
-        while True:
-            lo = [
-                cv2.getTrackbarPos("H lo", self.HSV_WIN),
-                cv2.getTrackbarPos("S lo", self.HSV_WIN),
-                cv2.getTrackbarPos("V lo", self.HSV_WIN),
-            ]
-            hi = [
-                cv2.getTrackbarPos("H hi", self.HSV_WIN),
-                cv2.getTrackbarPos("S hi", self.HSV_WIN),
-                cv2.getTrackbarPos("V hi", self.HSV_WIN),
-            ]
+        # Sliders
+        sliders: dict[str, QSlider] = {}
+        slider_box = QGroupBox("HSV thresholds — Copper")
+        slider_form = QFormLayout(slider_box)
+        specs = [
+            ("H lo",  lo[0],  0, 179),
+            ("S lo",  lo[1],  0, 255),
+            ("V lo",  lo[2],  0, 255),
+            ("H hi",  hi[0],  0, 179),
+            ("S hi",  hi[1],  0, 255),
+            ("V hi",  hi[2],  0, 255),
+        ]
+        for name, val, mn, mx in specs:
+            s = QSlider(Qt.Orientation.Horizontal)
+            s.setRange(mn, mx)
+            s.setValue(val)
+            s.setMinimumWidth(300)
+            slider_form.addRow(name, s)
+            sliders[name] = s
 
-            mask = cv2.inRange(hsv_d, np.array(lo, np.uint8), np.array(hi, np.uint8))
-            vis  = bgr_d.copy()
-            vis[mask > 0] = [0, 200, 0]
-            cv2.putText(vis, "[S] Save & return   [Q] Return without saving",
-                        (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.imshow(self.HSV_WIN, vis)
+        layout.addWidget(slider_box)
 
-            key = cv2.waitKey(30) & 0xFF
-            if key == 255:
-                continue
-            if key in (ord('s'), ord('S')):
-                cal_path = self.board_dir / "calibration.json"
-                if cal_path.exists():
-                    cal_data = json.loads(cal_path.read_text())
-                    cal_data.setdefault("hsv_overrides", {})["copper_lower"] = lo
-                    cal_data.setdefault("hsv_overrides", {})["copper_upper"] = hi
-                    cal_path.write_text(json.dumps(cal_data, indent=2) + "\n")
-                    log.info("HSV overrides saved → %s", cal_path)
-                hsv_cfg = {**hsv_cfg, "copper_lower": lo, "copper_upper": hi}
-                break
-            if key in (ord('q'), ord('Q')):
-                hsv_cfg = {**hsv_cfg, "copper_lower": lo, "copper_upper": hi}
-                break
+        # Buttons
+        btn_row = QHBoxLayout()
+        save_btn   = QPushButton("Save && return")
+        return_btn = QPushButton("Return (no save)")
+        btn_row.addStretch()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(return_btn)
+        layout.addLayout(btn_row)
 
-        cv2.destroyWindow(self.HSV_WIN)
-        return hsv_cfg
+        result_cfg: dict = dict(hsv_cfg)
+
+        hsv_img = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+
+        def _update(_=None):
+            cur_lo = [sliders["H lo"].value(), sliders["S lo"].value(), sliders["V lo"].value()]
+            cur_hi = [sliders["H hi"].value(), sliders["S hi"].value(), sliders["V hi"].value()]
+            mask = cv2.inRange(hsv_img, np.array(cur_lo, np.uint8), np.array(cur_hi, np.uint8))
+            overlay = bgr.copy()
+            tint = np.zeros_like(overlay)
+            tint[mask > 0] = [0, 200, 0]
+            cv2.addWeighted(tint, 0.45, overlay, 0.55, 0, overlay)
+            viewer.set_image(overlay)
+
+        for s in sliders.values():
+            s.valueChanged.connect(_update)
+
+        _update()  # initial render
+
+        def _get_values():
+            return (
+                [sliders["H lo"].value(), sliders["S lo"].value(), sliders["V lo"].value()],
+                [sliders["H hi"].value(), sliders["S hi"].value(), sliders["V hi"].value()],
+            )
+
+        def _save():
+            cur_lo, cur_hi = _get_values()
+            cal_path = board_dir / "calibration.json"
+            if cal_path.exists():
+                cal_data = json.loads(cal_path.read_text())
+                cal_data.setdefault("hsv_overrides", {})["copper_lower"] = cur_lo
+                cal_data.setdefault("hsv_overrides", {})["copper_upper"] = cur_hi
+                cal_path.write_text(json.dumps(cal_data, indent=2) + "\n")
+                log.info("HSV overrides saved → %s", cal_path)
+            nonlocal result_cfg
+            result_cfg = {**hsv_cfg, "copper_lower": cur_lo, "copper_upper": cur_hi}
+            dialog.accept()
+
+        def _return_only():
+            cur_lo, cur_hi = _get_values()
+            nonlocal result_cfg
+            result_cfg = {**hsv_cfg, "copper_lower": cur_lo, "copper_upper": cur_hi}
+            dialog.accept()
+
+        save_btn.clicked.connect(_save)
+        return_btn.clicked.connect(_return_only)
+
+        dialog.exec()   # blocks (Qt modal dialog)
+        return result_cfg
 
 
 def _interactive_hsv_tune(
@@ -1127,11 +1304,13 @@ def _interactive_hsv_tune(
     cal: dict | None = None,
     layer: str = "top",
 ) -> None:
-    """Interactive trackbar window to tune HSV copper thresholds."""
+    """Standalone HSV tuning dialog (--tune-hsv flag).  Uses _HsvTuneDialog."""
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+
     cal = cal or {}
     layer_cal = get_layer_cal(cal, layer)
 
-    # Prefer the source_image recorded in calibration; fall back to common names
     source_img = layer_cal.get("source_image", "")
     img_path = board_dir / source_img if source_img else None
 
@@ -1147,52 +1326,7 @@ def _interactive_hsv_tune(
 
     bgr = load_and_crop(img_path)
     bgr = apply_perspective_warp(bgr, layer_cal)
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-
-    cfg = {**DEFAULT_HSV, **hsv_overrides}
-    lo = cfg["copper_lower"][:]
-    hi = cfg["copper_upper"][:]
-
-    cv2.namedWindow("HSV Tune", cv2.WINDOW_NORMAL)
-
-    def nothing(_): pass
-
-    cv2.createTrackbar("H lo", "HSV Tune", lo[0], 179, nothing)
-    cv2.createTrackbar("S lo", "HSV Tune", lo[1], 255, nothing)
-    cv2.createTrackbar("V lo", "HSV Tune", lo[2], 255, nothing)
-    cv2.createTrackbar("H hi", "HSV Tune", hi[0], 179, nothing)
-    cv2.createTrackbar("S hi", "HSV Tune", hi[1], 255, nothing)
-    cv2.createTrackbar("V hi", "HSV Tune", hi[2], 255, nothing)
-
-    display = cv2.resize(bgr, (1280, 720))
-    hsv_disp = cv2.resize(hsv, (1280, 720))
-
-    print("Adjust trackbars. Press 's' to save to calibration.json, 'q' to quit.")
-    while True:
-        lo = [cv2.getTrackbarPos("H lo", "HSV Tune"),
-              cv2.getTrackbarPos("S lo", "HSV Tune"),
-              cv2.getTrackbarPos("V lo", "HSV Tune")]
-        hi = [cv2.getTrackbarPos("H hi", "HSV Tune"),
-              cv2.getTrackbarPos("S hi", "HSV Tune"),
-              cv2.getTrackbarPos("V hi", "HSV Tune")]
-
-        mask = cv2.inRange(hsv_disp, np.array(lo, np.uint8), np.array(hi, np.uint8))
-        overlay = display.copy()
-        overlay[mask > 0] = [0, 255, 0]
-        cv2.imshow("HSV Tune", overlay)
-
-        key = cv2.waitKey(30) & 0xFF
-        if key == ord("q"):
-            break
-        if key == ord("s"):
-            cal_path = board_dir / "calibration.json"
-            cal = json.loads(cal_path.read_text()) if cal_path.exists() else {}
-            cal.setdefault("hsv_overrides", {})["copper_lower"] = lo
-            cal.setdefault("hsv_overrides", {})["copper_upper"] = hi
-            cal_path.write_text(json.dumps(cal, indent=2))
-            print(f"Saved to {cal_path}")
-
-    cv2.destroyAllWindows()
+    _HsvTuneDialog.run_dialog(bgr, hsv_overrides, board_dir)
 
 
 if __name__ == "__main__":

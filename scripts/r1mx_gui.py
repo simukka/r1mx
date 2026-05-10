@@ -102,8 +102,11 @@ class ImageViewer(QGraphicsView):
     imageClicked = pyqtSignal(QPointF)   # image-pixel coords
     imageMoved   = pyqtSignal(QPointF)   # image-pixel coords
 
-    _XHAIR_ARM  = 20   # crosshair arm length in image pixels
-    _XHAIR_GAP  = 4    # gap radius around the centre
+    _XHAIR_ARM   = 20    # crosshair arm length in image pixels
+    _XHAIR_GAP   = 4     # gap radius around the centre
+    _ZOOM_STEP   = 1.25  # scale factor per zoom step
+    _ZOOM_MIN    = 0.02  # lower bound (don't zoom out to nothing)
+    _ZOOM_MAX    = 64.0  # upper bound
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -115,13 +118,14 @@ class ImageViewer(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setMouseTracking(True)
 
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._img_w = 0
         self._img_h = 0
+        self._zoom_level: float = 1.0   # current cumulative scale factor
 
         # Crosshair overlay (four line segments)
         pen = QPen(QColor(0, 255, 255), 1.5)
@@ -170,6 +174,46 @@ class ImageViewer(QGraphicsView):
         """Fit the image in the viewport, preserving aspect ratio."""
         if self._pixmap_item is not None:
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            # Recompute zoom_level from the actual transform so zoom_in/out stay calibrated
+            self._zoom_level = self.transform().m11()
+            self._update_drag_mode()
+
+    def zoom_in(self) -> None:
+        """Zoom in one step, anchored to the mouse cursor."""
+        self._apply_zoom(self._ZOOM_STEP)
+
+    def zoom_out(self) -> None:
+        """Zoom out one step, anchored to the mouse cursor."""
+        self._apply_zoom(1.0 / self._ZOOM_STEP)
+
+    def zoom_reset(self) -> None:
+        """Return to 100 % (1 image pixel = 1 screen pixel)."""
+        self.resetTransform()
+        self._zoom_level = 1.0
+        self._update_drag_mode()
+
+    def _apply_zoom(self, factor: float) -> None:
+        new_level = self._zoom_level * factor
+        new_level = max(self._ZOOM_MIN, min(self._ZOOM_MAX, new_level))
+        actual_factor = new_level / self._zoom_level
+        self.scale(actual_factor, actual_factor)
+        self._zoom_level = new_level
+        self._update_drag_mode()
+
+    def _update_drag_mode(self) -> None:
+        """Enable ScrollHandDrag when zoomed in so the user can pan."""
+        if self._pixmap_item is None:
+            return
+        # Determine if the image is larger than the viewport in either axis
+        vr = self.viewport().rect()
+        sr = self.mapToScene(vr).boundingRect()
+        img_rect = QRectF(0, 0, self._img_w, self._img_h)
+        zoomed_in = sr.width() < img_rect.width() or sr.height() < img_rect.height()
+        mode = (QGraphicsView.DragMode.ScrollHandDrag if zoomed_in
+                else QGraphicsView.DragMode.NoDrag)
+        # Only change if needed (avoids cursor flicker)
+        if self.dragMode() != mode:
+            self.setDragMode(mode)
 
     def scene(self) -> QGraphicsScene:  # type: ignore[override]
         return self._scene
@@ -232,15 +276,30 @@ class ImageViewer(QGraphicsView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.fit_image()
+        # Only auto-fit when at the "fit" zoom level (i.e. not manually zoomed).
+        # Use a generous tolerance: if the current transform is close to what fitInView
+        # would produce, we consider ourselves at fit-level.
+        if self._pixmap_item is not None:
+            vr = self.viewport().rect()
+            if vr.width() > 0 and vr.height() > 0:
+                fit_sx = vr.width()  / max(self._img_w, 1)
+                fit_sy = vr.height() / max(self._img_h, 1)
+                fit_scale = min(fit_sx, fit_sy)
+                if abs(self._zoom_level - fit_scale) / max(fit_scale, 1e-6) < 0.15:
+                    self.fit_image()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.fit_image()
 
     def wheelEvent(self, event) -> None:
-        # Disable scroll-wheel zoom to avoid accidental scale changes
-        event.ignore()
+        """Scroll wheel zooms; anchor is the cursor position."""
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self._apply_zoom(self._ZOOM_STEP)
+        elif delta < 0:
+            self._apply_zoom(1.0 / self._ZOOM_STEP)
+        event.accept()
 
 
 # ---------------------------------------------------------------------------

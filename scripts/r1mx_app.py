@@ -41,8 +41,9 @@ from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QDockWidget,
     QFormLayout, QGraphicsEllipseItem, QGraphicsItemGroup, QGraphicsPixmapItem,
     QGraphicsRectItem, QGraphicsScene, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressBar,
-    QPushButton, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QToolBar,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QSplitter, QStatusBar, QTextEdit, QToolBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -53,6 +54,9 @@ sys.path.insert(0, str(_SCRIPTS))
 
 from r1mx_gui import ImageViewer, bgr_to_pixmap, draw_corner, draw_polyline
 from r1mx_db  import DB
+
+# ── image file extensions we look for ────────────────────────────────────
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".JPG", ".JPEG", ".PNG"}
 
 # ── object-type display config ────────────────────────────────────────────
 OBJECT_TYPES = [
@@ -69,6 +73,116 @@ LAYER_COLORS = {
     "top":    QColor(  0, 200, 100),
     "bottom": QColor(200, 100,   0),
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Image picker dialog
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ImagePickerDialog(QDialog):
+    """
+    Shows thumbnail previews of every image file in a board directory.
+    The user selects one; the chosen filename is returned via `selected_file`.
+
+    Usage::
+
+        dlg = ImagePickerDialog(board_dir, current_image, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            chosen = dlg.selected_file   # relative filename, e.g. "P1003481.JPG"
+    """
+
+    _THUMB_W = 200
+    _THUMB_H = 150
+
+    def __init__(self, board_dir: Path, current_image: str = "", parent=None):
+        super().__init__(parent)
+        self.selected_file: str = current_image
+        self._board_dir = board_dir
+
+        self.setWindowTitle(f"Select image — {board_dir.name}")
+        self.resize(900, 600)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        info = QLabel(f"Board directory: <code>{board_dir}</code><br>"
+                      "Double-click an image to select it.")
+        info.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(info)
+
+        # Scroll area containing a grid of thumbnail buttons
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        grid_widget = QWidget()
+        self._grid = QHBoxLayout(grid_widget)   # wrapping done via flow — simpler: use list
+        scroll.setWidget(grid_widget)
+        layout.addWidget(scroll, stretch=1)
+
+        # Use QListWidget in icon mode — handles wrapping and selection automatically
+        self._list = QListWidget()
+        self._list.setViewMode(QListWidget.ViewMode.IconMode)
+        self._list.setIconSize(
+            __import__("PyQt6.QtCore", fromlist=["QSize"]).QSize(self._THUMB_W, self._THUMB_H)
+        )
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._list.setSpacing(8)
+        self._list.setWordWrap(True)
+        self._list.itemDoubleClicked.connect(self._accept_item)
+        layout.addWidget(self._list, stretch=1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_ok)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._populate()
+
+    def _populate(self):
+        """Scan board dir and add thumbnails to the list."""
+        import cv2
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtGui import QIcon
+
+        files = sorted(
+            f for f in self._board_dir.iterdir()
+            if f.suffix in _IMAGE_EXTS
+        )
+        if not files:
+            item = QListWidgetItem("No image files found")
+            self._list.addItem(item)
+            return
+
+        for fpath in files:
+            img = cv2.imread(str(fpath))
+            if img is None:
+                continue
+            # Scale thumbnail preserving aspect ratio
+            h, w = img.shape[:2]
+            scale = min(self._THUMB_W / w, self._THUMB_H / h)
+            tw, th = int(w * scale), int(h * scale)
+            thumb = cv2.resize(img, (tw, th), interpolation=cv2.INTER_AREA)
+            pixmap = bgr_to_pixmap(thumb)
+
+            item = QListWidgetItem(QIcon(pixmap), fpath.name)
+            item.setData(Qt.ItemDataRole.UserRole, fpath.name)
+            item.setToolTip(f"{fpath.name}\n{w}×{h} px")
+            self._list.addItem(item)
+
+            # Pre-select the current image
+            if fpath.name == self.selected_file:
+                self._list.setCurrentItem(item)
+
+    def _accept_item(self, item: QListWidgetItem):
+        self.selected_file = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        self.accept()
+
+    def _on_ok(self):
+        item = self._list.currentItem()
+        if item:
+            self.selected_file = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        self.accept()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -119,9 +233,10 @@ class BoardTreePanel(QWidget):
     """Left dock: tree of boards → layers → object types with visibility checkboxes."""
 
     # Emitted when a node is selected (board/layer) or visibility toggled
-    boardSelected   = pyqtSignal(str)                    # board name
-    layerSelected   = pyqtSignal(str, str)               # board, layer
-    visibilityChanged = pyqtSignal(str, str, str, bool)  # board, layer, objtype, visible
+    boardSelected     = pyqtSignal(str)                    # board name
+    layerSelected     = pyqtSignal(str, str)               # board, layer
+    visibilityChanged = pyqtSignal(str, str, str, bool)    # board, layer, objtype, visible
+    imageSelectRequested = pyqtSignal(str, str)            # board, layer
 
     def __init__(self, db: DB, parent=None):
         super().__init__(parent)
@@ -136,6 +251,8 @@ class BoardTreePanel(QWidget):
         self._tree.setColumnCount(1)
         self._tree.itemClicked.connect(self._on_click)
         self._tree.itemChanged.connect(self._on_check)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._tree)
 
         self.refresh()
@@ -153,16 +270,21 @@ class BoardTreePanel(QWidget):
             b_item.setFont(0, QFont("sans-serif", 9, QFont.Weight.Bold))
 
             for layer in self._db.list_layers(board["id"]):
-                l_item = QTreeWidgetItem([layer["name"]])
+                src = layer["source_image"] or ""
+                cal_mark = "  ✓" if layer["calibrated"] else ""
+                label = f"{layer['name']}{cal_mark}"
+                if src:
+                    label += f"  [{src}]"
+
+                l_item = QTreeWidgetItem([label])
                 l_item.setData(0, _ROLE_KIND,  "layer")
                 l_item.setData(0, _ROLE_BOARD, board["name"])
                 l_item.setData(0, _ROLE_LAYER, layer["name"])
                 l_item.setCheckState(0, Qt.CheckState.Checked)
                 color = LAYER_COLORS.get(layer["name"], QColor(150, 150, 150))
                 l_item.setForeground(0, QBrush(color))
-
-                if layer["calibrated"]:
-                    l_item.setText(0, layer["name"] + "  ✓")
+                l_item.setToolTip(0, f"Source image: {src or '(none)'}\n"
+                                     "Right-click → Select image…")
 
                 for key, label, color in OBJECT_TYPES:
                     ot_item = QTreeWidgetItem([label])
@@ -221,6 +343,23 @@ class BoardTreePanel(QWidget):
             self.visibilityChanged.emit(board, layer, "", visible)
         else:
             self.visibilityChanged.emit(board, layer, objtype, visible)
+
+    def _on_context_menu(self, pos):
+        item = self._tree.itemAt(pos)
+        if item is None:
+            return
+        kind  = item.data(0, _ROLE_KIND)
+        board = item.data(0, _ROLE_BOARD) or ""
+        layer = item.data(0, _ROLE_LAYER) or ""
+
+        menu = QMenu(self)
+        if kind == "layer":
+            act = menu.addAction("Select image…")
+            act.triggered.connect(lambda: self.imageSelectRequested.emit(board, layer))
+        elif kind == "board":
+            act = menu.addAction("Refresh")
+            act.triggered.connect(self.refresh)
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -578,6 +717,7 @@ class MainWindow(QMainWindow):
         self._tree.boardSelected.connect(self._open_board)
         self._tree.layerSelected.connect(self._open_layer)
         self._tree.visibilityChanged.connect(self._on_visibility_changed)
+        self._tree.imageSelectRequested.connect(self._pick_layer_image)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -625,10 +765,30 @@ class MainWindow(QMainWindow):
         # Board
         board_menu = mb.addMenu("&Board")
         board_menu.addAction("Show in filesystem…", self._open_board_dir)
+        board_menu.addAction("Select layer image…", self._pick_active_layer_image)
 
         # View
         view_menu = mb.addMenu("&View")
-        view_menu.addAction("Fit image", self._viewer.fit_image)
+
+        zoom_in_act = QAction("Zoom In", self)
+        zoom_in_act.setShortcut("Ctrl++")
+        zoom_in_act.triggered.connect(self._viewer.zoom_in)
+        view_menu.addAction(zoom_in_act)
+
+        zoom_out_act = QAction("Zoom Out", self)
+        zoom_out_act.setShortcut("Ctrl+-")
+        zoom_out_act.triggered.connect(self._viewer.zoom_out)
+        view_menu.addAction(zoom_out_act)
+
+        zoom_fit_act = QAction("Fit Image", self)
+        zoom_fit_act.setShortcut("Ctrl+0")
+        zoom_fit_act.triggered.connect(self._viewer.fit_image)
+        view_menu.addAction(zoom_fit_act)
+
+        zoom_100_act = QAction("Zoom 100%", self)
+        zoom_100_act.setShortcut("Ctrl+1")
+        zoom_100_act.triggered.connect(self._viewer.zoom_reset)
+        view_menu.addAction(zoom_100_act)
 
         # Help
         help_menu = mb.addMenu("&Help")
@@ -955,6 +1115,59 @@ class MainWindow(QMainWindow):
             return
         path = _REPO / "components" / self._active_board
         subprocess.Popen(["xdg-open", str(path)])
+
+    def _pick_active_layer_image(self):
+        """Board menu shortcut: pick image for the currently active layer."""
+        if self._active_board and self._active_layer:
+            self._pick_layer_image(self._active_board, self._active_layer)
+        else:
+            QMessageBox.information(self, "No layer active",
+                                    "Select a board and layer first.")
+
+    def _pick_layer_image(self, board_name: str, layer_name: str):
+        """Open the image picker for a specific board/layer."""
+        board_dir = _REPO / "components" / board_name
+        if not board_dir.is_dir():
+            QMessageBox.warning(self, "Board not found",
+                                f"Directory not found:\n{board_dir}")
+            return
+
+        board_id  = self._db.get_or_create_board(board_name)
+        layer_row = self._db.get_layer(board_id, layer_name)
+        current   = layer_row["source_image"] if layer_row else ""
+
+        dlg = ImagePickerDialog(board_dir, current or "", parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        chosen = dlg.selected_file
+        if not chosen:
+            return
+
+        # Persist to DB
+        if layer_row:
+            self._db.conn().execute(
+                "UPDATE layers SET source_image=? WHERE id=?",
+                (chosen, layer_row["id"]),
+            )
+            self._db.conn().commit()
+        else:
+            layer_id = self._db.get_or_create_layer(board_id, layer_name)
+            self._db.conn().execute(
+                "UPDATE layers SET source_image=? WHERE id=?",
+                (chosen, layer_id),
+            )
+            self._db.conn().commit()
+
+        self._log.append(f"Layer {board_name}/{layer_name}: image set to {chosen}")
+        self._tree.refresh()
+
+        # If this is the active layer, reload the canvas
+        if board_name == self._active_board and layer_name == self._active_layer:
+            key = (board_name, layer_name)
+            if key in self._layer_scenes:
+                del self._layer_scenes[key]
+            self._open_layer(board_name, layer_name)
 
     def _show_about(self):
         QMessageBox.about(
