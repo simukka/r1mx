@@ -259,6 +259,9 @@ class CalibrationGUI:
 
         self._px_per_mm      = 0.0
 
+        # Live mouse position in window coords (updated on MOUSEMOVE)
+        self._mouse_win: tuple[int, int] | None = None
+
         # Store display dimensions for window sizing
         self._dw = dw
         self._dh = dh
@@ -278,6 +281,24 @@ class CalibrationGUI:
     # ------------------------------------------------------------------
     # Drawing helpers
     # ------------------------------------------------------------------
+
+    def _draw_crosshair(self, img, cx: int, cy: int, ann_s: float = 1.0) -> None:
+        """Draw a crosshair centered on (cx, cy) in image coords."""
+        cv2 = self.cv2
+        arm   = int(20 * ann_s)   # half-length of each arm
+        gap   = int(4 * ann_s)    # gap around the centre point
+        thick = max(1, round(ann_s))
+        h, w  = img.shape[:2]
+
+        # Horizontal and vertical arms with a small gap at centre
+        for (x0, x1), (y0, y1) in [
+            ((max(0, cx - arm), max(0, cx - gap)), (cy, cy)),  # left arm
+            ((min(w, cx + gap), min(w, cx + arm)), (cy, cy)),  # right arm
+            ((cx, cx), (max(0, cy - arm), max(0, cy - gap))),  # top arm
+            ((cx, cx), (min(h, cy + gap), min(h, cy + arm))),  # bottom arm
+        ]:
+            cv2.line(img, (x0, y0), (x1, y1), (0, 0, 0),       thick + 2, cv2.LINE_AA)
+            cv2.line(img, (x0, y0), (x1, y1), (0, 255, 255), thick,     cv2.LINE_AA)
 
     def _overlay_text(self, img, lines: list[str], ann_s: float = 1.0) -> None:
         """Draw semi-transparent text box in the top-left corner."""
@@ -375,6 +396,9 @@ class CalibrationGUI:
             hints,
         ], ann_s=self._ann_s)
         self._draw_corners(img, ann_s=self._ann_s)
+        if self._mouse_win and n < 4:
+            mx, my = self._to_orig(*self._mouse_win)
+            self._draw_crosshair(img, mx, my, ann_s=self._ann_s)
         return img
 
     def _frame_refpts(self):
@@ -385,6 +409,9 @@ class CalibrationGUI:
             "[Enter] confirm (after 2)  [Backspace] undo",
         ], ann_s=self._warp_ann_s)
         self._draw_refs(img, ann_s=self._warp_ann_s)
+        if self._mouse_win and n < 2:
+            mx, my = self._to_warp_orig(*self._mouse_win)
+            self._draw_crosshair(img, mx, my, ann_s=self._warp_ann_s)
         return img
 
     def _frame_summary(self):
@@ -417,14 +444,16 @@ class CalibrationGUI:
     # ------------------------------------------------------------------
 
     def _on_mouse(self, event, x, y, flags, param):
-        if event != self.cv2.EVENT_LBUTTONDOWN:
-            return
-        if self.phase == _Phase.CORNERS and len(self._corners_d) < 4:
-            self._corners_d.append((x, y))
-            self._corners_o.append(self._to_orig(x, y))
-        elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
-            self._refs_d.append((x, y))
-            self._refs_o.append(self._to_warp_orig(x, y))
+        cv2 = self.cv2
+        if event == cv2.EVENT_MOUSEMOVE:
+            self._mouse_win = (x, y)
+        elif event == cv2.EVENT_LBUTTONDOWN:
+            if self.phase == _Phase.CORNERS and len(self._corners_d) < 4:
+                self._corners_d.append((x, y))
+                self._corners_o.append(self._to_orig(x, y))
+            elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
+                self._refs_d.append((x, y))
+                self._refs_o.append(self._to_warp_orig(x, y))
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
