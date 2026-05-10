@@ -382,42 +382,65 @@ class BoardTreePanel(QWidget):
 
         self.refresh()
 
-    def refresh(self):
-        """Rebuild tree from DB."""
+    def refresh(self, vis_state: dict | None = None):
+        """Rebuild tree from DB.
+
+        Parameters
+        ----------
+        vis_state : optional dict from DB.load_visibility_state().
+                    When provided, checkboxes are restored from it.
+                    When None, all items default to Checked.
+        """
         self._ignore_check = True
         self._tree.clear()
+        vs = vis_state or {}
 
         for board in self._db.list_boards():
-            b_item = QTreeWidgetItem([board["name"]])
+            bname = board["name"]
+            board_vis = vs.get(bname, {})
+            b_checked = board_vis.get("__board__", True)
+
+            b_item = QTreeWidgetItem([bname])
             b_item.setData(0, _ROLE_KIND,  "board")
-            b_item.setData(0, _ROLE_BOARD, board["name"])
-            b_item.setCheckState(0, Qt.CheckState.Checked)
+            b_item.setData(0, _ROLE_BOARD, bname)
+            b_item.setCheckState(
+                0, Qt.CheckState.Checked if b_checked else Qt.CheckState.Unchecked
+            )
             b_item.setFont(0, QFont("sans-serif", 9, QFont.Weight.Bold))
 
             for layer in self._db.list_layers(board["id"]):
+                lname = layer["name"]
                 src = layer["source_image"] or ""
                 cal_mark = "  ✓" if layer["calibrated"] else ""
-                label = f"{layer['name']}{cal_mark}"
+                lbl = f"{lname}{cal_mark}"
                 if src:
-                    label += f"  [{src}]"
+                    lbl += f"  [{src}]"
 
-                l_item = QTreeWidgetItem([label])
+                layer_vis = board_vis.get(lname, {})
+                l_checked = layer_vis.get("__layer__", True)
+
+                l_item = QTreeWidgetItem([lbl])
                 l_item.setData(0, _ROLE_KIND,  "layer")
-                l_item.setData(0, _ROLE_BOARD, board["name"])
-                l_item.setData(0, _ROLE_LAYER, layer["name"])
-                l_item.setCheckState(0, Qt.CheckState.Checked)
-                color = LAYER_COLORS.get(layer["name"], QColor(150, 150, 150))
+                l_item.setData(0, _ROLE_BOARD, bname)
+                l_item.setData(0, _ROLE_LAYER, lname)
+                l_item.setCheckState(
+                    0, Qt.CheckState.Checked if l_checked else Qt.CheckState.Unchecked
+                )
+                color = LAYER_COLORS.get(lname, QColor(150, 150, 150))
                 l_item.setForeground(0, QBrush(color))
                 l_item.setToolTip(0, f"Source image: {src or '(none)'}\n"
                                      "Right-click → Select image…")
 
                 for key, label, color in OBJECT_TYPES:
+                    ot_checked = layer_vis.get(key, True)
                     ot_item = QTreeWidgetItem([label])
                     ot_item.setData(0, _ROLE_KIND,  "objtype")
-                    ot_item.setData(0, _ROLE_BOARD, board["name"])
-                    ot_item.setData(0, _ROLE_LAYER, layer["name"])
+                    ot_item.setData(0, _ROLE_BOARD, bname)
+                    ot_item.setData(0, _ROLE_LAYER, lname)
                     ot_item.setData(0, _ROLE_OBJT,  key)
-                    ot_item.setCheckState(0, Qt.CheckState.Checked)
+                    ot_item.setCheckState(
+                        0, Qt.CheckState.Checked if ot_checked else Qt.CheckState.Unchecked
+                    )
                     ot_item.setForeground(0, QBrush(color))
                     l_item.addChild(ot_item)
 
@@ -428,6 +451,53 @@ class BoardTreePanel(QWidget):
             for i in range(b_item.childCount()):
                 b_item.child(i).setExpanded(False)
 
+        self._ignore_check = False
+
+    def get_full_vis_state(self) -> dict:
+        """Return a nested dict of current checkbox states for persistence."""
+        state = {}
+        root = self._tree.invisibleRootItem()
+        for bi in range(root.childCount()):
+            b_item = root.child(bi)
+            bname = b_item.data(0, _ROLE_BOARD)
+            b_checked = b_item.checkState(0) == Qt.CheckState.Checked
+            board_dict: dict = {"__board__": b_checked}
+            for li in range(b_item.childCount()):
+                l_item = b_item.child(li)
+                lname = l_item.data(0, _ROLE_LAYER)
+                l_checked = l_item.checkState(0) == Qt.CheckState.Checked
+                layer_dict: dict = {"__layer__": l_checked}
+                for oi in range(l_item.childCount()):
+                    ot_item = l_item.child(oi)
+                    key = ot_item.data(0, _ROLE_OBJT)
+                    layer_dict[key] = ot_item.checkState(0) == Qt.CheckState.Checked
+                board_dict[lname] = layer_dict
+            state[bname] = board_dict
+        return state
+
+    def set_solo_layer(self, board: str, layer: str):
+        """
+        Uncheck every board/layer EXCEPT (board, layer).
+        The target layer is checked; everything else is unchecked.
+        This is called when the user clicks a layer to open it,
+        so the canvas only shows the selected layer.
+        """
+        self._ignore_check = True
+        root = self._tree.invisibleRootItem()
+        for bi in range(root.childCount()):
+            b_item = root.child(bi)
+            bname = b_item.data(0, _ROLE_BOARD)
+            is_target_board = (bname == board)
+            b_state = Qt.CheckState.Checked if is_target_board else Qt.CheckState.Unchecked
+            b_item.setCheckState(0, b_state)
+            for li in range(b_item.childCount()):
+                l_item = b_item.child(li)
+                lname = l_item.data(0, _ROLE_LAYER)
+                is_target = is_target_board and (lname == layer)
+                l_state = Qt.CheckState.Checked if is_target else Qt.CheckState.Unchecked
+                l_item.setCheckState(0, l_state)
+                for oi in range(l_item.childCount()):
+                    l_item.child(oi).setCheckState(0, l_state)
         self._ignore_check = False
 
     def _on_click(self, item: QTreeWidgetItem, col: int):
@@ -840,7 +910,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
 
-        self._tree.refresh()
+        self._tree.refresh(self._tree.get_full_vis_state())
         self._load_db_state()
 
         if initial_board:
@@ -996,6 +1066,10 @@ class MainWindow(QMainWindow):
     # ── State persistence ─────────────────────────────────────────────────
 
     def _load_db_state(self):
+        # Restore visibility first, then open the last active board/layer
+        vis = self._db.load_visibility_state()
+        if vis:
+            self._tree.refresh(vis)
         board = self._db.get_state("active_board")
         if board:
             self._open_board(board)
@@ -1005,6 +1079,10 @@ class MainWindow(QMainWindow):
             self._db.set_state("active_board", self._active_board)
         if self._active_layer:
             self._db.set_state("active_layer", self._active_layer)
+
+    def _save_visibility_state(self):
+        """Persist current tree checkbox state to DB."""
+        self._db.save_visibility_state(self._tree.get_full_vis_state())
 
     # ── Board / layer opening ─────────────────────────────────────────────
 
@@ -1022,28 +1100,32 @@ class MainWindow(QMainWindow):
             self._open_layer(board_name, cal_layers[0]["name"])
 
     def _open_layer(self, board_name: str, layer_name: str):
+        """
+        Make (board_name, layer_name) the active layer.
+
+        Solo behaviour: hide all other loaded layer scenes and uncheck them
+        in the tree so only the selected layer is shown.  The user can then
+        re-check other layers via the tree to overlay them.
+        """
         self._active_board = board_name
         self._active_layer = layer_name
         self._save_db_state()
         self._status.showMessage(f"Board: {board_name}  Layer: {layer_name}")
 
-        key = (board_name, layer_name)
-        should_show = self._tree.is_layer_visible(board_name, layer_name)
+        # Solo: uncheck everything except this layer, update scene visibility
+        self._tree.set_solo_layer(board_name, layer_name)
+        for (b, l), ls in self._layer_scenes.items():
+            ls.set_all_visible(b == board_name and l == layer_name)
 
+        key = (board_name, layer_name)
         if key not in self._layer_scenes:
             self._load_layer_into_scene(board_name, layer_name)
-            if not should_show:
-                # Loaded but tree says it's hidden — respect the checkbox
-                ls = self._layer_scenes.get(key)
-                if ls:
-                    ls.set_all_visible(False)
         else:
-            # Only change visibility if the tree agrees it should be shown
-            self._layer_scenes[key].set_all_visible(should_show)
             self._viewer.scene().update()
 
-        if should_show:
-            self._viewer.fit_image()
+        # Persist the new solo state
+        self._save_visibility_state()
+        self._viewer.fit_image()
 
     def _load_layer_into_scene(self, board_name: str, layer_name: str):
         board_id = self._db.get_or_create_board(board_name)
@@ -1084,17 +1166,17 @@ class MainWindow(QMainWindow):
             for (b, l), ls in self._layer_scenes.items():
                 if b == board:
                     ls.set_all_visible(visible)
-            self._viewer.scene().update()
-            return
-        key = (board, layer)
-        ls = self._layer_scenes.get(key)
-        if ls is None:
-            return
-        if not objtype:
-            ls.set_all_visible(visible)
         else:
-            ls.set_visible(objtype, visible)
+            key = (board, layer)
+            ls = self._layer_scenes.get(key)
+            if ls is not None:
+                if not objtype:
+                    ls.set_all_visible(visible)
+                else:
+                    ls.set_visible(objtype, visible)
+
         self._viewer.scene().update()
+        self._save_visibility_state()
 
     # ── Canvas events ─────────────────────────────────────────────────────
 
@@ -1198,7 +1280,7 @@ class MainWindow(QMainWindow):
         self._log.append(
             f"Done — {saved} layer(s) calibrated." if saved else "No layers calibrated."
         )
-        self._tree.refresh()
+        self._tree.refresh(self._tree.get_full_vis_state())
         if saved and self._active_board and self._active_layer:
             key = (self._active_board, self._active_layer)
             if key in self._layer_scenes:
@@ -1301,7 +1383,7 @@ class MainWindow(QMainWindow):
 
     def _import_all_calibrations(self):
         self._db.migrate_all_calibration_jsons()
-        self._tree.refresh()
+        self._tree.refresh(self._tree.get_full_vis_state())
         self._log.append("Imported all calibration.json files into r1mx.db")
 
     def _index_datasheets(self):
@@ -1358,7 +1440,7 @@ class MainWindow(QMainWindow):
             self._db.conn().commit()
 
         self._log.append(f"Layer {board_name}/{layer_name}: image set to {chosen}")
-        self._tree.refresh()
+        self._tree.refresh(self._tree.get_full_vis_state())
 
         # If this is the active layer, reload the canvas
         if board_name == self._active_board and layer_name == self._active_layer:
@@ -1386,7 +1468,7 @@ class MainWindow(QMainWindow):
         if old_key in self._layer_scenes:
             del self._layer_scenes[old_key]
 
-        self._tree.refresh()
+        self._tree.refresh(self._tree.get_full_vis_state())
         self._log.append(f"Layer {board_name}/{layer_name}: properties saved.")
 
         # If this was the active layer, reload canvas with new settings
@@ -1492,7 +1574,7 @@ class MainWindow(QMainWindow):
 
         if saved:
             self._log.append(f"Calibration complete — {saved} layer(s) saved.")
-            self._tree.refresh()
+            self._tree.refresh(self._tree.get_full_vis_state())
             # Reload canvas for the calibrated layer
             key = (board_name, layer_name)
             if key in self._layer_scenes:

@@ -416,6 +416,31 @@ class DB:
         )
         self.conn().commit()
 
+    def save_visibility_state(self, state: dict):
+        """Persist the full visibility state dict as JSON.
+
+        Structure::
+
+            {
+              "cpu_io_board": {
+                "top": {"__layer__": True, "photo": True, "via": False, …},
+                "__board__": True
+              },
+              …
+            }
+        """
+        self.set_state("visibility_state", json.dumps(state))
+
+    def load_visibility_state(self) -> dict:
+        """Return the persisted visibility state, or {} if none saved."""
+        raw = self.get_state("visibility_state", "")
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
     # ── Migration ─────────────────────────────────────────────────────────
 
     def migrate_calibration_json(self, board_name: str) -> bool:
