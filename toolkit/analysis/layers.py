@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-extract_pcb_layers.py — PCB copper layer feature extractor for the r1mx project.
+layers.py — PCB copper layer feature extractor for the r1mx project.
 
 Analyses high-resolution top/bottom PCB photographs to detect:
   - Vias (through-holes)
@@ -8,26 +7,30 @@ Analyses high-resolution top/bottom PCB photographs to detect:
   - SMD / THT pads
   - Board outline
 
-Outputs an intermediate `layout.json` per board consumed by
-`generate_kicad_pcb.py` to produce a .kicad_pcb file.
+Results are stored in `r1mx.db` via `r1mx_db.DB.save_layout_objects()`.
+When invoked from the r1mx Toolkit app, results flow through ExtractLayerWorker
+directly into the database — no intermediate files are written.
 
-Reads calibration.json written by calibrate_board.py.  The calibration
-file contains a per-layer perspective-correction homography; this script
-applies the warp automatically before feature extraction so the analysis
-always operates on a geometry-corrected image.
+Reads calibration data written by calibrate_board.py (stored in r1mx.db and
+optionally in calibration.json for CLI use).  The calibration contains a
+per-layer perspective-correction homography; this script applies the warp
+automatically before feature extraction so the analysis always operates on a
+geometry-corrected image.
 
 Usage:
-    # Requires calibration.json first (see calibrate_board.py):
-    python scripts/extract_pcb_layers.py --board cpu_io_board
-    python scripts/extract_pcb_layers.py --board cpu_io_board --layer bottom
-    python scripts/extract_pcb_layers.py --board cpu_io_board --debug
-    python scripts/extract_pcb_layers.py --board cpu_io_board --tune-hsv
-    python scripts/extract_pcb_layers.py --board cpu_io_board --tune-hsv --layer bottom
+    # Requires calibration first (see calibrate_board.py):
+    python -m toolkit.layers.py --board cpu_io_board
+    python -m toolkit.layers.py --board cpu_io_board --layer bottom
+    python -m toolkit.layers.py --board cpu_io_board --debug
+    python -m toolkit.layers.py --board cpu_io_board --tune-hsv
+    python -m toolkit.layers.py --board cpu_io_board --tune-hsv --layer bottom
 
     # Interactive review — pause after each step for human verification:
-    python scripts/extract_pcb_layers.py --board cpu_io_board --review
-    python scripts/extract_pcb_layers.py --board cpu_io_board --review --layer bottom
+    python -m toolkit.layers.py --board cpu_io_board --review
+    python -m toolkit.layers.py --board cpu_io_board --review --layer bottom
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -45,7 +48,6 @@ import numpy as np
 # PyQt6 — only used by LayerReviewer (interactive --review mode) and
 # _interactive_hsv_tune (--tune-hsv mode).  Imported lazily inside those
 # classes so the rest of the script runs fine without a display.
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # for r1mx_gui
 
 logging.basicConfig(
     level=logging.INFO,
@@ -683,12 +685,6 @@ def process_board(
     return layout
 
 
-def save_layout(layout: dict, board_dir: Path) -> Path:
-    out = board_dir / "layout.json"
-    with out.open("w") as f:
-        json.dump(layout, f, indent=2)
-    log.info("Wrote %s", out)
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +738,8 @@ def main() -> None:
 
     layout = process_board(board_dir, px_per_mm, args.debug, hsv_overrides, cal,
                            review=args.review)
-    save_layout(layout, board_dir)
+    log.info("Extraction complete. Import results into r1mx.db via the Toolkit app "
+             "or with: python -m toolkit.r1mx_db.py --import-layout --board %s", args.board)
 
 
 # ---------------------------------------------------------------------------
@@ -998,7 +995,7 @@ class _ReviewWindow:
             QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
             QPushButton, QLabel, QStatusBar,
         )
-        from r1mx_gui import ImageViewer
+        from toolkit.gui.viewer import ImageViewer
 
         self._QEventLoop = QEventLoop
         self._Qt = Qt
@@ -1220,7 +1217,7 @@ class _HsvTuneDialog:
             QPushButton, QLabel, QSlider, QGroupBox,
         )
         from PyQt6.QtGui import QFont
-        from r1mx_gui import ImageViewer, bgr_to_pixmap
+        from toolkit.gui.viewer import ImageViewer, bgr_to_pixmap
 
         cfg = {**DEFAULT_HSV, **hsv_cfg}
         lo  = cfg["copper_lower"][:]

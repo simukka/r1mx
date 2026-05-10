@@ -1,5 +1,5 @@
 """
-r1mx_gui.py — shared PyQt6 GUI primitives for the r1mx reverse-engineering toolkit.
+viewer.py — shared PyQt6 GUI primitives for the r1mx reverse-engineering toolkit.
 
 Provides:
   ImageViewer       QGraphicsView subclass that displays a numpy BGR image and
@@ -171,10 +171,14 @@ class ImageViewer(QGraphicsView):
         self.fit_image()
 
     def fit_image(self) -> None:
-        """Fit the image in the viewport, preserving aspect ratio."""
-        if self._pixmap_item is not None:
-            self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-            # Recompute zoom_level from the actual transform so zoom_in/out stay calibrated
+        """Fit the scene contents into the viewport, preserving aspect ratio.
+
+        Works whether the image was loaded via set_image() or added directly
+        to the scene (e.g. via LayerScene.load_photo()).
+        """
+        rect = self._scene.sceneRect()
+        if not rect.isEmpty():
+            self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
             self._zoom_level = self.transform().m11()
             self._update_drag_mode()
 
@@ -202,16 +206,14 @@ class ImageViewer(QGraphicsView):
 
     def _update_drag_mode(self) -> None:
         """Enable ScrollHandDrag when zoomed in so the user can pan."""
-        if self._pixmap_item is None:
+        scene_rect = self._scene.sceneRect()
+        if scene_rect.isEmpty():
             return
-        # Determine if the image is larger than the viewport in either axis
         vr = self.viewport().rect()
         sr = self.mapToScene(vr).boundingRect()
-        img_rect = QRectF(0, 0, self._img_w, self._img_h)
-        zoomed_in = sr.width() < img_rect.width() or sr.height() < img_rect.height()
+        zoomed_in = sr.width() < scene_rect.width() or sr.height() < scene_rect.height()
         mode = (QGraphicsView.DragMode.ScrollHandDrag if zoomed_in
                 else QGraphicsView.DragMode.NoDrag)
-        # Only change if needed (avoids cursor flicker)
         if self.dragMode() != mode:
             self.setDragMode(mode)
 
@@ -276,17 +278,17 @@ class ImageViewer(QGraphicsView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # Only auto-fit when at the "fit" zoom level (i.e. not manually zoomed).
-        # Use a generous tolerance: if the current transform is close to what fitInView
-        # would produce, we consider ourselves at fit-level.
-        if self._pixmap_item is not None:
-            vr = self.viewport().rect()
-            if vr.width() > 0 and vr.height() > 0:
-                fit_sx = vr.width()  / max(self._img_w, 1)
-                fit_sy = vr.height() / max(self._img_h, 1)
-                fit_scale = min(fit_sx, fit_sy)
-                if abs(self._zoom_level - fit_scale) / max(fit_scale, 1e-6) < 0.15:
-                    self.fit_image()
+        # Re-fit only when close to the "fit" zoom level (not manually zoomed).
+        scene_rect = self._scene.sceneRect()
+        if scene_rect.isEmpty():
+            return
+        vr = self.viewport().rect()
+        if vr.width() > 0 and vr.height() > 0:
+            fit_sx = vr.width()  / max(scene_rect.width(),  1)
+            fit_sy = vr.height() / max(scene_rect.height(), 1)
+            fit_scale = min(fit_sx, fit_sy)
+            if abs(self._zoom_level - fit_scale) / max(fit_scale, 1e-6) < 0.15:
+                self.fit_image()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

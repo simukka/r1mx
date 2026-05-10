@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-extract_bom.py — PCB Bill of Materials extractor for the r1mx project.
+scan.py — PCB Bill of Materials extractor for the r1mx project.
 
 Extracts component reference designators and visible part numbers from
 high-resolution PCB photographs. Uses EasyOCR (primary, best accuracy),
@@ -10,20 +9,22 @@ Produces a bom.csv per board and a master bom_master.csv at the repo root.
 
 Usage:
     # Process all boards with EasyOCR (default)
-    python scripts/extract_bom.py
+    python -m toolkit.scan.py
 
     # Single board
-    python scripts/extract_bom.py --board cpu_io_board
+    python -m toolkit.scan.py --board cpu_io_board
 
     # Use Tesseract instead
-    python scripts/extract_bom.py --engine tesseract
+    python -m toolkit.scan.py --engine tesseract
 
     # Save preprocessed tiles for debugging
-    python scripts/extract_bom.py --board sd_board --debug
+    python -m toolkit.scan.py --board sd_board --debug
 
     # Minimum confidence for EasyOCR results (0–1, default 0.4)
-    python scripts/extract_bom.py --min-confidence 0.5
+    python -m toolkit.scan.py --min-confidence 0.5
 """
+
+from __future__ import annotations
 
 import argparse
 import csv
@@ -31,7 +32,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -151,41 +152,59 @@ _COMMON_WORDS = {
 # ---------------------------------------------------------------------------
 
 
-class BomEntry(NamedTuple):
-    board: str
-    reference: str
-    ref_type: str        # component class inferred from prefix
-    source_image: str
-    engine: str
-    raw_text: str        # full OCR token as found
-    x_px: int = -1       # centroid X in source image pixels (-1 = unknown)
-    y_px: int = -1       # centroid Y in source image pixels (-1 = unknown)
+@dataclass(frozen=True)
+class BomEntry:
+    """Normalized OCR result for either a reference designator or part number."""
+
+    label: str
+    ref_type: str
+    x_mm: float = -1.0
+    y_mm: float = -1.0
+    confidence: float = 1.0
+    source: str = ""
+    board: str = ""
+    engine: str = "easyocr"
+    raw_text: str = ""
+    x_px: int = -1
+    y_px: int = -1
+
+    @property
+    def reference(self) -> str:
+        """Backward-compatible alias for the label field."""
+        return self.label
+
+    @property
+    def source_image(self) -> str:
+        """Backward-compatible alias for the source field."""
+        return self.source
+
+    def _asdict(self) -> dict:
+        """Return a CSV-friendly representation of the entry."""
+        return {
+            "board": self.board,
+            "reference": self.reference,
+            "ref_type": self.ref_type,
+            "source_image": self.source_image,
+            "engine": self.engine,
+            "raw_text": self.raw_text,
+            "x_px": self.x_px,
+            "y_px": self.y_px,
+        }
 
 
 def ref_type_from_designator(ref: str) -> str:
-    """Return a human-readable component class from a reference designator."""
-    prefix = re.match(r"^[A-Z]+", ref.upper())
-    if not prefix:
-        return "Unknown"
-    p = prefix.group(0)
-    mapping = {
-        "R": "Resistor", "RN": "Resistor Network",
-        "C": "Capacitor",
-        "L": "Inductor", "FB": "Ferrite Bead",
-        "D": "Diode", "ZD": "Zener Diode", "LED": "LED",
-        "CR": "Diode", "TVS": "TVS Diode",
-        "Q": "Transistor", "T": "Transistor", "TR": "Transistor",
-        "U": "IC", "IC": "IC",
-        "Y": "Crystal/Oscillator", "X": "Crystal/Oscillator",
-        "J": "Connector", "P": "Connector", "CN": "Connector",
-        "SW": "Switch",
-        "F": "Fuse",
-        "TP": "Test Point",
-        "BT": "Battery",
-        "VR": "Voltage Regulator",
-        "MOV": "MOV", "NTC": "Thermistor", "PTC": "Thermistor",
+    """Return the normalized reference prefix, or an empty string when unknown."""
+    match = re.match(r"^[A-Z]+", normalize_ref(ref))
+    if not match:
+        return ""
+    prefix = match.group(0)
+    known = {
+        "A", "BT", "C", "CN", "CR", "D", "DS", "E", "F", "FB", "FD", "G", "H",
+        "IC", "J", "K", "L", "LED", "M", "MH", "MOV", "MP", "N", "NTC", "P", "PTC",
+        "Q", "R", "RN", "S", "SP", "SW", "T", "TP", "TR", "TVS", "U", "V", "VR",
+        "W", "X", "Y", "Y", "Z", "ZD",
     }
-    return mapping.get(p, "Component")
+    return prefix if prefix in known else ""
 
 
 # ---------------------------------------------------------------------------
@@ -344,14 +363,8 @@ def ocr_with_tesseract(tiles: list[tuple[np.ndarray, int, int]]) -> list[tuple[s
 
 
 def normalize_ref(ref: str) -> str:
-    """
-    Fix common OCR character substitutions in reference designators.
-
-    In a ref like C71O, R2O5, U4O the trailing letter(s) in what should be
-    the numeric suffix often have O→0, I→1, S→5, Z→2 confusion.  We correct
-    the *numeric part* of the designator only (everything after the leading
-    alpha prefix).
-    """
+    """Normalize a reference designator by stripping spaces and OCR confusion."""
+    ref = re.sub(r"\s+", "", ref).upper()
     m = re.match(r"^([A-Z]+)(.+)$", ref)
     if not m:
         return ref
@@ -370,32 +383,33 @@ def normalize_ref(ref: str) -> str:
 
 def filter_tokens(
     tokens: list[tuple[str, int, int]],
-) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
-    """
-    Separate tokens into dicts mapping clean text → (x_px, y_px):
-    - refs: component reference designators (R12, C201, U7 …)
-    - parts: other plausible part-number-like identifiers
-    First occurrence position wins when a ref appears in multiple tiles.
-    """
-    refs: dict[str, tuple[int, int]] = {}
-    parts: dict[str, tuple[int, int]] = {}
+) -> tuple[list[tuple[str, int, int]], list[tuple[str, int, int]]]:
+    """Separate OCR tokens into reference-designator and part-number groups."""
+    refs: list[tuple[str, int, int]] = []
+    parts: list[tuple[str, int, int]] = []
+    seen_refs: set[str] = set()
+    seen_parts: set[str] = set()
 
     for token, x, y in tokens:
         clean = re.sub(r"^[^A-Z0-9]+|[^A-Z0-9]+$", "", token.upper())
         if not clean or len(clean) < 2:
             continue
-        if NOISE_PATTERN.match(clean):
-            continue
         if clean in _COMMON_WORDS:
+            continue
+        if NOISE_PATTERN.match(clean) and not (re.search(r"[A-Z]", clean) and re.search(r"\d", clean)):
             continue
 
         if REF_PATTERN.fullmatch(clean):
             norm = normalize_ref(clean)
-            if norm not in refs:
-                refs[norm] = (x, y)
-        elif PARTNUM_PATTERN.fullmatch(clean) and len(clean) >= 4:
-            if re.search(r"\d", clean) and clean not in parts:
-                parts[clean] = (x, y)
+            if ref_type_from_designator(norm):
+                if norm not in seen_refs:
+                    refs.append((norm, x, y))
+                    seen_refs.add(norm)
+                continue
+        if PARTNUM_PATTERN.fullmatch(clean) and len(clean) >= 4 and re.search(r"\d", clean):
+            if clean not in seen_parts:
+                parts.append((clean, x, y))
+                seen_parts.add(clean)
 
     return refs, parts
 
@@ -411,7 +425,7 @@ def process_image(
     debug_dir: Path | None,
     min_confidence: float = 0.35,
     gpu: bool = False,
-) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
+) -> tuple[list[tuple[str, int, int]], list[tuple[str, int, int]]]:
     """
     Load, preprocess, tile, and OCR a single PCB image.
     Returns (refs, parts) where each is a dict of clean_text → (x_px, y_px).
@@ -508,29 +522,29 @@ def process_board(
             min_confidence=min_confidence, gpu=gpu,
         )
 
-        for ref, (x, y) in sorted(refs.items()):
+        for ref, x, y in sorted(refs):
             if ref in seen_refs:
                 continue
             seen_refs.add(ref)
             entries.append(BomEntry(
                 board=board_name,
-                reference=ref,
+                label=ref,
                 ref_type=ref_type_from_designator(ref),
-                source_image=img_path.name,
+                source=img_path.name,
                 engine=engine,
                 raw_text=ref,
                 x_px=x,
                 y_px=y,
             ))
 
-        for part, (x, y) in sorted(parts.items()):
+        for part, x, y in sorted(parts):
             if part in seen_refs:
                 continue
             entries.append(BomEntry(
                 board=board_name,
-                reference=part,
+                label=part,
                 ref_type="PartNumber",
-                source_image=img_path.name,
+                source=img_path.name,
                 engine=engine,
                 raw_text=part,
                 x_px=x,
@@ -581,9 +595,9 @@ def rebuild_master_bom(output_dir: Path) -> None:
                 try:
                     all_entries.append(BomEntry(
                         board=row["board"],
-                        reference=row["reference"],
+                        label=row["reference"],
                         ref_type=row["ref_type"],
-                        source_image=row["source_image"],
+                        source=row["source_image"],
                         engine=row["engine"],
                         raw_text=row["raw_text"],
                         x_px=int(row.get("x_px", -1)),
@@ -595,6 +609,160 @@ def rebuild_master_bom(output_dir: Path) -> None:
         write_master_bom(all_entries, output_dir)
     else:
         log.warning("No per-board bom.csv files found")
+
+
+# ---------------------------------------------------------------------------
+# In-app entry point — operates on a pre-warped BGR image
+# ---------------------------------------------------------------------------
+
+
+def process_warped_image(
+    bgr: "np.ndarray",
+    board_name: str,
+    layer_name: str,
+    px_per_mm: float,
+    engine: str = "easyocr",
+    min_confidence: float = 0.35,
+    gpu: bool = False,
+    tile_size: int | None = None,
+    tile_overlap: int = TILE_OVERLAP,
+    debug_dir: "Path | None" = None,
+    progress_cb=None,
+) -> list[BomEntry]:
+    """OCR a perspective-corrected (warped) BGR image and return BomEntry objects.
+
+    Coordinates are returned in both px (relative to the warped image) and mm
+    (px / px_per_mm).  This is the function called by r1mx_app's ScanBoardWorker.
+
+    Parameters
+    ----------
+    bgr          : pre-warped board image (output of cv2.warpPerspective)
+    board_name   : board folder name, stored in BomEntry
+    layer_name   : "top" / "bottom", stored in source_image
+    px_per_mm    : from calibration — used to convert pixel coords → mm
+    engine       : "easyocr" (default) or "tesseract"
+    min_confidence : EasyOCR confidence threshold
+    gpu          : use CUDA for EasyOCR
+    tile_size    : override tile size (default: 512 for easyocr, 1024 for tesseract)
+    tile_overlap : overlap between tiles in pixels (default: 100)
+    debug_dir    : optional dir to save preprocessed tile images
+    progress_cb  : optional callable(str) for progress messages
+    """
+    def _prog(msg: str):
+        log.info(msg)
+        if progress_cb:
+            progress_cb(msg)
+
+    _prog(f"Scanning {board_name}/{layer_name} ({bgr.shape[1]}×{bgr.shape[0]} px, {engine}) …")
+
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    mean_brightness = float(gray.mean())
+
+    if mean_brightness < 80:
+        gamma = min(3.0, 1 / max(0.3, mean_brightness / 128))
+        _prog(f"  Dark image (mean={mean_brightness:.0f}) — gamma {gamma:.2f}")
+        lut = np.array([min(255, int(((i / 255.0) ** (1.0 / gamma)) * 255))
+                        for i in range(256)], dtype=np.uint8)
+        bgr = cv2.LUT(bgr, lut)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    if engine == "easyocr":
+        enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        inverted_bgr = cv2.cvtColor(255 - enhanced, cv2.COLOR_GRAY2BGR)
+        variants = [enhanced_bgr, inverted_bgr]
+        if mean_brightness < 80:
+            sharp_kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+            variants.append(cv2.filter2D(enhanced_bgr, -1, sharp_kernel))
+    else:
+        variants = preprocess(gray)
+
+    if debug_dir:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        for i, v in enumerate(variants):
+            cv2.imwrite(str(debug_dir / f"scan_variant{i}.png"), v)
+
+    all_tokens: list[tuple[str, int, int, float]] = []   # text, x, y, confidence
+    _tile_size = tile_size if tile_size is not None else (
+        TILE_SIZE_EASYOCR if engine == "easyocr" else TILE_SIZE_TESSERACT
+    )
+
+    for vi, variant in enumerate(variants):
+        _prog(f"  OCR variant {vi + 1}/{len(variants)} …")
+        tiles = tile_image(variant, _tile_size, tile_overlap)
+
+        if engine == "easyocr":
+            reader = _get_easyocr_reader(gpu=gpu)
+            for tile, tile_x, tile_y in tiles:
+                try:
+                    results = reader.readtext(tile, detail=1)
+                except Exception as exc:
+                    log.debug("EasyOCR tile error: %s", exc)
+                    continue
+                for bbox, text, conf in results:
+                    if conf >= min_confidence and text.strip():
+                        xs = [pt[0] for pt in bbox]
+                        ys = [pt[1] for pt in bbox]
+                        cx = int(sum(xs) / 4) + tile_x
+                        cy = int(sum(ys) / 4) + tile_y
+                        all_tokens.append((text.strip(), cx, cy, float(conf)))
+        else:
+            raw = ocr_with_tesseract(tiles)
+            all_tokens.extend((t, x, y, 1.0) for t, x, y in raw)
+
+    _prog(f"  {len(all_tokens)} raw OCR tokens")
+    refs, parts = filter_tokens([(t, x, y) for t, x, y, _ in all_tokens])
+
+    # Build confidence map (first occurrence)
+    conf_map: dict[str, float] = {}
+    for text, x, y, conf in all_tokens:
+        clean = re.sub(r"^[^A-Z0-9]+|[^A-Z0-9]+$", "", text.upper())
+        if clean not in conf_map:
+            conf_map[clean] = conf
+
+    entries: list[BomEntry] = []
+    seen: set[str] = set()
+
+    for ref, x, y in sorted(refs):
+        if ref in seen:
+            continue
+        seen.add(ref)
+        entries.append(BomEntry(
+            board=board_name,
+            label=ref,
+            ref_type=ref_type_from_designator(ref),
+            source=layer_name,
+            engine=engine,
+            raw_text=ref,
+            x_px=x, y_px=y,
+            x_mm=round(x / px_per_mm, 3),
+            y_mm=round(y / px_per_mm, 3),
+            confidence=conf_map.get(ref, 1.0),
+        ))
+
+    for part, x, y in sorted(parts):
+        if part in seen:
+            continue
+        seen.add(part)
+        entries.append(BomEntry(
+            board=board_name,
+            label=part,
+            ref_type="PartNumber",
+            source=layer_name,
+            engine=engine,
+            raw_text=part,
+            x_px=x, y_px=y,
+            x_mm=round(x / px_per_mm, 3),
+            y_mm=round(y / px_per_mm, 3),
+            confidence=conf_map.get(part, 1.0),
+        ))
+
+    _prog(f"  Found {len(entries)} components/labels "
+          f"({sum(1 for e in entries if e.ref_type != 'PartNumber')} refs, "
+          f"{sum(1 for e in entries if e.ref_type == 'PartNumber')} part numbers)")
+    return entries
 
 
 # ---------------------------------------------------------------------------

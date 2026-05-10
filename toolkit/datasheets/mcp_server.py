@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-datasheet_mcp_server.py — MCP server for querying component datasheets.
+mcp_server.py — MCP server for querying component datasheets.
 
 Exposes 4 tools to MCP clients (Claude Desktop, Copilot CLI agents, etc.):
 
@@ -26,11 +25,13 @@ Usage (Claude Desktop config):
       "mcpServers": {
         "r1mx-datasheets": {
           "command": "/path/to/r1mx/.venv/bin/python",
-          "args": ["/path/to/r1mx/scripts/datasheet_mcp_server.py"]
+          "args": ["/path/to/r1mx/toolkit/datasheets/mcp_server.py"]
         }
       }
     }
 """
+
+from __future__ import annotations
 
 import csv
 import logging
@@ -50,7 +51,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 BOM_CSV = REPO_ROOT / "bom_master.csv"
 
 # Load .env
@@ -285,7 +286,7 @@ def list_datasheets() -> str:
         data = _chroma_list_chunks()
         metas = data.get("metadatas") or []
         if not metas:
-            return "No datasheets indexed yet. Run: python scripts/index_datasheets.py"
+            return "No datasheets indexed yet. Run: python -m toolkit.index_datasheets.py"
         index: dict[str, dict[str, int]] = {}
         for m in metas:
             b = m.get("board", "unknown")

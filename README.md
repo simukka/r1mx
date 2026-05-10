@@ -218,8 +218,8 @@ Extracts component text from PCB photographs using EasyOCR:
 
 ```bash
 source .venv/bin/activate
-python scripts/extract_bom.py          # all boards
-python scripts/extract_bom.py --board cpu_io_board  # single board
+python -m toolkit.analysis.scan          # all boards
+python -m toolkit.analysis.scan --board cpu_io_board  # single board
 ```
 
 Output: `bom_master.csv` (727 entries with pixel positions across all boards)
@@ -245,13 +245,13 @@ docker compose run --rm --profile init init-models
 
 # 3. Index all datasheets (57 PDFs, ~1929 chunks, takes ~5 min)
 source .venv/bin/activate
-python scripts/index_datasheets.py
+python -m toolkit.datasheets.index
 
 # 4. Fetch missing datasheets (searches alldatasheet.com, DDG, Wayback Machine)
-python scripts/fetch_datasheets.py
+python -m toolkit.datasheets.fetch
 
 # 5. Check index status
-python scripts/index_datasheets.py --status
+python -m toolkit.datasheets.index --status
 ```
 
 **MCP Tools:**
@@ -270,7 +270,7 @@ python scripts/index_datasheets.py --status
   "mcpServers": {
     "r1mx-datasheets": {
       "command": "/home/simukka/src/RED/r1mx/.venv/bin/python",
-      "args": ["/home/simukka/src/RED/r1mx/scripts/datasheet_mcp_server.py"]
+      "args": ["/home/simukka/src/RED/r1mx/toolkit/datasheets/mcp_server.py"]
     }
   }
 }
@@ -292,13 +292,13 @@ Scripts for reverse-engineering copper layer geometry from board photographs:
 
 ```bash
 # Step 1: Calibrate pixel/mm scale from a known reference distance
-python scripts/calibrate_board.py --board cpu_io_board
+python -m toolkit.analysis.calibrate --board cpu_io_board
 
 # Step 2: Segment copper, detect vias/pads, vectorise traces
-python scripts/extract_pcb_layers.py --board cpu_io_board
+python -m toolkit.analysis.layers --board cpu_io_board
 
 # Step 3: Generate KiCad .kicad_pcb file (must use system Python)
-/usr/bin/python3 scripts/generate_kicad_pcb.py --board cpu_io_board
+/usr/bin/python3 -m toolkit.analysis.kicad --board cpu_io_board
 ```
 
 

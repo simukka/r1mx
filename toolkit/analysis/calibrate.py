@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-calibrate_board.py — Interactive scale and board-outline calibration for r1mx PCB photos.
+calibrate.py — Interactive scale and board-outline calibration for r1mx PCB photos.
 
 Iterates over every image found in the board directory.  For each image the user
 is guided through a single OpenCV GUI window:
@@ -16,14 +15,14 @@ rectangle size is inferred from the corner pixel distances so no physical board
 dimensions are required.
 
 Usage:
-    python scripts/calibrate_board.py --board cpu_io_board
-    python scripts/calibrate_board.py --board cpu_io_board --ref-mm 2.54
+    python -m toolkit.calibrate.py --board cpu_io_board
+    python -m toolkit.calibrate.py --board cpu_io_board --ref-mm 2.54
 
     # Single-image override (still prompts for layer via GUI):
-    python scripts/calibrate_board.py --board cpu_io_board --image top.JPG
+    python -m toolkit.calibrate.py --board cpu_io_board --image top.JPG
 
     # Non-interactive (headless) mode:
-    python scripts/calibrate_board.py --board cpu_io_board --headless \\
+    python -m toolkit.calibrate.py --board cpu_io_board --headless \\
         --image top.JPG --ref-px 320 --ref-mm 2.54 --layer top \\
         --corners 120,95,1820,90,1825,1210,118,1215
 
@@ -45,6 +44,8 @@ Output (components/<board>/calibration.json):
       }
     }
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -73,14 +74,13 @@ try:
     from PyQt6.QtGui import QColor, QPen
     from PyQt6.QtWidgets import (
         QApplication, QGraphicsRectItem, QGraphicsTextItem,
-        QMainWindow, QStatusBar,
+        QInputDialog, QMainWindow, QStatusBar,
     )
     _PYQT6 = True
 except ImportError:
     _PYQT6 = False
 
 # r1mx_gui lives in the same directory as this script
-sys.path.insert(0, str(Path(__file__).parent))
 
 # ---------------------------------------------------------------------------
 # Image discovery
@@ -294,7 +294,7 @@ class CalibrationGUI(QMainWindow):
         self._loop: QEventLoop | None = None
 
         # ── Import shared gui helpers ────────────────────────────────────────
-        from r1mx_gui import (
+        from toolkit.gui.viewer import (
             ImageViewer, draw_corner, draw_ref_point, draw_polyline,
         )
         self._draw_corner     = draw_corner
@@ -383,7 +383,7 @@ class CalibrationGUI(QMainWindow):
             n = len(self._refs)
             self._status.showMessage(
                 f"Click 2 reference points {self.ref_mm} mm apart  ({n}/2)"
-                "  |  [Backspace] undo   [Enter] confirm (after 2)"
+                "  |  [Backspace] undo   [D] change distance   [Enter] confirm (after 2)"
             )
             self._viewer.set_crosshair_visible(True)
 
@@ -505,6 +505,17 @@ class CalibrationGUI(QMainWindow):
             elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and len(self._corners) == 4:
                 self._build_warp()
                 self._clear_overlays()
+                # Ask the user for the reference distance before entering REFPTS
+                mm, ok = QInputDialog.getDouble(
+                    self,
+                    "Reference distance",
+                    "Distance between the two reference points (mm):\n"
+                    "(e.g. 2.54 for 0.1\" header pitch, 1.0 for 1 mm grid)",
+                    self.ref_mm,   # default to current value
+                    0.01, 9999.0, 3,
+                )
+                if ok and mm > 0:
+                    self.ref_mm = mm
                 self._set_phase(_Phase.REFPTS)
 
         elif p == _Phase.REFPTS:
@@ -512,6 +523,16 @@ class CalibrationGUI(QMainWindow):
                 self._refs.pop()
                 self._redraw_refs()
                 self._update_ui()
+            elif key == Qt.Key.Key_D:
+                mm, ok = QInputDialog.getDouble(
+                    self,
+                    "Reference distance",
+                    "Distance between the two reference points (mm):",
+                    self.ref_mm, 0.01, 9999.0, 3,
+                )
+                if ok and mm > 0:
+                    self.ref_mm = mm
+                    self._update_ui()   # refresh status bar with new value
             elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and len(self._refs) == 2:
                 self._px_per_mm = compute_px_per_mm(
                     self._refs[0], self._refs[1], self.ref_mm
@@ -634,7 +655,7 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
         print("opencv-python required: pip install opencv-python")
         return
 
-    from r1mx_gui import ImageViewer, draw_crosshair as _static_xhair
+    from toolkit.gui.viewer import ImageViewer, draw_crosshair as _static_xhair
 
     click_targets = [
         (0,               0),
@@ -852,7 +873,7 @@ def main() -> None:
         )
         save_calibration(args.board, args.layer, cal, board_dir)
         print(f"Headless calibration: {cal['px_per_mm']:.2f} px/mm  (layer: {args.layer})")
-        print(f"Now run: python scripts/extract_pcb_layers.py --board {args.board} --layer {args.layer}")
+        print(f"Now run: python -m toolkit.extract_pcb_layers.py --board {args.board} --layer {args.layer}")
         return
 
     # ------------------------------------------------------------------
@@ -889,7 +910,7 @@ def main() -> None:
 
     if saved:
         print(f"\n{saved} layer(s) calibrated.")
-        print(f"Now run: python scripts/extract_pcb_layers.py --board {args.board}")
+        print(f"Now run: python -m toolkit.extract_pcb_layers.py --board {args.board}")
     else:
         print("No layers calibrated.")
 

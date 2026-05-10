@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-r1mx_db.py — SQLite database layer for the r1mx toolkit.
+db.py — SQLite database layer for the r1mx toolkit.
 
 Database file: r1mx.db at the repository root.
 
@@ -9,15 +8,17 @@ workflow history land here. The schema is designed so AI agents can
 query the full project state without touching the filesystem.
 
 Usage (module):
-    from r1mx_db import DB
+    from toolkit.db import DB
     db = DB()          # opens r1mx.db in the repo root
     board = db.get_or_create_board("cpu_io_board")
     db.migrate_calibration_json("cpu_io_board")
 
 Usage (CLI migration):
-    python scripts/r1mx_db.py --migrate-all
-    python scripts/r1mx_db.py --migrate cpu_io_board
+    python -m toolkit.db --migrate-all
+    python -m toolkit.db --migrate cpu_io_board
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -26,8 +27,8 @@ from datetime import datetime
 from pathlib import Path
 
 # Repo root is one level above this script.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = _REPO_ROOT / "r1mx.db"
+_REPO = Path(__file__).resolve().parent.parent
+DB_PATH = _REPO / "r1mx.db"
 
 # ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -146,13 +147,40 @@ END;
 """
 
 
+class RowRef(int):
+    """Integer row identifier with dictionary-style access to row fields."""
+
+    def __new__(cls, row: sqlite3.Row | dict):
+        data = dict(row)
+        obj = int.__new__(cls, data["id"])
+        obj._data = data
+        return obj
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def keys(self):
+        return self._data.keys()
+
+    def items(self):
+        return self._data.items()
+
+    def as_dict(self) -> dict:
+        """Return the wrapped row as a plain dictionary."""
+        return dict(self._data)
+
+
 # ─── DB class ────────────────────────────────────────────────────────────────
 
 class DB:
     """Thin wrapper around the r1mx.db SQLite database."""
 
-    def __init__(self, path: Path | str = DB_PATH):
-        self.path = Path(path)
+    def __init__(self, db_path: Path | str = DB_PATH):
+        """Open the toolkit database, creating the schema when needed."""
+        self.path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
         self._ensure_schema()
 
@@ -182,36 +210,52 @@ class DB:
 
     # ── Boards ─────────────────────────────────────────────────────────────
 
-    def get_or_create_board(self, name: str, description: str = "") -> int:
-        """Return board id, creating the row if needed."""
+    def get_or_create_board(self, name: str, description: str = "") -> RowRef:
+        """Return a board row, creating it when needed."""
         c = self.conn()
-        row = c.execute("SELECT id FROM boards WHERE name=?", (name,)).fetchone()
+        row = c.execute("SELECT * FROM boards WHERE name=?", (name,)).fetchone()
         if row:
-            return row["id"]
+            return RowRef(row)
         cur = c.execute(
             "INSERT INTO boards(name, description) VALUES (?,?)",
             (name, description),
         )
         c.commit()
-        return cur.lastrowid
+        row = c.execute("SELECT * FROM boards WHERE id=?", (cur.lastrowid,)).fetchone()
+        return RowRef(row)
 
     def list_boards(self) -> list[sqlite3.Row]:
         return self.conn().execute("SELECT * FROM boards ORDER BY name").fetchall()
 
     # ── Layers ─────────────────────────────────────────────────────────────
 
-    def get_or_create_layer(self, board_id: int, name: str) -> int:
+    def get_or_create_layer(self, board_id: int, name: str) -> RowRef:
+        """Return a layer row, creating it when needed."""
         c = self.conn()
         row = c.execute(
-            "SELECT id FROM layers WHERE board_id=? AND name=?", (board_id, name)
+            "SELECT * FROM layers WHERE board_id=? AND name=?", (int(board_id), name)
         ).fetchone()
         if row:
-            return row["id"]
+            return RowRef(row)
         cur = c.execute(
-            "INSERT INTO layers(board_id, name) VALUES (?,?)", (board_id, name)
+            "INSERT INTO layers(board_id, name) VALUES (?,?)", (int(board_id), name)
         )
         c.commit()
-        return cur.lastrowid
+        row = c.execute("SELECT * FROM layers WHERE id=?", (cur.lastrowid,)).fetchone()
+        return RowRef(row)
+
+    def add_layer(self, board_id: int, name: str, source_image: str = "") -> RowRef:
+        """Create or update a layer row and return it."""
+        layer = self.get_or_create_layer(board_id, name)
+        if source_image:
+            self.conn().execute(
+                "UPDATE layers SET source_image=? WHERE id=?",
+                (source_image, int(layer)),
+            )
+            self.conn().commit()
+            layer = self.conn().execute("SELECT * FROM layers WHERE id=?", (int(layer),)).fetchone()
+            return RowRef(layer)
+        return layer
 
     def save_layer_calibration(
         self,
@@ -222,7 +266,7 @@ class DB:
     ) -> int:
         """Write or update calibration data for a layer. Returns layer id."""
         c = self.conn()
-        layer_id = self.get_or_create_layer(board_id, layer_name)
+        layer_id = int(self.get_or_create_layer(board_id, layer_name))
         c.execute(
             """UPDATE layers SET source_image=?, calibrated=1, calibration=?
                WHERE id=?""",
@@ -232,9 +276,18 @@ class DB:
         return layer_id
 
     def get_layer(self, board_id: int, layer_name: str) -> sqlite3.Row | None:
+        """Return the layer row for a board/layer pair."""
         return self.conn().execute(
-            "SELECT * FROM layers WHERE board_id=? AND name=?", (board_id, layer_name)
+            "SELECT * FROM layers WHERE board_id=? AND name=?", (int(board_id), layer_name)
         ).fetchone()
+
+    def save_calibration(self, board_id: int, layer_id: int, calibration: dict) -> None:
+        """Persist calibration JSON for an existing layer row."""
+        self.conn().execute(
+            "UPDATE layers SET calibrated=1, calibration=? WHERE id=? AND board_id=?",
+            (json.dumps(calibration), int(layer_id), int(board_id)),
+        )
+        self.conn().commit()
 
     def list_layers(self, board_id: int) -> list[sqlite3.Row]:
         return self.conn().execute(
@@ -276,14 +329,32 @@ class DB:
             "SELECT * FROM objects WHERE layer_id=? ORDER BY type, id", (layer_id,)
         ).fetchall()
 
-    def delete_objects(self, layer_id: int, type_filter: str | None = None):
+    def delete_objects(self, layer_id: int, type_filter: str | None = None, *, obj_type: str | None = None):
+        """Delete objects for a layer, optionally filtered by object type."""
+        if obj_type is not None:
+            type_filter = obj_type
         c = self.conn()
+        # Explicitly remove components linked to these objects so that boards
+        # with foreign_keys=OFF (older DBs) still get cleaned up, and so that
+        # components upserted from a different layer don't become orphaned.
         if type_filter:
+            c.execute(
+                """DELETE FROM components WHERE object_id IN (
+                       SELECT id FROM objects WHERE layer_id=? AND type=?
+                   )""",
+                (layer_id, type_filter),
+            )
             c.execute(
                 "DELETE FROM objects WHERE layer_id=? AND type=?",
                 (layer_id, type_filter),
             )
         else:
+            c.execute(
+                """DELETE FROM components WHERE object_id IN (
+                       SELECT id FROM objects WHERE layer_id=?
+                   )""",
+                (layer_id,),
+            )
             c.execute("DELETE FROM objects WHERE layer_id=?", (layer_id,))
         c.commit()
 
@@ -367,6 +438,66 @@ class DB:
         )
         c.commit()
         return len(rows)
+
+    def save_scan_results(self, board_id: int, layer_id: int | list, entries: list | None = None) -> int:
+        """Store OCR scan results in the objects and components tables."""
+        import json as _json
+
+        if entries is None:
+            entries = list(layer_id)
+            layer_id = int(board_id)
+            row = self.conn().execute("SELECT board_id FROM layers WHERE id=?", (int(layer_id),)).fetchone()
+            if row is None:
+                return 0
+            board_id = row["board_id"]
+
+        c = self.conn()
+        self.delete_objects(int(layer_id), "component")
+        self.delete_objects(int(layer_id), "text_label")
+
+        obj_rows = []
+        for e in entries:
+            label = getattr(e, "label", getattr(e, "reference", ""))
+            ref_type = getattr(e, "ref_type", "")
+            engine = getattr(e, "engine", getattr(e, "source", ""))
+            raw_text = getattr(e, "raw_text", label)
+            obj_type = "component" if ref_type and ref_type != "PartNumber" else "text_label"
+            obj_rows.append((
+                int(layer_id), obj_type,
+                e.x_mm if e.x_mm >= 0 else None,
+                e.y_mm if e.y_mm >= 0 else None,
+                None, None, 0.0,
+                label,
+                float(e.confidence),
+                _json.dumps({"ref_type": ref_type, "engine": engine, "raw_text": raw_text}),
+            ))
+
+        if not obj_rows:
+            c.commit()
+            return 0
+
+        c.executemany(
+            """INSERT INTO objects
+               (layer_id, type, x_mm, y_mm, width_mm, height_mm, rotation_deg,
+                label, confidence, properties)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            obj_rows,
+        )
+        c.commit()
+
+        for e in entries:
+            label = getattr(e, "label", getattr(e, "reference", ""))
+            ref_type = getattr(e, "ref_type", "")
+            if not ref_type or ref_type == "PartNumber":
+                continue
+            obj_row = c.execute(
+                "SELECT id FROM objects WHERE layer_id=? AND label=? AND type='component' LIMIT 1",
+                (int(layer_id), label),
+            ).fetchone()
+            obj_id = obj_row["id"] if obj_row else None
+            self.upsert_component(int(board_id), label, object_id=obj_id, description=ref_type)
+
+        return len(obj_rows)
 
     # ── Components ─────────────────────────────────────────────────────────
 
@@ -526,7 +657,7 @@ class DB:
 
     def migrate_calibration_json(self, board_name: str) -> bool:
         """Import a calibration.json file into the database. Returns True if imported."""
-        board_dir = _REPO_ROOT / "components" / board_name
+        board_dir = _REPO / "components" / board_name
         cal_path = board_dir / "calibration.json"
         if not cal_path.exists():
             return False
@@ -534,7 +665,7 @@ class DB:
         with cal_path.open() as f:
             cal = json.load(f)
 
-        board_id = self.get_or_create_board(board_name)
+        board_id = int(self.get_or_create_board(board_name))
 
         for layer_name, layer_data in cal.get("layers", {}).items():
             calibration = {
@@ -554,7 +685,7 @@ class DB:
 
     def migrate_all_calibration_jsons(self):
         """Walk components/ and import every calibration.json found."""
-        components_dir = _REPO_ROOT / "components"
+        components_dir = _REPO / "components"
         imported = 0
         for board_dir in sorted(components_dir.iterdir()):
             if (board_dir / "calibration.json").exists():
@@ -565,10 +696,10 @@ class DB:
 
     def index_datasheets(self):
         """Walk */datasheets/ dirs and register every PDF in the datasheets table."""
-        components_dir = _REPO_ROOT / "components"
+        components_dir = _REPO / "components"
         added = 0
         for pdf in sorted(components_dir.rglob("datasheets/*.pdf")):
-            rel = str(pdf.relative_to(_REPO_ROOT))
+            rel = str(pdf.relative_to(_REPO))
             part = pdf.stem
             did = self.get_or_create_datasheet(part, rel)
             print(f"  datasheet  {rel}  (id={did})")
@@ -576,8 +707,8 @@ class DB:
         # Also scan ssd_drive/datasheets etc.
         for extra_dir in ("ssd_drive/datasheets", "ssd_board/datasheets",
                           "firmware/reference"):
-            for pdf in sorted((_REPO_ROOT / extra_dir).rglob("*.pdf")):
-                rel = str(pdf.relative_to(_REPO_ROOT))
+            for pdf in sorted((_REPO / extra_dir).rglob("*.pdf")):
+                rel = str(pdf.relative_to(_REPO))
                 part = pdf.stem
                 did = self.get_or_create_datasheet(part, rel)
                 print(f"  datasheet  {rel}  (id={did})")
@@ -616,7 +747,7 @@ def _cli():
         for row in db.list_boards():
             print(f"  [{row['id']}] {row['name']}")
     elif args.list_layers:
-        board_id = db.get_or_create_board(args.list_layers)
+        board_id = int(db.get_or_create_board(args.list_layers))
         for row in db.list_layers(board_id):
             cal = "✓" if row["calibrated"] else "✗"
             print(f"  [{row['id']}] {row['name']:10s}  calibrated={cal}  src={row['source_image']}")

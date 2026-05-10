@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-fetch_datasheets.py — Datasheet downloader for r1mx BOM components.
+fetch.py — Datasheet downloader for r1mx BOM components.
 
 Reads a BOM CSV produced by extract_bom.py and attempts to find + download a
 PDF datasheet for each distinct searchable component.  Sources tried in order:
@@ -18,23 +17,25 @@ a summary CSV is written alongside the input BOM.
 
 Usage:
     # All boards, all searchable components
-    python scripts/fetch_datasheets.py
+    python -m toolkit.fetch.py
 
     # Single board
-    python scripts/fetch_datasheets.py --board cpu_io_board
+    python -m toolkit.fetch.py --board cpu_io_board
 
     # Dry run — show what would be searched
-    python scripts/fetch_datasheets.py --dry-run
+    python -m toolkit.fetch.py --dry-run
 
     # Force re-download of existing files
-    python scripts/fetch_datasheets.py --force
+    python -m toolkit.fetch.py --force
 
     # Use a specific BOM file
-    python scripts/fetch_datasheets.py --bom components/cpu_io_board/bom.csv
+    python -m toolkit.fetch.py --bom components/cpu_io_board/bom.csv
 
     # Also try Octopart (10 req/month limit — use carefully)
-    python scripts/fetch_datasheets.py --use-octopart --octopart-token YOUR_TOKEN
+    python -m toolkit.fetch.py --use-octopart --octopart-token YOUR_TOKEN
 """
+
+from __future__ import annotations
 
 import argparse
 import csv

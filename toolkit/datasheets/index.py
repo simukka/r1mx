@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-index_datasheets.py — Chunk, embed, and index all datasheet PDFs into ChromaDB.
+index.py — Chunk, embed, and index all datasheet PDFs into ChromaDB.
 
 For each PDF in components/*/datasheets/*.pdf:
   1. Extract text with pdftotext (system binary).
@@ -11,11 +10,13 @@ For each PDF in components/*/datasheets/*.pdf:
 Runs incrementally: PDFs already indexed (by SHA256) are skipped.
 
 Usage:
-    python scripts/index_datasheets.py                    # index everything
-    python scripts/index_datasheets.py --board cpu_io_board
-    python scripts/index_datasheets.py --reindex          # force re-index all
-    python scripts/index_datasheets.py --status           # show index stats
+    python -m toolkit.index.py                    # index everything
+    python -m toolkit.index.py --board cpu_io_board
+    python -m toolkit.index.py --reindex          # force re-index all
+    python -m toolkit.index.py --status           # show index stats
 """
+
+from __future__ import annotations
 
 import argparse
 import hashlib
@@ -38,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPONENTS_DIR = REPO_ROOT / "components"
 
 # Service endpoints — override via env or .env file

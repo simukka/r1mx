@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """
-generate_kicad_pcb.py — Generate a KiCad .kicad_pcb file from layout.json.
+kicad.py — Generate a KiCad .kicad_pcb file from r1mx.db.
 
-Reads the layout.json produced by extract_pcb_layers.py and creates a
-KiCad PCB file containing:
+Reads extracted PCB objects from the SQLite database (r1mx.db) produced by
+the r1mx Toolkit app and creates a KiCad PCB file containing:
   - Board outline (Edge.Cuts)
   - Via holes
   - SMD/THT pad footprints (generic)
@@ -12,13 +11,15 @@ KiCad PCB file containing:
 IMPORTANT: This script uses the pcbnew Python API which is only available on
 the *system* Python (not in the .venv):
 
-    /usr/bin/python3 scripts/generate_kicad_pcb.py --board cpu_io_board
+    /usr/bin/python3 toolkit/analysis/kicad.py --board cpu_io_board
 
 Usage:
-    /usr/bin/python3 scripts/generate_kicad_pcb.py --board cpu_io_board
-    /usr/bin/python3 scripts/generate_kicad_pcb.py --board cpu_io_board \
-        --output /tmp/cpu_io_board.kicad_pcb
+    /usr/bin/python3 toolkit/analysis/kicad.py --board cpu_io_board
+    /usr/bin/python3 toolkit/analysis/kicad.py --board cpu_io_board \\
+        --layer top --output /tmp/cpu_io_board.kicad_pcb
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -50,7 +51,7 @@ def _require_pcbnew():
         print(
             "ERROR: pcbnew module not found.\n"
             "This script must be run with the system KiCad Python, e.g.:\n"
-            "    /usr/bin/python3 scripts/generate_kicad_pcb.py --board <board>\n"
+            "    /usr/bin/python3 toolkit/analysis/kicad.py --board <board>\n"
             "Do NOT run inside the .venv.",
             file=sys.stderr,
         )
@@ -204,6 +205,110 @@ def add_pads(board, pads: list) -> None:
 # Main generation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Load layout from r1mx.db
+# ---------------------------------------------------------------------------
+
+def load_layout_from_db(board_name: str, layer_name: str) -> dict:
+    """Reconstruct a layout dict from objects stored in r1mx.db.
+
+    The returned dict mirrors the structure previously produced by
+    extract_pcb_layers.py so that generate() can consume it unchanged.
+    """
+    import json as _json
+    import sqlite3
+
+    db_path = REPO_ROOT / "r1mx.db"
+    if not db_path.exists():
+        log.error("r1mx.db not found at %s — run the r1mx Toolkit app first", db_path)
+        sys.exit(1)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+
+    board_row = conn.execute(
+        "SELECT id FROM boards WHERE name=?", (board_name,)
+    ).fetchone()
+    if not board_row:
+        conn.close()
+        log.error("Board '%s' not found in r1mx.db", board_name)
+        sys.exit(1)
+
+    layer_row = conn.execute(
+        "SELECT id FROM layers WHERE board_id=? AND name=?",
+        (board_row["id"], layer_name),
+    ).fetchone()
+    if not layer_row:
+        conn.close()
+        log.error("Layer '%s' for board '%s' not found in r1mx.db", layer_name, board_name)
+        sys.exit(1)
+
+    layer_id = layer_row["id"]
+    objects = conn.execute(
+        "SELECT * FROM objects WHERE layer_id=?", (layer_id,)
+    ).fetchall()
+    conn.close()
+
+    is_front = layer_name in ("top", "front")
+    pad_key   = "pads_front"   if is_front else "pads_back"
+    track_key = "tracks_front" if is_front else "tracks_back"
+
+    layout: dict = {
+        "board": board_name,
+        "vias": [],
+        "board_outline": [],
+        pad_key: [],
+        track_key: [],
+    }
+
+    for obj in objects:
+        props = _json.loads(obj["properties"] or "{}")
+        t = obj["type"]
+
+        if t == "via":
+            layout["vias"].append({
+                "x_mm":       obj["x_mm"] or 0,
+                "y_mm":       obj["y_mm"] or 0,
+                "drill_mm":   props.get("drill_mm", 0.3),
+                "annular_mm": props.get("annular_mm", 0.15),
+            })
+
+        elif t == "pad":
+            layout[pad_key].append({
+                "x_mm":  obj["x_mm"] or 0,
+                "y_mm":  obj["y_mm"] or 0,
+                "w_mm":  obj["width_mm"] or 0.5,
+                "h_mm":  obj["height_mm"] or 0.5,
+                "ref":   obj["label"] or "",
+                "layer": props.get("kicad_layer", "F_Cu" if is_front else "B_Cu"),
+            })
+
+        elif t == "trace":
+            s = props.get("start")
+            e = props.get("end")
+            if s and e:
+                layout[track_key].append({
+                    "start":     s,
+                    "end":       e,
+                    "width_mm":  props.get("width_mm", 0.2),
+                    "layer":     props.get("kicad_layer", "F_Cu" if is_front else "B_Cu"),
+                })
+
+        elif t == "outline":
+            pts = props.get("points", [])
+            if pts:
+                layout["board_outline"] = pts
+
+    log.info(
+        "Loaded from DB: %d vias, %d pads, %d traces, outline=%s",
+        len(layout["vias"]),
+        len(layout[pad_key]),
+        len(layout[track_key]),
+        "yes" if layout["board_outline"] else "no",
+    )
+    return layout
+
+
 def generate(layout: dict, output_path: Path) -> None:
     pcbnew = _require_pcbnew()
 
@@ -216,7 +321,7 @@ def generate(layout: dict, output_path: Path) -> None:
     if outline:
         add_board_outline(board, outline)
     else:
-        log.warning("  No board outline in layout.json — add manually in KiCad")
+        log.warning("  No board outline in DB — add manually in KiCad")
 
     # Vias
     vias = layout.get("vias", [])
@@ -242,15 +347,15 @@ def generate(layout: dict, output_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate KiCad .kicad_pcb from layout.json. "
+        description="Generate KiCad .kicad_pcb from r1mx.db. "
                     "Must be run with /usr/bin/python3 (system KiCad Python)."
     )
     parser.add_argument("--board", required=True, metavar="NAME",
                         help="Board folder name under components/")
+    parser.add_argument("--layer", metavar="LABEL", default="top",
+                        help="Layer to export: top or bottom (default: top)")
     parser.add_argument("--output", metavar="FILE",
                         help="Output .kicad_pcb path (default: components/<board>/<board>.kicad_pcb)")
-    parser.add_argument("--layout", metavar="FILE",
-                        help="Override layout.json path")
     args = parser.parse_args()
 
     board_dir = COMPONENTS_DIR / args.board
@@ -258,17 +363,7 @@ def main() -> None:
         log.error("Board not found: %s", board_dir)
         sys.exit(1)
 
-    layout_path = Path(args.layout) if args.layout else board_dir / "layout.json"
-    if not layout_path.exists():
-        log.error(
-            "layout.json not found. Run extract_pcb_layers.py first:\n"
-            "    python scripts/extract_pcb_layers.py --board %s",
-            args.board,
-        )
-        sys.exit(1)
-
-    with layout_path.open() as f:
-        layout = json.load(f)
+    layout = load_layout_from_db(args.board, args.layer)
 
     output_path = Path(args.output) if args.output else \
         board_dir / f"{args.board}.kicad_pcb"
