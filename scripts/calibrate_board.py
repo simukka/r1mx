@@ -659,16 +659,21 @@ def headless_calibrate(
 
 def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
     """
-    Show a synthetic test image with targets at known pixel positions.
+    Diagnostic tool for verifying mouse↔image coordinate conversion formulas.
 
-    Click each target cross.  For every click, stdout prints:
-      - win=(x,y)              raw mouse-callback coords
-      - rect=...               cv2.getWindowImageRect result
-      - expected=(tx,ty)       nearest target's known image coords
-      - scale_formula=(cx,cy)  image coord via _orig_scale division
-      - rect_formula=(cx,cy)   image coord via getWindowImageRect ratio
-      - error_scale=...        pixel error of scale_formula vs expected
-      - error_rect=...         pixel error of rect_formula vs expected
+    The test image contains two sets of targets:
+
+      CLICK targets (cyan ⊕):
+        Click the centre of each.  On click, stdout prints the raw callback
+        coords plus what each conversion formula computes, alongside the
+        known expected image coords and pixel error.  The formula with
+        ~0 px error is correct.
+
+      CROSSHAIR targets (orange □):
+        Hover over each.  Two live crosshairs are drawn simultaneously:
+          RED   = orig_scale formula  (x / orig_scale)
+          GREEN = rect formula        (x * img_w / rendered_w)
+        The crosshair that visually lands on the orange target is correct.
 
     Press [Q] or [Esc] to quit.
     """
@@ -680,63 +685,101 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
         return
 
     WINDOW = "r1mx Coord Calibration"
+    font   = cv2.FONT_HERSHEY_SIMPLEX
 
-    # Build synthetic image -----------------------------------------------
-    img = np.full((img_h, img_w, 3), 40, dtype=np.uint8)
-
-    # Target positions: corners, mid-edges, centre, quarter-points
-    targets = [
-        (0,          0),           # TL corner (0,0)
-        (img_w - 1,  0),           # TR
-        (img_w - 1,  img_h - 1),   # BR
-        (0,          img_h - 1),   # BL
-        (img_w // 2, img_h // 2),  # centre
-        (img_w // 4, img_h // 4),
+    # ------------------------------------------------------------------
+    # Click targets — cyan crosshairs at known positions
+    # ------------------------------------------------------------------
+    click_targets = [
+        (0,           0),
+        (img_w - 1,   0),
+        (img_w - 1,   img_h - 1),
+        (0,           img_h - 1),
+        (img_w // 2,  img_h // 2),
+        (img_w // 4,  img_h // 4),
         (3 * img_w // 4, img_h // 4),
-        (img_w // 4, 3 * img_h // 4),
+        (img_w // 4,  3 * img_h // 4),
         (3 * img_w // 4, 3 * img_h // 4),
-        (img_w // 2, 0),           # top-mid
-        (img_w - 1,  img_h // 2),  # right-mid
-        (img_w // 2, img_h - 1),   # bottom-mid
-        (0,          img_h // 2),  # left-mid
     ]
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    ARM  = 18
-    for tx, ty in targets:
-        # Crosshair
-        cv2.line(img, (tx - ARM, ty), (tx + ARM, ty), (0, 220, 255), 1)
-        cv2.line(img, (tx, ty - ARM), (tx, ty + ARM), (0, 220, 255), 1)
-        cv2.circle(img, (tx, ty), 4, (0, 220, 255), -1)
-        # Label with expected coords
-        label = f"({tx},{ty})"
-        lx = tx + 6 if tx + 150 < img_w else tx - 130
-        ly = ty - 8 if ty > 20 else ty + 20
-        cv2.putText(img, label, (lx, ly), font, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
+    # ------------------------------------------------------------------
+    # Crosshair targets — orange squares at different known positions
+    # so they don't overlap with click targets
+    # ------------------------------------------------------------------
+    xhair_targets = [
+        (img_w // 2,  0),
+        (img_w - 1,   img_h // 2),
+        (img_w // 2,  img_h - 1),
+        (0,           img_h // 2),
+        (img_w // 3,  img_h // 3),
+        (2 * img_w // 3, img_h // 3),
+        (img_w // 3,  2 * img_h // 3),
+        (2 * img_w // 3, 2 * img_h // 3),
+    ]
 
-    # Grid lines for context
+    # Build static background image
+    img = np.full((img_h, img_w, 3), 30, dtype=np.uint8)
+
+    # Grid
     for gx in range(0, img_w, img_w // 8):
-        cv2.line(img, (gx, 0), (gx, img_h), (60, 60, 60), 1)
+        cv2.line(img, (gx, 0), (gx, img_h), (55, 55, 55), 1)
     for gy in range(0, img_h, img_h // 8):
-        cv2.line(img, (0, gy), (img_w, gy), (60, 60, 60), 1)
+        cv2.line(img, (0, gy), (img_w, gy), (55, 55, 55), 1)
 
-    # Instructions
-    cv2.putText(img,
-        f"Click each crosshair target — stdout prints coordinate diagnostics   [Q] quit",
-        (10, img_h - 12), font, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
+    ARM = 20
+    # Draw click targets (cyan ⊕)
+    for tx, ty in click_targets:
+        cv2.line(img, (max(0, tx - ARM), ty), (min(img_w-1, tx + ARM), ty), (0, 220, 255), 1)
+        cv2.line(img, (tx, max(0, ty - ARM)), (tx, min(img_h-1, ty + ARM)), (0, 220, 255), 1)
+        cv2.circle(img, (tx, ty), 5, (0, 220, 255), 1)
+        cv2.circle(img, (tx, ty), 1, (0, 220, 255), -1)
+        label = f"C({tx},{ty})"
+        lx = tx + 8 if tx + 140 < img_w else tx - 135
+        ly = ty - 10 if ty > 25 else ty + 22
+        cv2.putText(img, label, (lx, ly), font, 0.38, (0, 220, 255), 1, cv2.LINE_AA)
 
-    # Display dims (what we'll request via resizeWindow) ------------------
+    # Draw crosshair targets (orange □ squares)
+    SZ = 12
+    for tx, ty in xhair_targets:
+        x0, y0 = max(0, tx - SZ), max(0, ty - SZ)
+        x1, y1 = min(img_w-1, tx + SZ), min(img_h-1, ty + SZ)
+        cv2.rectangle(img, (x0, y0), (x1, y1), (0, 120, 255), 1)
+        cv2.line(img, (max(0, tx-4), ty), (min(img_w-1, tx+4), ty), (0, 120, 255), 1)
+        cv2.line(img, (tx, max(0, ty-4)), (tx, min(img_h-1, ty+4)), (0, 120, 255), 1)
+        label = f"H({tx},{ty})"
+        lx = tx + SZ + 4 if tx + SZ + 120 < img_w else tx - SZ - 120
+        ly = ty - SZ - 4 if ty > SZ + 20 else ty + SZ + 16
+        cv2.putText(img, label, (lx, ly), font, 0.38, (0, 120, 255), 1, cv2.LINE_AA)
+
+    # Legend
+    legend_y = img_h - 32
+    cv2.putText(img, "CYAN ⊕  = click targets  (check stdout formula errors)",
+                (10, legend_y),      font, 0.40, (0, 220, 255), 1, cv2.LINE_AA)
+    cv2.putText(img, "ORANGE □ = hover targets  RED crosshair=orig_scale  GREEN crosshair=rect",
+                (10, legend_y + 18), font, 0.40, (0, 120, 255), 1, cv2.LINE_AA)
+    cv2.putText(img, "[Q] quit",
+                (img_w - 80, legend_y + 18), font, 0.40, (180, 180, 180), 1, cv2.LINE_AA)
+
+    # Display dims
     MAX_W, MAX_H = 1600, 900
     orig_scale = min(1.0, MAX_W / img_w, MAX_H / img_h)
     dw = int(img_w * orig_scale)
     dh = int(img_h * orig_scale)
 
-    print(f"\n[COORD-CAL] Synthetic image: {img_w}×{img_h} px")
-    print(f"[COORD-CAL] orig_scale={orig_scale:.6f}  requested window: {dw}×{dh}")
-    print(f"[COORD-CAL] Targets: {targets}\n")
+    print(f"\n[COORD-CAL] Image: {img_w}×{img_h}  orig_scale={orig_scale:.6f}  window request: {dw}×{dh}")
+    print(f"[COORD-CAL] Click targets (cyan):     {click_targets}")
+    print(f"[COORD-CAL] Crosshair targets (orange): {xhair_targets}")
+    print( "[COORD-CAL] Hover over orange squares — RED crosshair = orig_scale formula, GREEN = rect formula")
+    print( "[COORD-CAL] Click cyan ⊕ targets — stdout shows formula errors\n")
 
-    # Mouse state
-    mouse_win = [None]   # mutable for closure
+    mouse_win = [None]
+
+    def _xhair(frame, ix, iy, color, arm=14):
+        h, w = frame.shape[:2]
+        cv2.line(frame, (max(0, ix-arm), iy), (min(w-1, ix+arm), iy), (0,0,0), 3, cv2.LINE_AA)
+        cv2.line(frame, (ix, max(0, iy-arm)), (ix, min(h-1, iy+arm)), (0,0,0), 3, cv2.LINE_AA)
+        cv2.line(frame, (max(0, ix-arm), iy), (min(w-1, ix+arm), iy), color,   1, cv2.LINE_AA)
+        cv2.line(frame, (ix, max(0, iy-arm)), (ix, min(h-1, iy+arm)), color,   1, cv2.LINE_AA)
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_MOUSEMOVE:
@@ -745,33 +788,31 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
         if event != cv2.EVENT_LBUTTONDOWN:
             return
 
-        rect = cv2.getWindowImageRect(WINDOW)   # (left, top, rendered_w, rendered_h)
+        rect = cv2.getWindowImageRect(WINDOW)
         rw = max(1, rect[2])
         rh = max(1, rect[3])
 
-        # Formula A: divide by _orig_scale (current code)
         cx_scale = int(x / orig_scale)
         cy_scale = int(y / orig_scale)
-
-        # Formula B: ratio via getWindowImageRect
         cx_rect  = int(x * img_w / rw)
         cy_rect  = int(y * img_h / rh)
 
-        # Nearest target (by rect_formula coords — closest to what was actually clicked)
-        nearest = min(targets, key=lambda t: (t[0] - cx_rect) ** 2 + (t[1] - cy_rect) ** 2)
+        # Nearest click target (using average of both formulas to pick best match)
+        cx_avg = (cx_scale + cx_rect) // 2
+        cy_avg = (cy_scale + cy_rect) // 2
+        nearest = min(click_targets, key=lambda t: (t[0]-cx_avg)**2 + (t[1]-cy_avg)**2)
         tx_exp, ty_exp = nearest
 
-        err_scale = ((cx_scale - tx_exp) ** 2 + (cy_scale - ty_exp) ** 2) ** 0.5
-        err_rect  = ((cx_rect  - tx_exp) ** 2 + (cy_rect  - ty_exp) ** 2) ** 0.5
+        err_scale = ((cx_scale - tx_exp)**2 + (cy_scale - ty_exp)**2)**0.5
+        err_rect  = ((cx_rect  - tx_exp)**2 + (cy_rect  - ty_exp)**2)**0.5
 
         print(
             f"[CLICK]  win=({x:5d},{y:5d})"
-            f"  rect={rect}"
-            f"  rw={rw} rh={rh}"
+            f"  rect={rect}  rw={rw} rh={rh}"
             f"  orig_scale={orig_scale:.4f}"
-            f"  expected=({tx_exp},{ty_exp})"
-            f"  scale_formula=({cx_scale},{cy_scale})  err={err_scale:.1f}px"
-            f"  rect_formula=({cx_rect},{cy_rect})  err={err_rect:.1f}px",
+            f"  expected=({tx_exp:5d},{ty_exp:5d})"
+            f"  orig_scale→({cx_scale:5d},{cy_scale:5d}) err={err_scale:6.1f}px"
+            f"  rect→({cx_rect:5d},{cy_rect:5d}) err={err_rect:6.1f}px",
             flush=True,
         )
 
@@ -779,23 +820,25 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
     cv2.resizeWindow(WINDOW, dw, dh)
     cv2.setMouseCallback(WINDOW, on_mouse)
 
-    # Render loop — draw live crosshair on a fresh copy each frame
     while True:
         frame = img.copy()
 
-        # Draw a live crosshair at the current mouse position (in image coords)
         if mouse_win[0] is not None:
             mx_w, my_w = mouse_win[0]
             rect = cv2.getWindowImageRect(WINDOW)
             rw, rh = max(1, rect[2]), max(1, rect[3])
-            # Use rect formula for the live crosshair
-            mx_img = int(mx_w * img_w / rw)
-            my_img = int(my_w * img_h / rh)
-            if 0 <= mx_img < img_w and 0 <= my_img < img_h:
-                cv2.line(frame, (mx_img - 12, my_img), (mx_img + 12, my_img), (0, 0, 0),       3)
-                cv2.line(frame, (mx_img,      my_img - 12), (mx_img,      my_img + 12), (0, 0, 0), 3)
-                cv2.line(frame, (mx_img - 12, my_img), (mx_img + 12, my_img), (255, 80, 80), 1)
-                cv2.line(frame, (mx_img,      my_img - 12), (mx_img,      my_img + 12), (255, 80, 80), 1)
+
+            # RED crosshair — orig_scale formula
+            ix_s = int(mx_w / orig_scale)
+            iy_s = int(my_w / orig_scale)
+            if 0 <= ix_s < img_w and 0 <= iy_s < img_h:
+                _xhair(frame, ix_s, iy_s, (60, 60, 255))   # red (BGR)
+
+            # GREEN crosshair — rect formula
+            ix_r = int(mx_w * img_w / rw)
+            iy_r = int(my_w * img_h / rh)
+            if 0 <= ix_r < img_w and 0 <= iy_r < img_h:
+                _xhair(frame, ix_r, iy_r, (60, 220, 60))   # green (BGR)
 
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
@@ -804,7 +847,6 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
 
     cv2.destroyWindow(WINDOW)
     print("[COORD-CAL] done.")
-
 
 
 def main() -> None:
