@@ -186,8 +186,131 @@ class ImagePickerDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Worker (run blocking tasks in a thread, stream log lines to the GUI)
+# Layer editor dialog
 # ═══════════════════════════════════════════════════════════════════════════
+
+class EditLayerDialog(QDialog):
+    """
+    Edit all user-modifiable properties of a layer in one place:
+      • Layer name
+      • Source image (with thumbnail picker)
+      • Notes / description
+
+    Changes are saved to r1mx.db on accept.
+    """
+
+    def __init__(self, db: DB, board_name: str, layer_name: str, parent=None):
+        super().__init__(parent)
+        self._db         = db
+        self._board_name = board_name
+        self._layer_name = layer_name
+
+        self.setWindowTitle(f"Edit layer — {board_name} / {layer_name}")
+        self.setMinimumWidth(500)
+
+        board_id  = db.get_or_create_board(board_name)
+        layer_row = db.get_layer(board_id, layer_name)
+
+        self._board_id  = board_id
+        self._layer_id  = layer_row["id"] if layer_row else None
+        self._board_dir = _REPO / "components" / board_name
+
+        cal_data = {}
+        if layer_row and layer_row["calibration"]:
+            try:
+                cal_data = json.loads(layer_row["calibration"])
+            except Exception:
+                pass
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(form)
+
+        # ── Layer name ─────────────────────────────────────────────────────
+        self._name_edit = QLineEdit(layer_name)
+        form.addRow("Layer name:", self._name_edit)
+
+        # ── Source image ───────────────────────────────────────────────────
+        src = (layer_row["source_image"] or "") if layer_row else ""
+        img_row = QWidget()
+        img_hl = QHBoxLayout(img_row)
+        img_hl.setContentsMargins(0, 0, 0, 0)
+        self._image_edit = QLineEdit(src)
+        self._image_edit.setReadOnly(True)
+        pick_btn = QPushButton("Browse…")
+        pick_btn.setFixedWidth(80)
+        pick_btn.clicked.connect(self._pick_image)
+        img_hl.addWidget(self._image_edit, stretch=1)
+        img_hl.addWidget(pick_btn)
+        form.addRow("Source image:", img_row)
+
+        # ── Calibration info (read-only summary) ───────────────────────────
+        px_mm = cal_data.get("px_per_mm")
+        cal_text = (f"{px_mm:.2f} px/mm" if px_mm else "Not calibrated")
+        cal_lbl = QLabel(cal_text)
+        cal_lbl.setStyleSheet("color: #888;")
+        form.addRow("Calibration:", cal_lbl)
+
+        # ── Notes ──────────────────────────────────────────────────────────
+        notes_val = (layer_row["notes"] if layer_row and "notes" in layer_row.keys() else "") or ""
+        self._notes_edit = QTextEdit()
+        self._notes_edit.setPlainText(notes_val)
+        self._notes_edit.setFixedHeight(80)
+        form.addRow("Notes:", self._notes_edit)
+
+        # ── Buttons ────────────────────────────────────────────────────────
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _pick_image(self):
+        dlg = ImagePickerDialog(self._board_dir, self._image_edit.text(), parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_file:
+            self._image_edit.setText(dlg.selected_file)
+
+    def _save(self):
+        new_name  = self._name_edit.text().strip()
+        new_image = self._image_edit.text().strip()
+        new_notes = self._notes_edit.toPlainText().strip()
+
+        if not new_name:
+            QMessageBox.warning(self, "Validation", "Layer name cannot be empty.")
+            return
+
+        conn = self._db.conn()
+
+        if self._layer_id is None:
+            # Layer doesn't exist yet in DB — create it
+            self._layer_id = self._db.get_or_create_layer(self._board_id, new_name)
+
+        # Update name + source_image
+        try:
+            conn.execute(
+                "UPDATE layers SET name=?, source_image=? WHERE id=?",
+                (new_name, new_image or None, self._layer_id),
+            )
+        except Exception:
+            # 'notes' column may not exist yet in older DBs — ignore gracefully
+            pass
+
+        # Update notes if column exists
+        try:
+            conn.execute(
+                "UPDATE layers SET notes=? WHERE id=?",
+                (new_notes or None, self._layer_id),
+            )
+        except Exception:
+            pass
+
+        conn.commit()
+        self.accept()
 
 class WorkerSignals(QObject):
     line       = pyqtSignal(str)
@@ -238,6 +361,7 @@ class BoardTreePanel(QWidget):
     visibilityChanged    = pyqtSignal(str, str, str, bool)    # board, layer, objtype, visible
     imageSelectRequested = pyqtSignal(str, str)               # board, layer
     calibrateRequested   = pyqtSignal(str, str)               # board, layer
+    editLayerRequested   = pyqtSignal(str, str)               # board, layer
 
     def __init__(self, db: DB, parent=None):
         super().__init__(parent)
@@ -359,10 +483,28 @@ class BoardTreePanel(QWidget):
             sel_act.triggered.connect(lambda: self.imageSelectRequested.emit(board, layer))
             cal_act = menu.addAction("Calibrate…")
             cal_act.triggered.connect(lambda: self.calibrateRequested.emit(board, layer))
+            menu.addSeparator()
+            edit_act = menu.addAction("Edit layer…")
+            edit_act.triggered.connect(lambda: self.editLayerRequested.emit(board, layer))
         elif kind == "board":
             act = menu.addAction("Refresh")
             act.triggered.connect(self.refresh)
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def is_layer_visible(self, board: str, layer: str) -> bool:
+        """Return the current checkbox state for a layer node."""
+        root = self._tree.invisibleRootItem()
+        for bi in range(root.childCount()):
+            b_item = root.child(bi)
+            if b_item.data(0, _ROLE_BOARD) != board:
+                continue
+            if b_item.checkState(0) != Qt.CheckState.Checked:
+                return False
+            for li in range(b_item.childCount()):
+                l_item = b_item.child(li)
+                if l_item.data(0, _ROLE_LAYER) == layer:
+                    return l_item.checkState(0) == Qt.CheckState.Checked
+        return True  # default visible if not found
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -622,7 +764,6 @@ class LayerScene:
         pixmap = bgr_to_pixmap(img)
         item = QGraphicsPixmapItem(pixmap)
         item.setZValue(0)
-        self._scene.addItem(item)
         g = self._groups["photo"]
         g.addToGroup(item)
 
@@ -722,6 +863,7 @@ class MainWindow(QMainWindow):
         self._tree.visibilityChanged.connect(self._on_visibility_changed)
         self._tree.imageSelectRequested.connect(self._pick_layer_image)
         self._tree.calibrateRequested.connect(self._calibrate_layer)
+        self._tree.editLayerRequested.connect(self._edit_layer)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -886,13 +1028,22 @@ class MainWindow(QMainWindow):
         self._status.showMessage(f"Board: {board_name}  Layer: {layer_name}")
 
         key = (board_name, layer_name)
+        should_show = self._tree.is_layer_visible(board_name, layer_name)
+
         if key not in self._layer_scenes:
             self._load_layer_into_scene(board_name, layer_name)
+            if not should_show:
+                # Loaded but tree says it's hidden — respect the checkbox
+                ls = self._layer_scenes.get(key)
+                if ls:
+                    ls.set_all_visible(False)
         else:
-            # Just make it visible
-            self._layer_scenes[key].set_all_visible(True)
+            # Only change visibility if the tree agrees it should be shown
+            self._layer_scenes[key].set_all_visible(should_show)
+            self._viewer.scene().update()
 
-        self._viewer.fit_image()
+        if should_show:
+            self._viewer.fit_image()
 
     def _load_layer_into_scene(self, board_name: str, layer_name: str):
         board_id = self._db.get_or_create_board(board_name)
@@ -933,6 +1084,7 @@ class MainWindow(QMainWindow):
             for (b, l), ls in self._layer_scenes.items():
                 if b == board:
                     ls.set_all_visible(visible)
+            self._viewer.scene().update()
             return
         key = (board, layer)
         ls = self._layer_scenes.get(key)
@@ -942,6 +1094,7 @@ class MainWindow(QMainWindow):
             ls.set_all_visible(visible)
         else:
             ls.set_visible(objtype, visible)
+        self._viewer.scene().update()
 
     # ── Canvas events ─────────────────────────────────────────────────────
 
@@ -1221,6 +1374,26 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "No layer active",
                                     "Select a board and layer first.")
+
+    def _edit_layer(self, board_name: str, layer_name: str):
+        """Open the layer editor dialog and refresh state on save."""
+        dlg = EditLayerDialog(self._db, board_name, layer_name, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # If the layer was renamed, the old scene key is stale — drop it
+        old_key = (board_name, layer_name)
+        if old_key in self._layer_scenes:
+            del self._layer_scenes[old_key]
+
+        self._tree.refresh()
+        self._log.append(f"Layer {board_name}/{layer_name}: properties saved.")
+
+        # If this was the active layer, reload canvas with new settings
+        if board_name == self._active_board and layer_name == self._active_layer:
+            new_name = dlg._name_edit.text().strip()
+            self._active_layer = new_name
+            self._open_layer(board_name, new_name)
 
     def _calibrate_layer(self, board_name: str, layer_name: str):
         """

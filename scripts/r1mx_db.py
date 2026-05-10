@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS layers (
     source_image    TEXT,                   -- filename within board dir
     calibrated      INTEGER DEFAULT 0,      -- 1 when warp is done
     calibration     TEXT,                   -- JSON blob (warp matrix, px_per_mm, etc.)
+    notes           TEXT,                   -- free-form notes from the user
     created_at      TEXT DEFAULT (datetime('now')),
     UNIQUE(board_id, name)
 );
@@ -173,6 +174,10 @@ class DB:
     def _ensure_schema(self):
         c = self.conn()
         c.executescript(_SCHEMA)
+        # Incremental migrations for existing databases
+        existing_cols = {r[1] for r in c.execute("PRAGMA table_info(layers)").fetchall()}
+        if "notes" not in existing_cols:
+            c.execute("ALTER TABLE layers ADD COLUMN notes TEXT")
         c.commit()
 
     # ── Boards ─────────────────────────────────────────────────────────────
