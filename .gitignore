@@ -13,3 +13,8 @@ components/**/_debug/
 __pycache__/
 *.pyc
 *.pyo
+
+# Services
+.env
+datasheet_db/
+datasheet_index.json

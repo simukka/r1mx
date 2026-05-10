@@ -1,0 +1,83 @@
+# r1mx Reverse Engineering Services
+#
+# Services:
+#   ollama    — LLM + embedding inference (mistral:7b, nomic-embed-text)
+#   chromadb  — Vector database for datasheet chunks
+#
+# Usage:
+#   docker compose up -d          # start services
+#   docker compose run --rm init-models  # pull models on first run
+#   docker compose logs -f        # watch logs
+#   docker compose down           # stop
+#
+# The Python scripts connect via:
+#   OLLAMA_HOST=http://localhost:11434
+#   CHROMA_HOST=http://localhost:8000
+
+services:
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: r1mx-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      # CPU-only: AMD Vega 10 (gfx900) is not supported by modern ROCm
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: r1mx-chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_AUTHN_CREDENTIALS=
+      - CHROMA_SERVER_AUTHN_PROVIDER=
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # One-shot container: pull required models into ollama.
+  # Run manually: docker compose run --rm init-models
+  init-models:
+    image: ollama/ollama:latest
+    container_name: r1mx-init-models
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export OLLAMA_HOST=http://ollama:11434
+        echo "Pulling nomic-embed-text..."
+        ollama pull nomic-embed-text
+        echo "Pulling mistral:7b..."
+        ollama pull mistral:7b
+        echo "Models ready."
+        ollama list
+    profiles:
+      - init
+
+volumes:
+  ollama-data:
+    driver: local
+  chromadb-data:
+    driver: local

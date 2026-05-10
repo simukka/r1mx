@@ -38,29 +38,6 @@ r1mx/
 │   ├── reference/               # VxWorks 6.x and Xilinx documentation PDFs
 │   └── reverse/                 # Extracted and reversed firmware artifacts
 ├── schematics/                  # Top-level KiCad project
-├── audio_pci_board/
-│   ├── datasheets/              # IC datasheets for this board
-│   ├── top.JPG / bottom.JPG    # Board photographs
-│   └── reverse.svg             # Inkscape vector layer file (traces, net names)
-├── cpu_io_board/
-│   ├── datasheets/
-│   ├── r1mx_cpu_io_board/      # KiCad subproject for this board
-│   └── *.JPG
-├── ui_board/
-│   ├── datasheets/
-│   └── *.png / *.sch / *.pro  # KiCad files and layout images
-├── sd_board/
-│   └── datasheets/
-├── ssd_board/
-│   ├── datasheets/             # SATA combo connector datasheet
-│   ├── reverse.svg
-│   └── *.JPG
-└── ssd_drive/
-    ├── datasheets/             # SSD controller and module datasheets
-    ├── r1-ssd.pdf              # RED-specific SSD documentation
-    ├── *.FCStd                 # FreeCAD mechanical models
-    ├── models/                 # Exported STL files
-    └── prints/                 # 3D-print test STLs
 ```
 
 ---
