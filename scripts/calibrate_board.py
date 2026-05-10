@@ -411,7 +411,19 @@ class CalibrationGUI:
         ], ann_s=self._ann_s)
         self._draw_corners(img, ann_s=self._ann_s)
         if self._mouse_win and n < 4:
-            mx, my = self._to_orig(*self._mouse_win)
+            wx, wy = self._mouse_win
+            mx, my = self._to_orig(wx, wy)
+            rect = self.cv2.getWindowImageRect(self.WINDOW)
+            img_h, img_w = img.shape[:2]
+            print(
+                f"[XHAIR] win=({wx},{wy})  "
+                f"getWindowImageRect={rect}  "
+                f"orig_scale={self._orig_scale:.4f}  "
+                f"_dw={self._dw} _dh={self._dh}  "
+                f"image_size=({img_w},{img_h})  "
+                f"→ xhair_image=({mx},{my})",
+                flush=True,
+            )
             self._draw_crosshair(img, mx, my, ann_s=self._ann_s)
         return img
 
@@ -462,9 +474,21 @@ class CalibrationGUI:
         if event == cv2.EVENT_MOUSEMOVE:
             self._mouse_win = (x, y)
         elif event == cv2.EVENT_LBUTTONDOWN:
+            rect = cv2.getWindowImageRect(self.WINDOW)
+            img_h, img_w = self.original.shape[:2]
+            xhair_o = self._to_orig(x, y)
+            print(
+                f"[CLICK] win=({x},{y})  "
+                f"getWindowImageRect={rect}  "
+                f"orig_scale={self._orig_scale:.4f}  "
+                f"image_size=({img_w},{img_h})  "
+                f"_dw={self._dw} _dh={self._dh}  "
+                f"→ image_coords={xhair_o}",
+                flush=True,
+            )
             if self.phase == _Phase.CORNERS and len(self._corners_d) < 4:
                 self._corners_d.append((x, y))
-                self._corners_o.append(self._to_orig(x, y))
+                self._corners_o.append(xhair_o)
             elif self.phase == _Phase.REFPTS and len(self._refs_d) < 2:
                 self._refs_d.append((x, y))
                 self._refs_o.append(self._to_warp_orig(x, y))
