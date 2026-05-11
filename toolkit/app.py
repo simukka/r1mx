@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 from PyQt6.QtCore import QPointF, Qt, QThread
-from PyQt6.QtGui import QAction, QFont
+from PyQt6.QtGui import QAction, QColor, QFont, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -26,9 +26,11 @@ from toolkit.gui.dialogs.datasheet_scan import DatasheetScanDialog
 from toolkit.gui.dialogs.edit_layer import EditLayerDialog
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
 from toolkit.gui.dialogs.merge_entities import MergeEntitiesDialog
+from toolkit.gui.dialogs.pinout_wizard import DatasheetPinoutWizard
 from toolkit.gui.dialogs.probe_wizard import ProbeWizardDialog
 from toolkit.gui.dialogs.scan_layer import ScanLayerWizard, ScanLayerResult
 from toolkit.gui.dialogs.scan_preview import ScanPreviewDialog
+from toolkit.gui.items.footprint_overlay import FootprintOverlayItem
 from toolkit.gui.panels.inspector import InspectorPanel
 from toolkit.gui.panels.log import WorkflowLog
 from toolkit.gui.panels.tree import BoardTreePanel
@@ -45,6 +47,8 @@ class CanvasMode(Enum):
     ADD_VIA         = auto()   # next click places a via
     ADD_COMPONENT   = auto()   # click+drag defines a component bounding box
     ADD_TEXT        = auto()   # next click places a text_label
+    SET_ORIENTATION = auto()   # next edge-click sets pin-1 side for a component
+    ALIGN_FOOTPRINT = auto()   # keyboard R/+/-/arrows adjust footprint overlay; Enter confirms
 
 
 class MainWindow(QMainWindow):
@@ -59,6 +63,11 @@ class MainWindow(QMainWindow):
         self._probe_wizard: ProbeWizardDialog | None = None
         self._canvas_mode: CanvasMode = CanvasMode.NORMAL
         self._add_target_object_id: int | None = None  # object being outlined
+        self._edge_preview_item = None                 # QGraphicsLineItem shown in SET_ORIENTATION mode
+        # Footprint alignment state
+        self._footprint_overlay = None                  # FootprintOverlayItem | None
+        self._footprint_object_id: int | None = None   # component being aligned
+        self._footprint_pinout_id: int | None = None   # pinout row id
 
         self.setWindowTitle("r1mx Toolkit")
         self.resize(1400, 900)
@@ -116,7 +125,9 @@ class MainWindow(QMainWindow):
         self._inspector = InspectorPanel(self._db, self)
         self._inspector.drawOutlineRequested.connect(self._on_draw_outline_requested)
         self._inspector.refineScaleRequested.connect(self._on_refine_scale_requested)
+        self._inspector.setOrientationRequested.connect(self._on_set_orientation_requested)
         self._inspector.datasheetSearchRequested.connect(self._find_datasheet)
+        self._inspector.pinoutSelectionRequested.connect(self._open_pinout_wizard)
         right_dock = QDockWidget("Inspector", self)
         right_dock.setWidget(self._inspector)
         right_dock.setMinimumWidth(240)
@@ -421,6 +432,9 @@ class MainWindow(QMainWindow):
 
     def _set_canvas_mode(self, mode: CanvasMode, target_object_id: int | None = None) -> None:
         """Switch the canvas interaction mode and update the status bar hint."""
+        # clean up edge preview from a previous SET_ORIENTATION session
+        self._clear_edge_preview()
+
         self._canvas_mode = mode
         self._add_target_object_id = target_object_id
         capture = mode != CanvasMode.NORMAL
@@ -434,10 +448,15 @@ class MainWindow(QMainWindow):
                 self._status.showMessage("ADD COMPONENT — click and drag to draw bounding box  |  Middle-mouse to pan  |  Esc to cancel")
         elif mode == CanvasMode.ADD_TEXT:
             self._status.showMessage("ADD TEXT — click to place  |  Middle-mouse to pan  |  Esc to cancel")
+        elif mode == CanvasMode.SET_ORIENTATION:
+            self._status.showMessage("ORIENTATION — click the edge that is the pin-1/notch side  |  Middle-mouse to pan  |  Esc to cancel")
         else:
             self._status.clearMessage()
 
     def keyPressEvent(self, event) -> None:
+        if self._canvas_mode == CanvasMode.ALIGN_FOOTPRINT:
+            self._handle_alignment_key(event)
+            return
         if event.key() == Qt.Key.Key_Escape and self._canvas_mode != CanvasMode.NORMAL:
             self._set_canvas_mode(CanvasMode.NORMAL)
         else:
@@ -490,6 +509,8 @@ class MainWindow(QMainWindow):
             self._viewer.start_rubber_band(pt)
         elif self._canvas_mode == CanvasMode.ADD_TEXT:
             self._place_text(pt, board, layer)
+        elif self._canvas_mode == CanvasMode.SET_ORIENTATION:
+            self._place_orientation(pt, board, layer)
 
     def _on_canvas_release(self, pt: QPointF):
         if self._canvas_mode == CanvasMode.ADD_COMPONENT:
@@ -509,6 +530,8 @@ class MainWindow(QMainWindow):
                 f"({pt.x():.0f}, {pt.y():.0f}) px   "
                 f"{self._active_board or ''}  {self._active_layer or ''}"
             )
+        elif self._canvas_mode == CanvasMode.SET_ORIENTATION:
+            self._update_edge_preview(pt)
 
     def _px_to_mm(self, pt: QPointF) -> tuple[float, float]:
         """Convert scene-pixel coords to mm using the active layer's calibration."""
@@ -647,8 +670,7 @@ class MainWindow(QMainWindow):
         )
         self._reload_active_layer()
         self._set_canvas_mode(CanvasMode.NORMAL)
-
-    def _place_text(self, pt: QPointF, board: str, layer: str) -> None:
+        self._on_component_selected(obj_id)
         from PyQt6.QtWidgets import QInputDialog as _QID
         text, ok = _QID.getText(self, "Text Label", "Label text:")
         if not ok or not text.strip():
@@ -952,6 +974,125 @@ class MainWindow(QMainWindow):
             return
         self._set_canvas_mode(CanvasMode.ADD_COMPONENT, target_object_id=object_id)
 
+    def _on_set_orientation_requested(self, object_id: int) -> None:
+        """Inspector '⊙ Orientation' button: enter SET_ORIENTATION mode."""
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            return
+        self._set_canvas_mode(CanvasMode.SET_ORIENTATION, target_object_id=object_id)
+
+    def _get_object_scene_rect(self, object_id: int) -> tuple[float, float, float, float] | None:
+        """Return the (x, y, w, h) scene-pixel rect of an object, or None."""
+        obj_row = self._db.conn().execute(
+            "SELECT x_mm, y_mm, width_mm, height_mm FROM objects WHERE id=?", (object_id,)
+        ).fetchone()
+        if not obj_row:
+            return None
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            return None
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row or not layer_row["calibration"]:
+            return None
+        cal = json.loads(layer_row["calibration"])
+        ppm = cal.get("px_per_mm", 20.0)
+        x  = obj_row["x_mm"]    * ppm
+        y  = obj_row["y_mm"]    * ppm
+        w  = obj_row["width_mm"]  * ppm
+        h  = obj_row["height_mm"] * ppm
+        return x, y, w, h
+
+    def _update_edge_preview(self, pt: QPointF) -> None:
+        """Draw/update a cyan dashed line over the nearest edge of the target component."""
+        if self._add_target_object_id is None:
+            return
+        bounds = self._get_object_scene_rect(self._add_target_object_id)
+        if bounds is None:
+            return
+        from toolkit.analysis.orientation import nearest_edge, edge_midpoint
+        from PyQt6.QtWidgets import QGraphicsLineItem
+        from PyQt6.QtCore import Qt as _Qt
+        bx, by, bw, bh = bounds
+        edge = nearest_edge(pt.x(), pt.y(), bx, by, bw, bh)
+
+        # Compute the two endpoints of that edge
+        if edge == "top":
+            x1, y1, x2, y2 = bx, by, bx + bw, by
+        elif edge == "bottom":
+            x1, y1, x2, y2 = bx, by + bh, bx + bw, by + bh
+        elif edge == "left":
+            x1, y1, x2, y2 = bx, by, bx, by + bh
+        else:  # right
+            x1, y1, x2, y2 = bx + bw, by, bx + bw, by + bh
+
+        sc = self._viewer.scene()
+        if sc is None:
+            return
+
+        # Remove old preview
+        if self._edge_preview_item is not None:
+            try:
+                sc.removeItem(self._edge_preview_item)
+            except Exception:
+                pass
+            self._edge_preview_item = None
+
+        pen = QPen(QColor(0, 255, 220))   # cyan
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setWidth(3)
+        pen.setCosmetic(True)
+        item = QGraphicsLineItem(x1, y1, x2, y2)
+        item.setPen(pen)
+        item.setZValue(200)
+        sc.addItem(item)
+        self._edge_preview_item = item
+
+    def _clear_edge_preview(self) -> None:
+        if self._edge_preview_item is not None:
+            sc = self._viewer.scene()
+            if sc is not None:
+                try:
+                    sc.removeItem(self._edge_preview_item)
+                except Exception:
+                    pass
+            self._edge_preview_item = None
+
+    def _place_orientation(self, pt: QPointF, board: str, layer: str) -> None:
+        """Snap click to nearest edge of the target component and save pin1_edge."""
+        from toolkit.analysis.orientation import nearest_edge
+        obj_id = self._add_target_object_id
+        if obj_id is None:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+        bounds = self._get_object_scene_rect(obj_id)
+        if bounds is None:
+            self._log.append("⚠ Could not determine component bounds for orientation.")
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+        bx, by, bw, bh = bounds
+        edge = nearest_edge(pt.x(), pt.y(), bx, by, bw, bh)
+
+        # Update properties in DB
+        obj_row = self._db.conn().execute(
+            "SELECT properties FROM objects WHERE id=?", (obj_id,)
+        ).fetchone()
+        if not obj_row:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+        props = json.loads(obj_row["properties"] or "{}")
+        props["pin1_edge"] = edge
+        self._db.conn().execute(
+            "UPDATE objects SET properties=? WHERE id=?",
+            (json.dumps(props), obj_id)
+        )
+        self._db.conn().commit()
+
+        self._log.append(f"<b>Orientation set</b>: pin-1 edge = <b>{edge}</b> for object {obj_id}")
+        self._set_canvas_mode(CanvasMode.NORMAL)
+        self._reload_active_layer()
+        self._on_component_selected(obj_id)  # re-select to refresh inspector
+
     def _on_refine_scale_requested(self, object_id: int) -> None:
         """Inspector 'Refine scale' button: compute new px_per_mm from known component size."""
         from PyQt6.QtWidgets import (
@@ -1098,6 +1239,211 @@ class MainWindow(QMainWindow):
             f"Linked datasheet '{dlg.selected_path.name}' to {part_number} ({board})"
         )
         self._on_component_selected(object_id)
+
+    # ── Pinout wizard ──────────────────────────────────────────────────────
+
+    def _open_pinout_wizard(self, object_id: int, pdf_path: str) -> None:
+        """Open the pinout extraction wizard for a component + datasheet."""
+        pdf = Path(pdf_path)
+        if not pdf.exists():
+            self._log.append(f"⚠ PDF not found: {pdf_path}")
+            return
+
+        # Resolve datasheet_id from path
+        ds_rows = self._db.get_object_datasheets(object_id)
+        datasheet_id = next(
+            (ds["id"] for ds in ds_rows if ds["file_path"] == pdf_path), None
+        )
+        # Resolve component_id
+        comp_row = self._db.conn().execute(
+            "SELECT id FROM components WHERE object_id = ?", (object_id,)
+        ).fetchone()
+        if comp_row is None:
+            self._db.ensure_component_row(object_id)
+            comp_row = self._db.conn().execute(
+                "SELECT id FROM components WHERE object_id = ?", (object_id,)
+            ).fetchone()
+        component_id = comp_row["id"]
+
+        wiz = DatasheetPinoutWizard(
+            pdf_path=pdf,
+            datasheet_id=datasheet_id,
+            component_id=component_id,
+            parent=self,
+        )
+        if wiz.exec() != DatasheetPinoutWizard.DialogCode.Accepted:
+            return
+        if not wiz.result:
+            return
+
+        # Save to DB (without alignment coords yet — x_rel/y_rel set in align step)
+        result = wiz.result
+        pinout_id = self._db.save_component_pinout(
+            component_id,
+            datasheet_id=datasheet_id,
+            source_page=result.source_page,
+            source_bbox=result.source_bbox.to_dict(),
+            pins=result.to_db_pins(),
+        )
+        self._footprint_pinout_id = pinout_id
+        self._footprint_object_id = object_id
+
+        self._log.append(
+            f"Pinout saved: {len(result.pads)} pads.  "
+            "Align the footprint on the canvas — press R, +/-, arrows, then Enter."
+        )
+        self._start_pinout_alignment(result, object_id)
+
+    def _start_pinout_alignment(self, result, object_id: int) -> None:
+        """Place a FootprintOverlayItem on the canvas and enter alignment mode."""
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            self._log.append("⚠ No active layer — cannot align footprint.")
+            return
+
+        board_id = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        cal = json.loads(layer_row["calibration"]) if (layer_row and layer_row["calibration"]) else {}
+        px_per_mm = cal.get("px_per_mm", 20.0)
+
+        # Get component bounding box in scene units
+        obj = self._db.get_object(object_id)
+        if not obj:
+            return
+        w_scene = (obj["width_mm"]  or 5.0) * px_per_mm
+        h_scene = (obj["height_mm"] or 5.0) * px_per_mm
+        cx_scene = ((obj["x_mm"] or 0.0) + (obj["width_mm"] or 5.0) / 2) * px_per_mm
+        cy_scene = ((obj["y_mm"] or 0.0) + (obj["height_mm"] or 5.0) / 2) * px_per_mm
+
+        # Remove any existing overlay
+        self._cancel_footprint_alignment()
+
+        overlay = FootprintOverlayItem(
+            pads=result.pads,
+            component_w_scene=w_scene,
+            component_h_scene=h_scene,
+        )
+        scene = self._viewer.scene()
+        scene.addItem(overlay)
+        overlay.setPos(cx_scene - w_scene / 2, cy_scene - h_scene / 2)
+        self._footprint_overlay = overlay
+
+        self._set_canvas_mode(CanvasMode.ALIGN_FOOTPRINT)
+        self.statusBar().showMessage(
+            "Aligning footprint — R: rotate 90° · +/-: scale · Arrows: move · Enter: confirm · Esc: cancel"
+        )
+
+    def _handle_alignment_key(self, event) -> None:
+        """Process keyboard shortcuts for footprint alignment mode."""
+        overlay = self._footprint_overlay
+        if overlay is None:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        board, layer = self._active_board, self._active_layer
+        cal = {}
+        if board and layer:
+            board_id = self._db.get_or_create_board(board)
+            layer_row = self._db.get_layer(board_id, layer)
+            cal = json.loads(layer_row["calibration"]) if (layer_row and layer_row["calibration"]) else {}
+        px_per_mm = cal.get("px_per_mm", 20.0)
+        step = 0.5 * px_per_mm   # 0.5 mm in scene units
+
+        key = event.key()
+        modifiers = event.modifiers()
+
+        if key == Qt.Key.Key_R:
+            deg = -90 if (modifiers & Qt.KeyboardModifier.ShiftModifier) else 90
+            overlay.rotate_by(deg)
+        elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            overlay.scale_by(1.1)
+        elif key == Qt.Key.Key_Minus:
+            overlay.scale_by(0.9)
+        elif key == Qt.Key.Key_Left:
+            overlay.translate(-step, 0)
+        elif key == Qt.Key.Key_Right:
+            overlay.translate(step, 0)
+        elif key == Qt.Key.Key_Up:
+            overlay.translate(0, -step)
+        elif key == Qt.Key.Key_Down:
+            overlay.translate(0, step)
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._confirm_footprint_alignment()
+        elif key == Qt.Key.Key_Escape:
+            self._cancel_footprint_alignment()
+        else:
+            super().keyPressEvent(event)
+
+    def _confirm_footprint_alignment(self) -> None:
+        """Save aligned pin positions to DB, create pad objects on canvas."""
+        overlay   = self._footprint_overlay
+        pinout_id = self._footprint_pinout_id
+        object_id = self._footprint_object_id
+        if overlay is None or pinout_id is None or object_id is None:
+            self._cancel_footprint_alignment()
+            return
+
+        coords = overlay.to_component_relative_coords()
+
+        # Update x_rel / y_rel on each pin row
+        pin_rows = self._db.get_component_pins(pinout_id)
+        for row, coord in zip(pin_rows, coords):
+            self._db.update_pin(
+                row["id"],
+                x_rel=coord["x_rel"],
+                y_rel=coord["y_rel"],
+            )
+        self._db.confirm_component_pinout(pinout_id)
+
+        # Create pad objects on the active layer
+        board, layer = self._active_board, self._active_layer
+        if board and layer:
+            board_id  = self._db.get_or_create_board(board)
+            layer_row = self._db.get_layer(board_id, layer)
+            cal       = json.loads(layer_row["calibration"]) if (layer_row and layer_row["calibration"]) else {}
+            px_per_mm = cal.get("px_per_mm", 20.0)
+            obj       = self._db.get_object(object_id)
+            if obj and layer_row:
+                ox_mm  = obj["x_mm"]     or 0.0
+                oy_mm  = obj["y_mm"]     or 0.0
+                ow_mm  = obj["width_mm"] or 5.0
+                oh_mm  = obj["height_mm"] or 5.0
+                pad_sz = 0.5   # mm
+                for coord in coords:
+                    x_mm = ox_mm + coord["x_rel"] * ow_mm
+                    y_mm = oy_mm + coord["y_rel"] * oh_mm
+                    lbl  = coord["pin_number"] or coord["label"] or ""
+                    self._db.add_object(
+                        layer_id=layer_row["id"],
+                        obj_type="pad",
+                        x_mm=x_mm,
+                        y_mm=y_mm,
+                        width_mm=pad_sz,
+                        height_mm=pad_sz,
+                        label=lbl,
+                        confidence=None,
+                        properties=json.dumps({"shape": coord.get("shape", "circle")}),
+                    )
+
+        n = len(coords)
+        self._log.append(f"✓ Footprint confirmed: {n} pad(s) saved.")
+        self._cancel_footprint_alignment()
+
+        # Reload the scene to show the new pads
+        if board and layer:
+            self._load_layer_into_scene(board, layer)
+
+    def _cancel_footprint_alignment(self) -> None:
+        """Remove overlay and return to normal mode."""
+        if self._footprint_overlay is not None:
+            scene = self._viewer.scene()
+            if scene:
+                scene.removeItem(self._footprint_overlay)
+            self._footprint_overlay = None
+        self._footprint_object_id = None
+        self._footprint_pinout_id = None
+        if self._canvas_mode == CanvasMode.ALIGN_FOOTPRINT:
+            self._set_canvas_mode(CanvasMode.NORMAL)
 
     def _remove_layer_data(self, board: str, layer: str, type_filter: str):
         """Delete objects from the DB for a layer (or a specific type within it)."""

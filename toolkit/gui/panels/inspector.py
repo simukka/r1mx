@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QProgressBar,
     QPushButton,
     QTextEdit,
@@ -37,11 +38,18 @@ class InspectorPanel(QWidget):
 
     drawOutlineRequested      = pyqtSignal(int)   # object_id
     refineScaleRequested      = pyqtSignal(int)   # object_id
+    setOrientationRequested   = pyqtSignal(int)   # object_id
     datasheetSearchRequested  = pyqtSignal(int, str, str)
     """Emitted when the user clicks "Find on filesystem…" or "Find online…".
 
     Arguments: (object_id, part_number, mode)
     where mode is ``"filesystem"`` or ``"internet"``.
+    """
+
+    pinoutSelectionRequested  = pyqtSignal(int, str)
+    """Emitted when the user chooses "Select pinout" from the datasheet context menu.
+
+    Arguments: (object_id, pdf_path)
     """
 
     def __init__(self, db: DB, parent=None):
@@ -100,6 +108,14 @@ class InspectorPanel(QWidget):
         layout.addLayout(btn_row1)
 
         btn_row1b = QHBoxLayout()
+        self._orient_btn = QPushButton("⊙ Orientation")
+        self._orient_btn.setToolTip(
+            "Click an edge on the canvas to mark the pin-1 / notch side"
+        )
+        self._orient_btn.setEnabled(False)
+        self._orient_btn.clicked.connect(self._on_set_orientation)
+        btn_row1b.addWidget(self._orient_btn)
+
         self._refine_scale_btn = QPushButton("⇱ Refine scale")
         self._refine_scale_btn.setToolTip(
             "Use this component's known datasheet dimensions to refine the layer's px/mm calibration"
@@ -107,7 +123,6 @@ class InspectorPanel(QWidget):
         self._refine_scale_btn.setEnabled(False)
         self._refine_scale_btn.clicked.connect(self._on_refine_scale)
         btn_row1b.addWidget(self._refine_scale_btn)
-        btn_row1b.addStretch()
         layout.addLayout(btn_row1b)
 
         # ── Linked datasheets ────────────────────────────────────────────────
@@ -117,8 +132,10 @@ class InspectorPanel(QWidget):
 
         self._ds_list = QListWidget()
         self._ds_list.setMaximumHeight(90)
-        self._ds_list.setToolTip("Double-click to open PDF")
+        self._ds_list.setToolTip("Double-click to open · Right-click for more options")
         self._ds_list.itemDoubleClicked.connect(self._open_datasheet)
+        self._ds_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._ds_list.customContextMenuRequested.connect(self._on_ds_context_menu)
         layout.addWidget(self._ds_list)
 
         # ── Find-datasheet buttons ────────────────────────────────────────────
@@ -197,6 +214,7 @@ class InspectorPanel(QWidget):
             edit.setEnabled(on)
         if not on:
             self._refine_scale_btn.setEnabled(False)
+            self._orient_btn.setEnabled(False)
 
     def _emit_datasheet_search(self, mode: str) -> None:
         """Emit datasheetSearchRequested with the current object and best part number."""
@@ -244,6 +262,25 @@ class InspectorPanel(QWidget):
             subprocess.Popen(["xdg-open", str(path)])
         except Exception:
             pass
+
+    def _on_ds_context_menu(self, pos) -> None:
+        """Show right-click context menu for the datasheets list."""
+        item = self._ds_list.itemAt(pos)
+        if item is None:
+            return
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return
+
+        menu = QMenu(self)
+        open_action   = menu.addAction("📄 Open")
+        pinout_action = menu.addAction("📌 Select pinout…")
+
+        chosen = menu.exec(self._ds_list.mapToGlobal(pos))
+        if chosen == open_action:
+            self._open_datasheet(item)
+        elif chosen == pinout_action and self._object_id is not None:
+            self.pinoutSelectionRequested.emit(self._object_id, path_str)
 
     def _update_confidence(self, confidence: float | None) -> None:
         if confidence is None:
@@ -300,7 +337,7 @@ class InspectorPanel(QWidget):
 
         self._populate_datasheets(self._object_id)
         self._update_refine_scale_btn(self._object_id)
-
+        self._orient_btn.setEnabled(True)   # all components can have orientation set
         if c["mcp_data"]:
             try:
                 self._mcp_result.setPlainText(
@@ -388,6 +425,10 @@ class InspectorPanel(QWidget):
     def _on_refine_scale(self) -> None:
         if self._object_id is not None:
             self.refineScaleRequested.emit(self._object_id)
+
+    def _on_set_orientation(self) -> None:
+        if self._object_id is not None:
+            self.setOrientationRequested.emit(self._object_id)
 
     def _save_notes(self):
         if self._component_id is None:

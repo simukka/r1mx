@@ -137,6 +137,31 @@ CREATE TABLE IF NOT EXISTS component_measurements (
     created_at       TEXT DEFAULT (datetime('now'))
 );
 
+-- Pinout regions extracted from datasheets
+CREATE TABLE IF NOT EXISTS component_pinouts (
+    id               INTEGER PRIMARY KEY,
+    component_id     INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    datasheet_id     INTEGER REFERENCES datasheets(id) ON DELETE SET NULL,
+    source_page      INTEGER,
+    source_bbox_json TEXT,   -- {"x":f,"y":f,"w":f,"h":f} normalised 0-1 within page
+    pin_count        INTEGER DEFAULT 0,
+    confirmed        INTEGER DEFAULT 0,
+    created_at       TEXT DEFAULT (datetime('now'))
+);
+
+-- Individual pins within a pinout
+CREATE TABLE IF NOT EXISTS component_pins (
+    id           INTEGER PRIMARY KEY,
+    pinout_id    INTEGER NOT NULL REFERENCES component_pinouts(id) ON DELETE CASCADE,
+    pin_number   TEXT,
+    label        TEXT,
+    x_rel        REAL,   -- 0.0–1.0 relative to component bounding box (set after alignment)
+    y_rel        REAL,
+    shape        TEXT DEFAULT 'circle',  -- 'circle' | 'square' | 'rect'
+    shape_json   TEXT,
+    created_at   TEXT DEFAULT (datetime('now'))
+);
+
 -- FTS index for full-text search across component labels and notes
 CREATE VIRTUAL TABLE IF NOT EXISTS components_fts USING fts5(
     ref_designator,
@@ -232,6 +257,8 @@ class DB:
             )
         # object_datasheets may not exist in pre-existing databases
         self.migrate_add_object_datasheets()
+        # component_pinouts / component_pins were added in a later version
+        self.migrate_add_component_pinouts()
         c.commit()
 
     # ── Boards ─────────────────────────────────────────────────────────────
@@ -629,6 +656,248 @@ class DB:
 
         return len(obj_rows)
 
+    # ── Entity CRUD ────────────────────────────────────────────────────────
+
+    def create_object(
+        self,
+        layer_id: int,
+        obj_type: str,
+        x_mm: float | None = None,
+        y_mm: float | None = None,
+        width_mm: float | None = None,
+        height_mm: float | None = None,
+        rotation_deg: float = 0.0,
+        label: str | None = None,
+        confidence: float | None = None,
+        properties: dict | None = None,
+        verified: int = 0,
+    ) -> int:
+        """Insert a new object row and return its id."""
+        c = self.conn()
+        cur = c.execute(
+            """INSERT INTO objects
+               (layer_id, type, x_mm, y_mm, width_mm, height_mm,
+                rotation_deg, label, confidence, verified, properties)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                layer_id, obj_type, x_mm, y_mm, width_mm, height_mm,
+                rotation_deg, label, confidence, verified,
+                json.dumps(properties) if properties else None,
+            ),
+        )
+        c.commit()
+        return cur.lastrowid
+
+    def delete_object(self, object_id: int) -> None:
+        """Delete a single object (cascades to components, object_datasheets)."""
+        c = self.conn()
+        # Explicitly delete the linked components row first for DBs with FK off
+        c.execute("DELETE FROM components WHERE object_id=?", (object_id,))
+        c.execute("DELETE FROM objects WHERE id=?", (object_id,))
+        c.commit()
+
+    def update_object(self, object_id: int, **fields) -> None:
+        """Update arbitrary fields on an object row.
+
+        Accepted keys: label, x_mm, y_mm, width_mm, height_mm,
+        rotation_deg, verified, confidence, properties.
+        ``properties`` may be passed as a dict and is serialised to JSON.
+        """
+        _allowed = {
+            "label", "x_mm", "y_mm", "width_mm", "height_mm",
+            "rotation_deg", "verified", "confidence", "properties",
+        }
+        updates = {k: v for k, v in fields.items() if k in _allowed}
+        if not updates:
+            return
+        if "properties" in updates and isinstance(updates["properties"], dict):
+            updates["properties"] = json.dumps(updates["properties"])
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [object_id]
+        c = self.conn()
+        c.execute(f"UPDATE objects SET {set_clause} WHERE id=?", values)
+        c.commit()
+
+    def get_objects_by_type(self, layer_id: int, obj_type: str) -> list[sqlite3.Row]:
+        """Return all object rows of a given type for a layer."""
+        return self.conn().execute(
+            "SELECT * FROM objects WHERE layer_id=? AND type=? ORDER BY label, id",
+            (layer_id, obj_type),
+        ).fetchall()
+
+    def merge_to_component(
+        self,
+        object_ids: list[int],
+        ref_designator: str,
+        part_number: str,
+        layer_id: int,
+        board_id: int,
+        *,
+        manufacturer: str | None = None,
+        value: str | None = None,
+        package: str | None = None,
+        notes: str | None = None,
+    ) -> int:
+        """Merge one or more text_label objects into a new component object.
+
+        Creates a ``component`` type object at the centroid of the source
+        objects, inserts a matching ``components`` row, then deletes the
+        source objects.
+
+        Parameters
+        ----------
+        object_ids     : list of object ids to merge (typically text_labels)
+        ref_designator : KiCad-style ref designator, e.g. "U1"
+        part_number    : manufacturer part number
+        layer_id       : destination layer
+        board_id       : parent board
+        **kwargs       : optional component fields (manufacturer, value, package, notes)
+
+        Returns
+        -------
+        int — the new component object id
+        """
+        c = self.conn()
+
+        # Compute centroid from source objects (ignoring NULL positions)
+        src_rows = c.execute(
+            "SELECT x_mm, y_mm FROM objects WHERE id IN ({})".format(
+                ",".join("?" * len(object_ids))
+            ),
+            object_ids,
+        ).fetchall()
+        xs = [r["x_mm"] for r in src_rows if r["x_mm"] is not None]
+        ys = [r["y_mm"] for r in src_rows if r["y_mm"] is not None]
+        cx = sum(xs) / len(xs) if xs else None
+        cy = sum(ys) / len(ys) if ys else None
+
+        # Create the component object
+        new_obj_id = self.create_object(
+            layer_id=layer_id,
+            obj_type="component",
+            x_mm=cx,
+            y_mm=cy,
+            label=ref_designator,
+            verified=1,
+        )
+
+        # Create the components metadata row
+        cur = c.execute(
+            """INSERT INTO components
+               (object_id, board_id, ref_designator, part_number,
+                manufacturer, value, package, notes, verified)
+               VALUES (?,?,?,?,?,?,?,?,1)""",
+            (new_obj_id, board_id, ref_designator, part_number,
+             manufacturer, value, package, notes),
+        )
+        c.commit()
+
+        # Delete the source objects
+        c.execute(
+            "DELETE FROM components WHERE object_id IN ({})".format(
+                ",".join("?" * len(object_ids))
+            ),
+            object_ids,
+        )
+        c.execute(
+            "DELETE FROM objects WHERE id IN ({})".format(
+                ",".join("?" * len(object_ids))
+            ),
+            object_ids,
+        )
+        c.commit()
+        return new_obj_id
+
+    def refine_calibration_from_component(
+        self,
+        object_id: int,
+        known_width_mm: float,
+        known_height_mm: float | None = None,
+    ) -> float:
+        """Refine the layer's px_per_mm using a manually drawn component and its known
+        physical dimensions from a datasheet.
+
+        The object must have been placed manually (its ``properties`` JSON must contain
+        a ``drawn_px`` key set by ``create_object`` at placement time).
+
+        The new scale is derived as::
+
+            px_per_mm = drawn_width_px / known_width_mm
+
+        If *known_height_mm* is also provided the result is the average of the
+        width-derived and height-derived estimates, which is more robust.
+
+        After updating the layer calibration every object in the same layer that
+        carries ``drawn_px`` has its mm coordinates recomputed so they stay
+        consistent with the new scale.  Objects without ``drawn_px`` (OCR /
+        auto-extracted) are left unchanged — they are already in mm relative to
+        the old calibration and will need a separate re-scan if the scale
+        changes significantly.
+
+        Returns
+        -------
+        float — the new px_per_mm value
+        """
+        c = self.conn()
+        obj = c.execute("SELECT * FROM objects WHERE id=?", (object_id,)).fetchone()
+        if not obj:
+            raise ValueError(f"Object {object_id} not found")
+
+        props = json.loads(obj["properties"] or "{}")
+        drawn_px = props.get("drawn_px")  # [x, y, w, h] in image pixels
+        if not drawn_px:
+            raise ValueError(
+                f"Object {object_id} has no drawn_px — "
+                "it was not manually placed and cannot be used for calibration refinement"
+            )
+
+        _, _, drawn_w_px, drawn_h_px = drawn_px
+        if drawn_w_px <= 0:
+            raise ValueError(f"Object {object_id} has zero-width drawn_px")
+
+        # Derive px_per_mm from width, optionally averaged with height estimate
+        ppm_w = drawn_w_px / known_width_mm
+        if known_height_mm and known_height_mm > 0 and drawn_h_px > 0:
+            ppm_h = drawn_h_px / known_height_mm
+            new_px_per_mm = (ppm_w + ppm_h) / 2.0
+        else:
+            new_px_per_mm = ppm_w
+
+        # Update the layer calibration JSON
+        layer = c.execute(
+            "SELECT * FROM layers WHERE id=?", (obj["layer_id"],)
+        ).fetchone()
+        cal = json.loads(layer["calibration"] or "{}")
+        cal["px_per_mm"] = new_px_per_mm
+        c.execute(
+            "UPDATE layers SET calibration=? WHERE id=?",
+            (json.dumps(cal), obj["layer_id"]),
+        )
+
+        # Recompute mm coords for all manually-placed objects in this layer
+        all_objs = c.execute(
+            "SELECT id, properties FROM objects WHERE layer_id=?",
+            (obj["layer_id"],),
+        ).fetchall()
+        for o in all_objs:
+            p = json.loads(o["properties"] or "{}")
+            dpx = p.get("drawn_px")
+            if dpx:
+                ox, oy, ow, oh = dpx
+                c.execute(
+                    "UPDATE objects SET x_mm=?, y_mm=?, width_mm=?, height_mm=? WHERE id=?",
+                    (
+                        ox / new_px_per_mm,
+                        oy / new_px_per_mm,
+                        ow / new_px_per_mm,
+                        oh / new_px_per_mm,
+                        o["id"],
+                    ),
+                )
+
+        c.commit()
+        return new_px_per_mm
+
     # ── Components ─────────────────────────────────────────────────────────
 
     def upsert_component(
@@ -819,6 +1088,35 @@ class DB:
         )
         self.conn().commit()
 
+    def migrate_add_component_pinouts(self) -> None:
+        """Idempotent migration: create component_pinouts + component_pins if absent."""
+        self.conn().executescript(
+            """
+            CREATE TABLE IF NOT EXISTS component_pinouts (
+                id               INTEGER PRIMARY KEY,
+                component_id     INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+                datasheet_id     INTEGER REFERENCES datasheets(id) ON DELETE SET NULL,
+                source_page      INTEGER,
+                source_bbox_json TEXT,
+                pin_count        INTEGER DEFAULT 0,
+                confirmed        INTEGER DEFAULT 0,
+                created_at       TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS component_pins (
+                id           INTEGER PRIMARY KEY,
+                pinout_id    INTEGER NOT NULL REFERENCES component_pinouts(id) ON DELETE CASCADE,
+                pin_number   TEXT,
+                label        TEXT,
+                x_rel        REAL,
+                y_rel        REAL,
+                shape        TEXT DEFAULT 'circle',
+                shape_json   TEXT,
+                created_at   TEXT DEFAULT (datetime('now'))
+            );
+            """
+        )
+        self.conn().commit()
+
     # ── Workflow runs ──────────────────────────────────────────────────────
 
     def start_workflow(self, step: str, board_id: int, layer_id: int | None = None) -> int:
@@ -967,6 +1265,115 @@ class DB:
         self.conn().execute(
             "DELETE FROM component_measurements WHERE component_id = ?",
             (component_id,),
+        )
+        self.conn().commit()
+
+    # ── Component pinouts ──────────────────────────────────────────────────
+
+    def save_component_pinout(
+        self,
+        component_id: int,
+        *,
+        datasheet_id: int | None = None,
+        source_page: int | None = None,
+        source_bbox: dict | None = None,
+        pins: list[dict] | None = None,
+    ) -> int:
+        """Upsert a pinout for *component_id* (one pinout per component).
+
+        *pins* is a list of dicts with keys: pin_number, label, x_rel, y_rel,
+        shape, shape_json.  Replaces any previous pinout + pins.
+
+        Returns the new ``component_pinouts.id``.
+        """
+        import json as _json
+        c = self.conn()
+        # Remove any existing pinout (cascade deletes pins too)
+        c.execute("DELETE FROM component_pinouts WHERE component_id = ?", (component_id,))
+        cur = c.execute(
+            """INSERT INTO component_pinouts
+               (component_id, datasheet_id, source_page, source_bbox_json, pin_count, confirmed)
+               VALUES (?, ?, ?, ?, ?, 0)""",
+            (
+                component_id,
+                datasheet_id,
+                source_page,
+                _json.dumps(source_bbox) if source_bbox else None,
+                len(pins) if pins else 0,
+            ),
+        )
+        pinout_id = cur.lastrowid
+        if pins:
+            for pin in pins:
+                c.execute(
+                    """INSERT INTO component_pins
+                       (pinout_id, pin_number, label, x_rel, y_rel, shape, shape_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        pinout_id,
+                        pin.get("pin_number"),
+                        pin.get("label"),
+                        pin.get("x_rel"),
+                        pin.get("y_rel"),
+                        pin.get("shape", "circle"),
+                        _json.dumps(pin["shape_json"]) if pin.get("shape_json") else None,
+                    ),
+                )
+        c.commit()
+        return pinout_id
+
+    def get_component_pinout(self, component_id: int) -> sqlite3.Row | None:
+        """Return the pinout row for *component_id*, or None."""
+        return self.conn().execute(
+            "SELECT * FROM component_pinouts WHERE component_id = ?",
+            (component_id,),
+        ).fetchone()
+
+    def get_component_pins(self, pinout_id: int) -> list[sqlite3.Row]:
+        """Return all pin rows for *pinout_id*, ordered by pin_number."""
+        return self.conn().execute(
+            "SELECT * FROM component_pins WHERE pinout_id = ? ORDER BY pin_number",
+            (pinout_id,),
+        ).fetchall()
+
+    def delete_component_pinout(self, pinout_id: int) -> None:
+        """Delete a pinout (cascades to component_pins)."""
+        self.conn().execute(
+            "DELETE FROM component_pinouts WHERE id = ?", (pinout_id,)
+        )
+        self.conn().commit()
+
+    def update_pin(self, pin_id: int, **fields) -> None:
+        """Update one or more fields on a component_pins row."""
+        import json as _json
+        allowed = {"pin_number", "label", "x_rel", "y_rel", "shape", "shape_json"}
+        items = {k: v for k, v in fields.items() if k in allowed}
+        if not items:
+            return
+        # Serialise shape_json dict if passed as dict
+        if "shape_json" in items and isinstance(items["shape_json"], dict):
+            items["shape_json"] = _json.dumps(items["shape_json"])
+        set_clause = ", ".join(f"{k}=?" for k in items)
+        self.conn().execute(
+            f"UPDATE component_pins SET {set_clause} WHERE id=?",
+            (*items.values(), pin_id),
+        )
+        self.conn().commit()
+
+    def pin_count_for_component(self, component_id: int) -> int:
+        """Return the number of confirmed pins for *component_id*."""
+        row = self.conn().execute(
+            """SELECT COUNT(*) FROM component_pins cp
+               JOIN component_pinouts po ON cp.pinout_id = po.id
+               WHERE po.component_id = ?""",
+            (component_id,),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def confirm_component_pinout(self, pinout_id: int) -> None:
+        """Mark a pinout as confirmed (after alignment)."""
+        self.conn().execute(
+            "UPDATE component_pinouts SET confirmed = 1 WHERE id = ?", (pinout_id,)
         )
         self.conn().commit()
 
