@@ -657,6 +657,34 @@ BUILD32_PATCHES: list[Patch] = [
         description="NOP null bctrl in fn_6288: fn_2748 clears *(r30+64) as side-effect, making CTR=0; bctrl→0x0 resets CPU. NOP allows retry/exit logic at 0x62D0 to handle the empty-queue case.",
         phase=2,
     ),
+    # Patch #37 — NOP XUartLite TX-FULL poll loop in fn_1b9b0
+    #
+    # fn_1b9b0 is the XUartLite UART byte-write routine.  It polls the status
+    # register at (r3 + 8) = 0xe0600008 waiting for TX_FULL (bit 3) to clear
+    # before writing to the TX FIFO at (r3 + 4):
+    #
+    #   0x1b9d0: addi r31, r3, 8       ; r31 = UART_BASE+8 (status reg)
+    #   0x1b9d4: mr   r3, r31          ; ← loop-back target
+    #   0x1b9d8: bl   0xe898           ; MMIO read: r3 = *(UART_BASE+8)
+    #   0x1b9dc: andi. r0, r3, 8       ; test TX_FULL bit
+    #   0x1b9e0: bne  0x1b9d4          ; ← spin while TX_FULL=1  ← THIS PATCH
+    #   0x1b9e4: addi r3, r30, 4       ; r3 = UART_BASE+4 (TX FIFO)
+    #   0x1b9e8: mr   r4, r29          ; byte to write
+    #   0x1b9ec: bl   0xe900           ; MMIO write: *(UART_BASE+4) = r4
+    #
+    # In QEMU's bamboo machine, physical address 0xe0600000 is not mapped.
+    # QEMU returns all-Fs (0xFFFFFFFF) for reads from unmapped addresses,
+    # making TX_FULL (bit 3) = 1 permanently → infinite spin.
+    #
+    # Fix: NOP the backward branch.  The firmware will always proceed to
+    # write the byte — safe because QEMU silently discards the write anyway.
+    Patch(
+        offset=0x1b9e0,
+        original=b'\x40\x82\xff\xf4',   # bne 0x1b9d4 (spin while TX_FULL=1)
+        replacement=PPC_NOP,
+        description="NOP XUartLite TX-FULL poll loop in fn_1b9b0 (0xe0600008 unmapped in QEMU bamboo → reads 0xFFFFFFFF → bit3=TX_FULL=1 → infinite spin)",
+        phase=2,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
