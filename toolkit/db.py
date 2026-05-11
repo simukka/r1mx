@@ -20,15 +20,12 @@ Usage (CLI migration):
 
 from __future__ import annotations
 
-import argparse
 import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-# Repo root is one level above this script.
-_REPO = Path(__file__).resolve().parent.parent
-DB_PATH = _REPO / "r1mx.db"
+from toolkit.paths import REPO_ROOT as _REPO, DB_PATH, COMPONENTS_DIR as _COMPONENTS_DIR
 
 # ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +115,28 @@ CREATE TABLE IF NOT EXISTS app_state (
     value   TEXT
 );
 
+-- Many-to-many: one object can have multiple linked datasheets
+CREATE TABLE IF NOT EXISTS object_datasheets (
+    object_id    INTEGER NOT NULL REFERENCES objects(id)    ON DELETE CASCADE,
+    datasheet_id INTEGER NOT NULL REFERENCES datasheets(id) ON DELETE CASCADE,
+    PRIMARY KEY (object_id, datasheet_id)
+);
+
+-- Measurements recorded via the probe wizard
+CREATE TABLE IF NOT EXISTS component_measurements (
+    id               INTEGER PRIMARY KEY,
+    component_id     INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    measurement_type TEXT NOT NULL,  -- "resistance","capacitance","inductance","dcr",
+                                     --   "forward_voltage","hfe","continuity","esr"
+    raw_value        TEXT,           -- exactly what the user typed ("4.7k", "220nF")
+    si_value         REAL,           -- normalised to SI base unit (Ω/F/H/V)
+    unit             TEXT,           -- "Ω","F","H","V","dimensionless"
+    notes            TEXT,
+    orientation      TEXT,           -- "forward"/"reverse" for diodes
+    in_circuit       INTEGER DEFAULT 1,
+    created_at       TEXT DEFAULT (datetime('now'))
+);
+
 -- FTS index for full-text search across component labels and notes
 CREATE VIRTUAL TABLE IF NOT EXISTS components_fts USING fts5(
     ref_designator,
@@ -203,9 +222,16 @@ class DB:
         c = self.conn()
         c.executescript(_SCHEMA)
         # Incremental migrations for existing databases
-        existing_cols = {r[1] for r in c.execute("PRAGMA table_info(layers)").fetchall()}
-        if "notes" not in existing_cols:
+        existing_layer_cols = {r[1] for r in c.execute("PRAGMA table_info(layers)").fetchall()}
+        if "notes" not in existing_layer_cols:
             c.execute("ALTER TABLE layers ADD COLUMN notes TEXT")
+        existing_comp_cols = {r[1] for r in c.execute("PRAGMA table_info(components)").fetchall()}
+        if "status" not in existing_comp_cols:
+            c.execute(
+                "ALTER TABLE components ADD COLUMN status TEXT DEFAULT 'unknown'"
+            )
+        # object_datasheets may not exist in pre-existing databases
+        self.migrate_add_object_datasheets()
         c.commit()
 
     # ── Boards ─────────────────────────────────────────────────────────────
@@ -439,6 +465,110 @@ class DB:
         c.commit()
         return len(rows)
 
+    def save_feature_objects(
+        self,
+        layer_id: int,
+        scan_type: str,
+        items: list,
+        layer_key: str = "top",
+    ) -> int:
+        """Save objects for a single scan-type without wiping other object types.
+
+        Replaces only the object rows matching *scan_type* for this layer.
+        This is used by the new ScanLayer workflow where one feature type is
+        scanned at a time (vias, pads, traces, or outline).
+
+        Parameters
+        ----------
+        layer_id  : row id from the ``layers`` table
+        scan_type : "vias" | "pads" | "traces" | "outline"
+        items     : list of dicts as returned by layers.process_vias/pads/traces/outline
+        layer_key : "top" or "bottom" (determines kicad_layer for pads/traces)
+        """
+        import json as _json
+
+        _type_map = {
+            "vias":    "via",
+            "pads":    "pad",
+            "traces":  "trace",
+            "outline": "outline",
+        }
+        obj_type = _type_map.get(scan_type)
+        if obj_type is None:
+            raise ValueError(f"save_feature_objects: unsupported scan_type {scan_type!r}")
+
+        kicad_layer = "F_Cu" if layer_key == "top" else "B_Cu"
+
+        c = self.conn()
+        # Delete only the relevant type
+        c.execute("DELETE FROM objects WHERE layer_id=? AND type=?", (layer_id, obj_type))
+
+        rows = []
+        if scan_type == "vias":
+            for v in items:
+                d = v["drill_mm"] + 2 * v.get("annular_mm", 0.15)
+                rows.append((
+                    layer_id, "via",
+                    v["x_mm"], v["y_mm"], d, d, 0.0,
+                    None, None,
+                    _json.dumps({
+                        "drill_mm":   v["drill_mm"],
+                        "annular_mm": v.get("annular_mm", 0.15),
+                        "manual":     v.get("_manual", False),
+                    }),
+                ))
+
+        elif scan_type == "pads":
+            for p in items:
+                rows.append((
+                    layer_id, "pad",
+                    p["x_mm"], p["y_mm"], p["w_mm"], p["h_mm"],
+                    p.get("rotation_deg", 0.0),
+                    p.get("ref", "") or None, None,
+                    _json.dumps({
+                        "kicad_layer": p.get("layer", kicad_layer),
+                        "manual":      p.get("_manual", False),
+                    }),
+                ))
+
+        elif scan_type == "traces":
+            for t in items:
+                s, e = t["start"], t["end"]
+                mx = (s[0] + e[0]) / 2
+                my = (s[1] + e[1]) / 2
+                rows.append((
+                    layer_id, "trace",
+                    mx, my,
+                    t.get("width_mm", 0.1), t.get("width_mm", 0.1), 0.0,
+                    None, None,
+                    _json.dumps({
+                        "start":       s,
+                        "end":         e,
+                        "width_mm":    t.get("width_mm", 0.1),
+                        "kicad_layer": t.get("layer", kicad_layer),
+                    }),
+                ))
+
+        elif scan_type == "outline":
+            if items:
+                rows.append((
+                    layer_id, "outline",
+                    None, None, None, None, 0.0,
+                    None, None,
+                    _json.dumps({"points": items}),
+                ))
+
+        if rows:
+            c.executemany(
+                """INSERT INTO objects
+                   (layer_id, type, x_mm, y_mm, width_mm, height_mm, rotation_deg,
+                    label, confidence, properties)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                rows,
+            )
+        c.commit()
+        return len(rows)
+
     def save_scan_results(self, board_id: int, layer_id: int | list, entries: list | None = None) -> int:
         """Store OCR scan results in the objects and components tables."""
         import json as _json
@@ -589,9 +719,105 @@ class DB:
         return cur.lastrowid
 
     def find_datasheet(self, part_number: str) -> sqlite3.Row | None:
+        """Return the first datasheet row whose part_number matches (case-insensitive)."""
         return self.conn().execute(
-            "SELECT * FROM datasheets WHERE part_number=? LIMIT 1", (part_number,)
+            "SELECT * FROM datasheets WHERE lower(part_number) LIKE lower(?) LIMIT 1",
+            (part_number,),
         ).fetchone()
+
+    def list_datasheets(self) -> list[sqlite3.Row]:
+        """Return all datasheet rows ordered by part_number."""
+        return self.conn().execute(
+            "SELECT * FROM datasheets ORDER BY part_number"
+        ).fetchall()
+
+    def get_or_create_datasheet_by_path(
+        self, file_path, part_number: str = "", manufacturer: str = ""
+    ) -> int:
+        """Upsert a datasheet row keyed by file_path; return its id."""
+        file_path = str(file_path)  # accept Path objects
+        c = self.conn()
+        row = c.execute(
+            "SELECT id FROM datasheets WHERE file_path=?", (file_path,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        cur = c.execute(
+            """INSERT INTO datasheets(part_number, manufacturer, file_path, fetched_at)
+               VALUES (?,?,?,?)""",
+            (part_number, manufacturer, file_path, datetime.now().isoformat()),
+        )
+        c.commit()
+        return cur.lastrowid
+
+    def ensure_component_row(self, object_id: int) -> int:
+        """Return the components.id for object_id, creating a minimal row if needed.
+
+        Used when a text_label object gets its first datasheet link and needs a
+        components row to carry the primary datasheet_id FK.
+        """
+        c = self.conn()
+        row = c.execute(
+            "SELECT id FROM components WHERE object_id=?", (object_id,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        # Pull label and board_id from the object
+        obj = c.execute(
+            "SELECT o.label, l.board_id FROM objects o JOIN layers l ON o.layer_id=l.id WHERE o.id=?",
+            (object_id,),
+        ).fetchone()
+        label    = obj["label"] if obj else ""
+        board_id = obj["board_id"] if obj else None
+        cur = c.execute(
+            """INSERT INTO components(object_id, board_id, part_number)
+               VALUES (?,?,?)""",
+            (object_id, board_id, label),
+        )
+        c.commit()
+        return cur.lastrowid
+
+    def link_object_datasheet(self, object_id: int, datasheet_id: int) -> None:
+        """Link a datasheet to an object (many-to-many via object_datasheets).
+
+        Also sets components.datasheet_id to the first linked datasheet for
+        backward compatibility with the inspector single-datasheet display.
+        """
+        c = self.conn()
+        # Ensure a components row exists (needed for text_label objects)
+        comp_id = self.ensure_component_row(object_id)
+        # Insert into join table (ignore if already linked)
+        c.execute(
+            "INSERT OR IGNORE INTO object_datasheets(object_id, datasheet_id) VALUES (?,?)",
+            (object_id, datasheet_id),
+        )
+        # Update primary datasheet_id on components if not set yet
+        c.execute(
+            "UPDATE components SET datasheet_id=? WHERE id=? AND datasheet_id IS NULL",
+            (datasheet_id, comp_id),
+        )
+        c.commit()
+
+    def get_object_datasheets(self, object_id: int) -> list[sqlite3.Row]:
+        """Return all datasheets linked to an object, ordered by part_number."""
+        return self.conn().execute(
+            """SELECT d.* FROM datasheets d
+               JOIN object_datasheets od ON od.datasheet_id = d.id
+               WHERE od.object_id = ?
+               ORDER BY d.part_number""",
+            (object_id,),
+        ).fetchall()
+
+    def migrate_add_object_datasheets(self) -> None:
+        """Idempotent migration: create object_datasheets table if absent."""
+        self.conn().execute(
+            """CREATE TABLE IF NOT EXISTS object_datasheets (
+                object_id    INTEGER NOT NULL REFERENCES objects(id)    ON DELETE CASCADE,
+                datasheet_id INTEGER NOT NULL REFERENCES datasheets(id) ON DELETE CASCADE,
+                PRIMARY KEY (object_id, datasheet_id)
+            )"""
+        )
+        self.conn().commit()
 
     # ── Workflow runs ──────────────────────────────────────────────────────
 
@@ -653,11 +879,102 @@ class DB:
         except Exception:
             return {}
 
+    # ── Probe workflow ─────────────────────────────────────────────────────
+
+    # Valid component status values (ordered by progression)
+    COMPONENT_STATUSES = ("unknown", "probing", "measured", "identified", "verified")
+
+    def get_components_to_probe(self, board_id: int) -> list[sqlite3.Row]:
+        """Return all unresolved components for *board_id* in ref_designator order.
+
+        "Unresolved" means status is NULL, 'unknown', or 'probing'.
+        """
+        return self.conn().execute(
+            """SELECT c.*, o.x_mm, o.y_mm, o.width_mm, o.height_mm, o.id AS object_id
+               FROM components c
+               LEFT JOIN objects o ON c.object_id = o.id
+               WHERE c.board_id = ?
+                 AND (c.status IS NULL OR c.status IN ('unknown', 'probing'))
+               ORDER BY c.ref_designator""",
+            (board_id,),
+        ).fetchall()
+
+    def count_unresolved_components(self, board_id: int) -> int:
+        """Return the number of unresolved components for *board_id*."""
+        row = self.conn().execute(
+            """SELECT COUNT(*) AS n FROM components
+               WHERE board_id = ?
+                 AND (status IS NULL OR status IN ('unknown', 'probing'))""",
+            (board_id,),
+        ).fetchone()
+        return row["n"] if row else 0
+
+    def update_component_status(self, component_id: int, status: str) -> None:
+        """Set the status of a component.  If status is 'verified', also sets verified=1."""
+        if status not in self.COMPONENT_STATUSES:
+            raise ValueError(f"Invalid component status: {status!r}")
+        c = self.conn()
+        verified = 1 if status == "verified" else None
+        if verified is not None:
+            c.execute(
+                "UPDATE components SET status=?, verified=1 WHERE id=?",
+                (status, component_id),
+            )
+        else:
+            c.execute(
+                "UPDATE components SET status=? WHERE id=?",
+                (status, component_id),
+            )
+        c.commit()
+
+    def save_measurement(
+        self,
+        component_id: int,
+        measurement_type: str,
+        raw_value: str,
+        si_value: float | None,
+        unit: str,
+        *,
+        notes: str = "",
+        orientation: str = "",
+        in_circuit: bool = True,
+    ) -> int:
+        """Insert one measurement row.  Returns the new row id."""
+        cur = self.conn().execute(
+            """INSERT INTO component_measurements
+               (component_id, measurement_type, raw_value, si_value, unit,
+                notes, orientation, in_circuit)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                component_id, measurement_type, raw_value, si_value, unit,
+                notes or "", orientation or "", 1 if in_circuit else 0,
+            ),
+        )
+        self.conn().commit()
+        return cur.lastrowid
+
+    def get_component_measurements(self, component_id: int) -> list[sqlite3.Row]:
+        """Return all measurements for *component_id* ordered by creation time."""
+        return self.conn().execute(
+            """SELECT * FROM component_measurements
+               WHERE component_id = ?
+               ORDER BY created_at""",
+            (component_id,),
+        ).fetchall()
+
+    def delete_component_measurements(self, component_id: int) -> None:
+        """Delete all measurements for *component_id*."""
+        self.conn().execute(
+            "DELETE FROM component_measurements WHERE component_id = ?",
+            (component_id,),
+        )
+        self.conn().commit()
+
     # ── Migration ─────────────────────────────────────────────────────────
 
     def migrate_calibration_json(self, board_name: str) -> bool:
         """Import a calibration.json file into the database. Returns True if imported."""
-        board_dir = _REPO / "components" / board_name
+        board_dir = _COMPONENTS_DIR / board_name
         cal_path = board_dir / "calibration.json"
         if not cal_path.exists():
             return False
@@ -685,9 +1002,8 @@ class DB:
 
     def migrate_all_calibration_jsons(self):
         """Walk components/ and import every calibration.json found."""
-        components_dir = _REPO / "components"
         imported = 0
-        for board_dir in sorted(components_dir.iterdir()):
+        for board_dir in sorted(_COMPONENTS_DIR.iterdir()):
             if (board_dir / "calibration.json").exists():
                 print(f"Importing {board_dir.name} …")
                 if self.migrate_calibration_json(board_dir.name):
@@ -696,9 +1012,8 @@ class DB:
 
     def index_datasheets(self):
         """Walk */datasheets/ dirs and register every PDF in the datasheets table."""
-        components_dir = _REPO / "components"
         added = 0
-        for pdf in sorted(components_dir.rglob("datasheets/*.pdf")):
+        for pdf in sorted(_COMPONENTS_DIR.rglob("datasheets/*.pdf")):
             rel = str(pdf.relative_to(_REPO))
             part = pdf.stem
             did = self.get_or_create_datasheet(part, rel)
@@ -715,43 +1030,3 @@ class DB:
                 added += 1
         print(f"\n{added} datasheets indexed.")
 
-
-# ─── CLI ─────────────────────────────────────────────────────────────────────
-
-def _cli():
-    parser = argparse.ArgumentParser(description="r1mx database utilities")
-    grp = parser.add_mutually_exclusive_group(required=True)
-    grp.add_argument("--migrate-all", action="store_true",
-                     help="Import all calibration.json files into r1mx.db")
-    grp.add_argument("--migrate", metavar="BOARD",
-                     help="Import a single board's calibration.json")
-    grp.add_argument("--index-datasheets", action="store_true",
-                     help="Walk */datasheets/ and register all PDFs in r1mx.db")
-    grp.add_argument("--list-boards", action="store_true",
-                     help="Print all boards in r1mx.db")
-    grp.add_argument("--list-layers", metavar="BOARD",
-                     help="Print all layers for a board")
-    args = parser.parse_args()
-
-    db = DB()
-
-    if args.migrate_all:
-        db.migrate_all_calibration_jsons()
-    elif args.migrate:
-        ok = db.migrate_calibration_json(args.migrate)
-        if not ok:
-            print(f"No calibration.json found for board: {args.migrate}")
-    elif args.index_datasheets:
-        db.index_datasheets()
-    elif args.list_boards:
-        for row in db.list_boards():
-            print(f"  [{row['id']}] {row['name']}")
-    elif args.list_layers:
-        board_id = int(db.get_or_create_board(args.list_layers))
-        for row in db.list_layers(board_id):
-            cal = "✓" if row["calibrated"] else "✗"
-            print(f"  [{row['id']}] {row['name']:10s}  calibrated={cal}  src={row['source_image']}")
-
-
-if __name__ == "__main__":
-    _cli()

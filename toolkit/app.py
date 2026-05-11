@@ -5,7 +5,6 @@ import argparse
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 from PyQt6.QtCore import QPointF, Qt, QThread
 from PyQt6.QtGui import QAction, QFont
@@ -22,20 +21,19 @@ from PyQt6.QtWidgets import (
 
 from toolkit.analysis.calibrate import CalibrationGUI, find_all_images, save_calibration, run_coord_calibration
 from toolkit.db import DB
+from toolkit.gui.dialogs.datasheet_scan import DatasheetScanDialog
 from toolkit.gui.dialogs.edit_layer import EditLayerDialog
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
-from toolkit.gui.dialogs.scan_board import ScanBoardDialog
+from toolkit.gui.dialogs.probe_wizard import ProbeWizardDialog
+from toolkit.gui.dialogs.scan_layer import ScanLayerWizard, ScanLayerResult
+from toolkit.gui.dialogs.scan_preview import ScanPreviewDialog
 from toolkit.gui.panels.inspector import InspectorPanel
 from toolkit.gui.panels.log import WorkflowLog
 from toolkit.gui.panels.tree import BoardTreePanel
-from toolkit.gui.scene import LayerScene
+from toolkit.gui.scene import LayerScene, OBJECT_TYPES
 from toolkit.gui.viewer import ImageViewer
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
 from toolkit.workers.base import SubprocessWorker
-from toolkit.workers.extract import ExtractLayerWorker
-from toolkit.workers.scan import ScanBoardWorker
-
-_TOOLKIT = Path(__file__).resolve().parent
-_REPO = _TOOLKIT.parent
 
 class MainWindow(QMainWindow):
 
@@ -46,6 +44,7 @@ class MainWindow(QMainWindow):
         self._layer_scenes: dict[tuple[str, str], LayerScene] = {}  # (board,layer) → LayerScene
         self._active_board: str | None = None
         self._active_layer: str | None = None
+        self._probe_wizard: ProbeWizardDialog | None = None
 
         self.setWindowTitle("r1mx Toolkit")
         self.resize(1400, 900)
@@ -80,6 +79,7 @@ class MainWindow(QMainWindow):
         self._tree.editLayerRequested.connect(self._edit_layer)
         self._tree.componentSelected.connect(self._on_component_selected)
         self._tree.removeDataRequested.connect(self._remove_layer_data)
+        self._tree.scanDatasheetRequested.connect(self._scan_datasheet)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -112,6 +112,11 @@ class MainWindow(QMainWindow):
 
         self._status = QStatusBar()
         self.setStatusBar(self._status)
+
+        # Persistent unresolved-component count label on the right of the status bar
+        self._unresolved_label = QLabel("")
+        self._unresolved_label.setStyleSheet("color: #e6b400; margin-right: 8px;")
+        self._status.addPermanentWidget(self._unresolved_label)
 
     def _build_menus(self):
         mb = self.menuBar()
@@ -179,16 +184,13 @@ class MainWindow(QMainWindow):
         ana_label.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
         tb.addWidget(ana_label)
 
-        ext_act = QAction("Extract Layer", self)
-        ext_act.setToolTip("Extract copper, vias, pads, traces for the active board & layer")
-        ext_act.setToolTip("Extract copper, vias, outline from calibrated photo")
-        ext_act.triggered.connect(self._run_extract_layers)
+        ext_act = QAction("Scan Layer", self)
+        ext_act.setToolTip(
+            "Unified PCB layer scan: choose vias, pads, traces, outline, or text/components.\n"
+            "Results are previewed before saving — you can add missed items or re-tune parameters."
+        )
+        ext_act.triggered.connect(self._run_scan_layer)
         tb.addAction(ext_act)
-
-        bom_act = QAction("Scan Board", self)
-        bom_act.setToolTip("OCR reference designators and part numbers from the active layer")
-        bom_act.triggered.connect(self._run_scan_board)
-        tb.addAction(bom_act)
 
         tb.addSeparator()
 
@@ -209,6 +211,21 @@ class MainWindow(QMainWindow):
         coord_act.setToolTip("Coordinate calibration diagnostic")
         coord_act.triggered.connect(self._run_coord_calibrate)
         tb.addAction(coord_act)
+
+        tb.addSeparator()
+
+        # Identify
+        ident_label = QLabel("  Identify: ")
+        ident_label.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
+        tb.addWidget(ident_label)
+
+        probe_act = QAction("Probe Components", self)
+        probe_act.setToolTip(
+            "Open the probe wizard: step-by-step multimeter guidance\n"
+            "to identify unknown resistors, capacitors, inductors, and more."
+        )
+        probe_act.triggered.connect(self._run_probe_wizard)
+        tb.addAction(probe_act)
 
     # ── State persistence ─────────────────────────────────────────────────
 
@@ -238,6 +255,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"r1mx Toolkit — {board_name}")
         self._status.showMessage(f"Board: {board_name}")
         self._save_db_state()
+        self._refresh_unresolved_count()
 
         # Auto-open the first calibrated layer
         board_id = self._db.get_or_create_board(board_name)
@@ -258,6 +276,10 @@ class MainWindow(QMainWindow):
         self._active_layer = layer_name
         self._save_db_state()
         self._status.showMessage(f"Board: {board_name}  Layer: {layer_name}")
+
+        # Clear any vignette highlight from previously active layers
+        for ls in self._layer_scenes.values():
+            ls.clear_highlight()
 
         # Solo: uncheck everything except this layer, update scene visibility
         self._tree.set_solo_layer(board_name, layer_name)
@@ -308,6 +330,12 @@ class MainWindow(QMainWindow):
                 self._log.append(f"  Rendering {n_objs} objects …")
                 scene.load_objects(self._db, layer_row["id"], px_per_mm)
 
+        # Apply per-objtype visibility saved in the tree (e.g. "hide traces")
+        saved_vis = self._tree.get_full_vis_state()
+        layer_vis = saved_vis.get(board_name, {}).get(layer_name, {})
+        for obj_key, _, _ in OBJECT_TYPES:
+            scene.set_visible(obj_key, layer_vis.get(obj_key, True))
+
         # Fit viewport to the scene contents
         rect = self._viewer.scene().itemsBoundingRect()
         self._viewer.scene().setSceneRect(rect)
@@ -319,17 +347,31 @@ class MainWindow(QMainWindow):
     def _on_visibility_changed(self, board: str, layer: str, objtype: str, visible: bool):
         if not board:
             return
+        saved_vis = self._tree.get_full_vis_state()
+
         if not layer:
-            # Toggle all layers for this board
+            # Board-level toggle: apply per-objtype state to all scenes for this board
             for (b, l), ls in self._layer_scenes.items():
                 if b == board:
-                    ls.set_all_visible(visible)
+                    if not visible:
+                        ls.set_all_visible(False)
+                    else:
+                        # Re-enable with per-objtype granularity
+                        layer_vis = saved_vis.get(b, {}).get(l, {})
+                        for key, _, _ in OBJECT_TYPES:
+                            ls.set_visible(key, layer_vis.get(key, True))
         else:
             key = (board, layer)
             ls = self._layer_scenes.get(key)
             if ls is not None:
                 if not objtype:
-                    ls.set_all_visible(visible)
+                    # Layer-level toggle: apply per-objtype state when enabling
+                    if not visible:
+                        ls.set_all_visible(False)
+                    else:
+                        layer_vis = saved_vis.get(board, {}).get(layer, {})
+                        for otype, _, _ in OBJECT_TYPES:
+                            ls.set_visible(otype, layer_vis.get(otype, True))
                 else:
                     ls.set_visible(objtype, visible)
 
@@ -352,13 +394,24 @@ class MainWindow(QMainWindow):
 
     def _on_selection_changed(self):
         items = self._viewer.scene().selectedItems()
+        key = (self._active_board, self._active_layer)
+        ls = self._layer_scenes.get(key)
+
         if not items:
             self._inspector.clear()
+            if ls:
+                ls.clear_highlight()
             return
+
         item = items[0]
         obj_id = item.data(0)   # stored in _make_item
         if obj_id is None:
             return
+
+        # Highlight the selected object on the canvas
+        if ls:
+            ls.highlight_object(obj_id)
+
         # Find the component linked to this object
         row = self._db.conn().execute(
             "SELECT id FROM components WHERE object_id=?", (obj_id,)
@@ -366,7 +419,7 @@ class MainWindow(QMainWindow):
         if row:
             self._inspector.show_component(row["id"])
         else:
-            self._inspector.clear()
+            self._inspector.show_object(obj_id)
 
     # ── Workflow actions ──────────────────────────────────────────────────
 
@@ -388,7 +441,7 @@ class MainWindow(QMainWindow):
         if not board:
             return
 
-        board_dir = _REPO / "components" / board
+        board_dir = COMPONENTS_DIR / board
         images = find_all_images(board_dir)
         if not images:
             QMessageBox.warning(self, "No images",
@@ -447,124 +500,114 @@ class MainWindow(QMainWindow):
             return None, None
         return self._active_board, self._active_layer
 
-    def _run_extract_layers(self):
+    def _run_scan_layer(self, initial_scan_type: str | None = None, initial_opts: dict | None = None):
+        """Open the unified Scan Layer wizard, run the scan, show preview, save on confirm."""
         board, layer = self._require_board_and_layer()
         if not board or not layer:
             return
 
-        # Check calibration exists
         board_id  = self._db.get_or_create_board(board)
         layer_row = self._db.get_layer(board_id, layer)
         if not layer_row or not layer_row["calibrated"]:
             QMessageBox.warning(
                 self, "Not calibrated",
-                f"{board} / {layer} must be calibrated before extraction.\n"
+                f"{board} / {layer} must be calibrated before scanning.\n"
                 "Right-click the layer → Calibrate…"
             )
             return
 
-        self._log.clear()
-        self._log.append(f"Extracting layers: {board} / {layer} …")
-        self._log.set_busy(True)
+        wizard = ScanLayerWizard(board, layer, parent=self)
+        if initial_scan_type:
+            wizard.set_scan_type(initial_scan_type)
+        if initial_opts:
+            wizard.set_opts(initial_opts)
 
-        w = ExtractLayerWorker(board, layer, self)
-        w.signals.line.connect(self._log.append)
-        w.signals.layout.connect(
-            lambda layout: self._on_extract_layer_done(layout, board, layer)
-        )
-        w.signals.finished.connect(
-            lambda ok, msg: self._on_extract_finished(ok, msg, board, layer)
-        )
-        self._workers.append(w)
-        w.start()
+        if wizard.exec() != QDialog.DialogCode.Accepted:
+            return
 
-    def _on_extract_layer_done(self, layout: dict, board: str, layer: str):
-        """Store layout objects to DB and reload the canvas."""
+        scan_result = wizard.result()
+        if scan_result is None:
+            return
+
+        # Show the preview dialog
+        preview = ScanPreviewDialog(scan_result, parent=self)
+        preview_code = preview.exec()
+
+        if preview.needs_retry():
+            # Re-open wizard with same scan type + opts
+            retry_opts = preview.retry_opts()
+            self._run_scan_layer(
+                initial_scan_type=scan_result.scan_type,
+                initial_opts=retry_opts,
+            )
+            return
+
+        if preview_code != QDialog.DialogCode.Accepted:
+            return
+
+        confirmed = preview.confirmed_items()
+        self._on_scan_layer_confirmed(scan_result.scan_type, confirmed, board, layer)
+
+    def _on_scan_layer_confirmed(
+        self,
+        scan_type: str,
+        items: list,
+        board: str,
+        layer: str,
+    ):
+        """Persist confirmed scan results to DB and refresh the canvas + tree."""
         board_id  = self._db.get_or_create_board(board)
         layer_row = self._db.get_layer(board_id, layer)
         if not layer_row:
             return
 
-        n = self._db.save_layout_objects(layer_row["id"], layout, layer)
-        self._log.append(f"  Stored {n} objects to DB for {board}/{layer}")
+        layer_id = layer_row["id"]
+        cal       = json.loads(layer_row["calibration"] or "{}")
+        px_per_mm = cal.get("px_per_mm", 20.0)
 
-        # Reload the canvas overlay for this layer
+        if scan_type == "text":
+            # Convert any manually-added dict items to a BomEntry-compatible
+            # object so save_scan_results can handle them uniformly.
+            from types import SimpleNamespace
+            wrapped = []
+            for item in items:
+                if isinstance(item, dict):
+                    wrapped.append(SimpleNamespace(
+                        label=item.get("label", ""),
+                        reference=item.get("label", ""),
+                        ref_type=item.get("ref_type", "RefDes"),
+                        x_mm=float(item.get("x_mm", -1)),
+                        y_mm=float(item.get("y_mm", -1)),
+                        confidence=float(item.get("confidence", 1.0)),
+                        engine="manual",
+                        raw_text=item.get("label", ""),
+                    ))
+                else:
+                    wrapped.append(item)
+            n = self._db.save_scan_results(board_id, layer_id, wrapped)
+        else:
+            n = self._db.save_feature_objects(layer_id, scan_type, items, layer_key=layer)
+
+        self._log.append(
+            f"✓ Scan Layer ({scan_type}) — saved {n} objects to DB for {board}/{layer}"
+        )
+
+        # Reload canvas overlays and tree
         key = (board, layer)
         if key in self._layer_scenes:
-            cal = json.loads(layer_row["calibration"] or "{}")
-            px_per_mm = cal.get("px_per_mm", 20.0)
-            self._layer_scenes[key].load_objects(
-                self._db, layer_row["id"], px_per_mm
-            )
+            self._layer_scenes[key].load_objects(self._db, layer_id, px_per_mm)
             self._viewer.scene().update()
 
-    def _on_extract_finished(self, ok: bool, msg: str, board: str, layer: str):
-        self._log.set_busy(False)
-        self._log.append(
-            f"Extract layers {'complete' if ok else 'FAILED'} — {board}/{layer}: {msg}"
-        )
-
-    def _run_scan_board(self):
-        board, layer = self._require_board_and_layer()
-        if not board:
-            return
-
-        dlg = ScanBoardDialog(self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        opts = {
-            "engine":         dlg.engine(),
-            "min_confidence": dlg.min_confidence(),
-            "tile_size":      dlg.tile_size(),
-            "tile_overlap":   dlg.tile_overlap(),
-            "gpu":            dlg.use_gpu(),
-            "scan_refs":      dlg.scan_refs(),
-            "scan_parts":     dlg.scan_parts(),
-        }
-
-        self._log.clear()
-        self._log.append(
-            f"Scanning {board}/{layer}  "
-            f"[{opts['engine']}  conf={opts['min_confidence']:.2f}  "
-            f"tile={opts['tile_size']}  overlap={opts['tile_overlap']}  "
-            f"refs={'✓' if opts['scan_refs'] else '✗'}  "
-            f"parts={'✓' if opts['scan_parts'] else '✗'}]"
-        )
-        self._log.set_busy(True)
-
-        w = ScanBoardWorker(board, layer, opts, self)
-        w.signals.line.connect(self._log.append)
-        w.scan_done.connect(lambda entries: self._on_scan_done(entries, board, layer))
-        w.signals.finished.connect(
-            lambda ok, m: (self._log.set_busy(False),
-                           self._log.append(("✓ " if ok else "✗ ") + m))
-        )
-        self._workers.append(w)
-        w.start()
-
-    def _on_scan_done(self, entries, board: str, layer: str):
-        """Store scan results in DB and refresh canvas + tree."""
-        board_id  = self._db.get_or_create_board(board)
-        layer_row = self._db.get_layer(board_id, layer)
-        if not layer_row:
-            return
-        n = self._db.save_scan_results(board_id, layer_row["id"], entries)
-        self._log.append(f"Saved {n} objects to DB")
-
-        # Refresh overlays without reloading the photo
-        key = (board, layer)
-        if key in self._layer_scenes:
-            cal = json.loads(layer_row["calibration"] or "{}")
-            px_per_mm = cal.get("px_per_mm", 20.0)
-            self._layer_scenes[key].load_objects(self._db, layer_row["id"], px_per_mm)
-
-        # Rebuild tree (component children updated)
         vis = self._tree.get_full_vis_state()
         self._tree.refresh(vis)
 
     def _on_component_selected(self, obj_id: int):
-        """Show component details in the inspector panel."""
+        """Show component details in the inspector panel and vignette-highlight the item."""
+        # Highlight in the active layer scene
+        key = (self._active_board, self._active_layer)
+        if key in self._layer_scenes:
+            self._layer_scenes[key].highlight_object(obj_id)
+
         # Try to find a components table row for this object
         comp_row = self._db.conn().execute(
             "SELECT id FROM components WHERE object_id=?", (obj_id,)
@@ -579,17 +622,49 @@ class MainWindow(QMainWindow):
         ).fetchone()
         if not obj_row:
             return
-        self._inspector.clear()
-        import json as _j
-        props = _j.loads(obj_row["properties"] or "{}")
-        self._inspector._ref.setText(obj_row["label"] or "—")
-        self._inspector._part.setText(props.get("ref_type", "—"))
-        self._inspector._mcp_result.setPlainText(
-            _j.dumps({"object_id": obj_id, **props,
-                      "x_mm": obj_row["x_mm"], "y_mm": obj_row["y_mm"],
-                      "confidence": obj_row["confidence"]}, indent=2)
+        self._inspector.show_object(obj_id)
+
+    def _scan_datasheet(self, board: str, layer: str, object_id: int) -> None:
+        """Open the datasheet scan dialog for a component / text_label object."""
+        # Resolve the part number label from the object row
+        obj_row = self._db.conn().execute(
+            "SELECT label, properties FROM objects WHERE id=?", (object_id,)
+        ).fetchone()
+        if not obj_row:
+            return
+        part_number = obj_row["label"] or ""
+        if not part_number:
+            import json as _j
+            props = _j.loads(obj_row["properties"] or "{}")
+            part_number = props.get("part_number") or props.get("ref", "") or "?"
+
+        # Default folder: the board's own datasheets/ directory
+        default_folder = COMPONENTS_DIR / board / "datasheets"
+        if not default_folder.is_dir():
+            default_folder = REPO_ROOT
+
+        dlg = DatasheetScanDialog(part_number, default_folder, parent=self)
+        if dlg.exec() != DatasheetScanDialog.DialogCode.Accepted:
+            return
+
+        if not dlg.selected_paths:
+            return
+
+        # Ensure a components row exists (needed for text_label objects)
+        self._db.ensure_component_row(object_id)
+
+        linked = 0
+        for pdf_path in dlg.selected_paths:
+            ds_id = self._db.get_or_create_datasheet_by_path(pdf_path, part_number)
+            self._db.link_object_datasheet(object_id, ds_id)
+            linked += 1
+
+        self._log.append(
+            f"Linked {linked} datasheet(s) to {part_number} ({board}/{layer})"
         )
-        self._inspector._set_enabled(True)
+
+        # Refresh inspector to show the newly linked datasheets
+        self._on_component_selected(object_id)
 
     def _remove_layer_data(self, board: str, layer: str, type_filter: str):
         """Delete objects from the DB for a layer (or a specific type within it)."""
@@ -632,10 +707,9 @@ class MainWindow(QMainWindow):
         self._log.append(f"Generating KiCad PCB for {board} …")
         self._log.set_busy(True)
 
-        output = _REPO / "components" / board / f"{board}.kicad_pcb"
+        output = COMPONENTS_DIR / board / f"{board}.kicad_pcb"
         cmd = [
-            "/usr/bin/python3",   # pcbnew requires system python
-            str(_TOOLKIT / "analysis" / "kicad.py"),
+            sys.executable, "-m", "toolkit.analysis.kicad",
             "--board", board,
             "--output", str(output),
         ]
@@ -668,7 +742,7 @@ class MainWindow(QMainWindow):
         self._log.append("Starting coordinate calibration diagnostic …")
         self._log.set_busy(True)
 
-        cmd = [sys.executable, str(_TOOLKIT / "analysis" / "calibrate.py"), "--calibrate"]
+        cmd = [sys.executable, "-m", "toolkit.analysis.calibrate", "--calibrate"]
         w = SubprocessWorker(cmd, self)
         w.signals.line.connect(self._log.append)
         w.signals.finished.connect(lambda ok, m: (
@@ -689,10 +763,47 @@ class MainWindow(QMainWindow):
         self._db.index_datasheets()
         self._log.append("Datasheet index updated.")
 
+    # ── Probe wizard ──────────────────────────────────────────────────────
+
+    def _run_probe_wizard(self):
+        """Open (or bring to front) the probe wizard for the active board."""
+        if not self._active_board:
+            QMessageBox.information(self, "No board", "Open a board first.")
+            return
+        board_id = int(self._db.get_or_create_board(self._active_board))
+        scene = self._layer_scenes.get((self._active_board, self._active_layer or ""))
+
+        if self._probe_wizard is None or not self._probe_wizard.isVisible():
+            self._probe_wizard = ProbeWizardDialog(
+                self._db, board_id, layer_scene=scene, parent=self
+            )
+            self._probe_wizard.componentStatusChanged.connect(
+                self._on_probe_status_changed
+            )
+        self._probe_wizard.show()
+        self._probe_wizard.raise_()
+        self._probe_wizard.activateWindow()
+
+    def _on_probe_status_changed(self, component_id: int, status: str):
+        """Called when the wizard changes a component's status."""
+        self._refresh_unresolved_count()
+
+    def _refresh_unresolved_count(self):
+        """Update the permanent status-bar label with the unresolved count."""
+        if not self._active_board:
+            self._unresolved_label.setText("")
+            return
+        board_id = int(self._db.get_or_create_board(self._active_board))
+        n = self._db.count_unresolved_components(board_id)
+        if n == 0:
+            self._unresolved_label.setText("")
+        else:
+            self._unresolved_label.setText(f"⚠ {n} unresolved component{'s' if n != 1 else ''}")
+
     def _open_board_dir(self):
         if not self._active_board:
             return
-        path = _REPO / "components" / self._active_board
+        path = COMPONENTS_DIR / self._active_board
         subprocess.Popen(["xdg-open", str(path)])
 
     def _pick_active_layer_image(self):
@@ -705,7 +816,7 @@ class MainWindow(QMainWindow):
 
     def _pick_layer_image(self, board_name: str, layer_name: str):
         """Open the image picker for a specific board/layer."""
-        board_dir = _REPO / "components" / board_name
+        board_dir = COMPONENTS_DIR / board_name
         if not board_dir.is_dir():
             QMessageBox.warning(self, "Board not found",
                                 f"Directory not found:\n{board_dir}")
@@ -788,7 +899,7 @@ class MainWindow(QMainWindow):
           • components/<board>/calibration.json  (for CLI tool compatibility)
           • r1mx.db  layers table                (single source of truth)
         """
-        board_dir = _REPO / "components" / board_name
+        board_dir = COMPONENTS_DIR / board_name
         if not board_dir.is_dir():
             QMessageBox.warning(self, "Board not found",
                                 f"Directory not found:\n{board_dir}")
@@ -875,7 +986,7 @@ class MainWindow(QMainWindow):
             "r1mx Toolkit",
             "<b>r1mx Toolkit</b><br><br>"
             "Reverse engineering assistant for the RED ONE MX digital cinema camera.<br><br>"
-            "Workflow: Calibrate → Extract Layers → Extract BOM → Generate KiCad PCB<br><br>"
+            "Workflow: Calibrate → Scan Layer (vias / pads / traces / text) → Generate KiCad PCB<br><br>"
             "All data stored in <code>r1mx.db</code> (SQLite) at the repo root.",
         )
 
@@ -907,7 +1018,3 @@ def main():
     win = MainWindow(db, initial_board=args.board)
     win.show()
     sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
