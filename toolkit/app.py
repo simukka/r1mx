@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import QPointF, Qt, QThread
 from PyQt6.QtGui import QAction, QColor, QFont, QPen
