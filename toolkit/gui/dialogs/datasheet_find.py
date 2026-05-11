@@ -261,10 +261,20 @@ class DatasheetFindDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
 
-        # Header
-        hdr = QLabel(f"Part number: <b>{self._part_number}</b>")
-        hdr.setFont(QFont("sans-serif", 11))
-        root.addWidget(hdr)
+        # Header — editable part number
+        hdr_row = QHBoxLayout()
+        hdr_lbl = QLabel("Part number:")
+        hdr_lbl.setFont(QFont("sans-serif", 11))
+        hdr_row.addWidget(hdr_lbl)
+        self._part_edit = QLineEdit(self._part_number)
+        self._part_edit.setFont(QFont("sans-serif", 11, QFont.Weight.Bold))
+        self._part_edit.setPlaceholderText("e.g. SII3512ECTU128")
+        self._part_edit.setToolTip("Edit to refine the search term before scanning")
+        self._part_edit.textChanged.connect(
+            lambda t: self.setWindowTitle(f"Find datasheet: {t.strip() or '—'}")
+        )
+        hdr_row.addWidget(self._part_edit, stretch=1)
+        root.addLayout(hdr_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
@@ -401,7 +411,7 @@ class DatasheetFindDialog(QDialog):
         self._fs_progress.setValue(0)
         self._status_lbl.setText("Scanning…")
 
-        self._fs_worker = DatasheetScanWorker(self._part_number, folder)
+        self._fs_worker = DatasheetScanWorker(self._part_edit.text().strip() or self._part_number, folder)
         self._fs_worker.resultReady.connect(self._on_fs_result)
         self._fs_worker.progress.connect(
             lambda done, total: (
@@ -444,7 +454,10 @@ class DatasheetFindDialog(QDialog):
         self._status_lbl.setText("Searching online…")
 
         self._board_dir.mkdir(parents=True, exist_ok=True)
-        self._web_worker = DatasheetFetchWorker(self._part_number, self._board_dir)
+        self._web_worker = DatasheetFetchWorker(
+            self._part_edit.text().strip() or self._part_number,
+            self._board_dir,
+        )
         self._web_worker.progress.connect(
             lambda src: self._web_progress_lbl.setText(f"Querying: {src}…")
         )
