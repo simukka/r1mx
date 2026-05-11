@@ -259,6 +259,8 @@ class DB:
         self.migrate_add_object_datasheets()
         # component_pinouts / component_pins were added in a later version
         self.migrate_add_component_pinouts()
+        # source column added for kicad_library vs datasheet distinction
+        self.migrate_add_pinout_source()
         c.commit()
 
     # ── Boards ─────────────────────────────────────────────────────────────
@@ -687,6 +689,12 @@ class DB:
         )
         c.commit()
         return cur.lastrowid
+
+    def get_object(self, object_id: int) -> sqlite3.Row | None:
+        """Return a single object row by id, or None if not found."""
+        return self.conn().execute(
+            "SELECT * FROM objects WHERE id=?", (object_id,)
+        ).fetchone()
 
     def delete_object(self, object_id: int) -> None:
         """Delete a single object (cascades to components, object_datasheets)."""
@@ -1117,6 +1125,18 @@ class DB:
         )
         self.conn().commit()
 
+    def migrate_add_pinout_source(self) -> None:
+        """Idempotent migration: add ``source`` column to ``component_pinouts``."""
+        cols = {
+            row[1]
+            for row in self.conn().execute("PRAGMA table_info(component_pinouts)")
+        }
+        if "source" not in cols:
+            self.conn().execute(
+                "ALTER TABLE component_pinouts ADD COLUMN source TEXT DEFAULT 'datasheet'"
+            )
+            self.conn().commit()
+
     # ── Workflow runs ──────────────────────────────────────────────────────
 
     def start_workflow(self, step: str, board_id: int, layer_id: int | None = None) -> int:
@@ -1278,11 +1298,14 @@ class DB:
         source_page: int | None = None,
         source_bbox: dict | None = None,
         pins: list[dict] | None = None,
+        source: str = "datasheet",
     ) -> int:
         """Upsert a pinout for *component_id* (one pinout per component).
 
         *pins* is a list of dicts with keys: pin_number, label, x_rel, y_rel,
         shape, shape_json.  Replaces any previous pinout + pins.
+
+        *source* is ``"datasheet"`` (default) or ``"kicad_library"``.
 
         Returns the new ``component_pinouts.id``.
         """
@@ -1292,14 +1315,15 @@ class DB:
         c.execute("DELETE FROM component_pinouts WHERE component_id = ?", (component_id,))
         cur = c.execute(
             """INSERT INTO component_pinouts
-               (component_id, datasheet_id, source_page, source_bbox_json, pin_count, confirmed)
-               VALUES (?, ?, ?, ?, ?, 0)""",
+               (component_id, datasheet_id, source_page, source_bbox_json, pin_count, confirmed, source)
+               VALUES (?, ?, ?, ?, ?, 0, ?)""",
             (
                 component_id,
                 datasheet_id,
                 source_page,
                 _json.dumps(source_bbox) if source_bbox else None,
                 len(pins) if pins else 0,
+                source,
             ),
         )
         pinout_id = cur.lastrowid

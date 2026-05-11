@@ -52,6 +52,12 @@ class InspectorPanel(QWidget):
     Arguments: (object_id, pdf_path)
     """
 
+    kicadFootprintRequested   = pyqtSignal(int)
+    """Emitted when the user clicks "📦 KiCad footprint…".
+
+    Argument: object_id of the component.
+    """
+
     def __init__(self, db: DB, parent=None):
         super().__init__(parent)
         self._db = db
@@ -153,6 +159,16 @@ class InspectorPanel(QWidget):
         ds_btn_row.addWidget(self._ds_web_btn)
         layout.addLayout(ds_btn_row)
 
+        kicad_row = QHBoxLayout()
+        self._kicad_fp_btn = QPushButton("📦 KiCad footprint…")
+        self._kicad_fp_btn.setToolTip(
+            "Open the KiCad footprint library picker to import pad positions for this component"
+        )
+        self._kicad_fp_btn.clicked.connect(self._on_kicad_footprint)
+        kicad_row.addWidget(self._kicad_fp_btn)
+        kicad_row.addStretch()
+        layout.addLayout(kicad_row)
+
         # ── Notes ────────────────────────────────────────────────────────────
         self._notes = QTextEdit()
         self._notes.setPlaceholderText("Notes…")
@@ -208,13 +224,18 @@ class InspectorPanel(QWidget):
     def _set_enabled(self, on: bool):
         for w in (self._notes, self._save_btn, self._mcp_btn,
                   self._verify_btn, self._draw_outline_btn,
-                  self._ds_fs_btn, self._ds_web_btn):
+                  self._ds_fs_btn, self._ds_web_btn, self._kicad_fp_btn):
             w.setEnabled(on)
         for edit in (self._ref, self._part, self._mfr, self._value, self._pkg):
             edit.setEnabled(on)
         if not on:
             self._refine_scale_btn.setEnabled(False)
             self._orient_btn.setEnabled(False)
+
+    def _on_kicad_footprint(self) -> None:
+        """Emit kicadFootprintRequested with the current object_id."""
+        if self._object_id is not None:
+            self.kicadFootprintRequested.emit(self._object_id)
 
     def _emit_datasheet_search(self, mode: str) -> None:
         """Emit datasheetSearchRequested with the current object and best part number."""

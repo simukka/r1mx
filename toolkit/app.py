@@ -25,6 +25,7 @@ from toolkit.db import DB
 from toolkit.gui.dialogs.datasheet_find import DatasheetFindDialog
 from toolkit.gui.dialogs.datasheet_scan import DatasheetScanDialog
 from toolkit.gui.dialogs.edit_layer import EditLayerDialog
+from toolkit.gui.dialogs.footprint_picker import FootprintPickerDialog
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
 from toolkit.gui.dialogs.merge_entities import MergeEntitiesDialog
 from toolkit.gui.dialogs.pinout_wizard import DatasheetPinoutWizard
@@ -129,6 +130,7 @@ class MainWindow(QMainWindow):
         self._inspector.setOrientationRequested.connect(self._on_set_orientation_requested)
         self._inspector.datasheetSearchRequested.connect(self._find_datasheet)
         self._inspector.pinoutSelectionRequested.connect(self._open_pinout_wizard)
+        self._inspector.kicadFootprintRequested.connect(self._open_footprint_picker)
         right_dock = QDockWidget("Inspector", self)
         right_dock.setWidget(self._inspector)
         right_dock.setMinimumWidth(240)
@@ -1291,6 +1293,62 @@ class MainWindow(QMainWindow):
 
         self._log.append(
             f"Pinout saved: {len(result.pads)} pads.  "
+            "Align the footprint on the canvas — press R, +/-, arrows, then Enter."
+        )
+        self._start_pinout_alignment(result, object_id)
+
+    def _open_footprint_picker(self, object_id: int) -> None:
+        """Open the KiCad footprint picker for a component."""
+        from toolkit.analysis.kicad_footprint import footprint_to_pad_detections
+        from toolkit.analysis.pinout import BBox, PinoutResult
+
+        # Resolve component_id and pre-fill search query from part/package fields
+        comp_row = self._db.conn().execute(
+            "SELECT id, part_number, package FROM components WHERE object_id = ?",
+            (object_id,),
+        ).fetchone()
+        if comp_row is None:
+            self._db.ensure_component_row(object_id)
+            comp_row = self._db.conn().execute(
+                "SELECT id, part_number, package FROM components WHERE object_id = ?",
+                (object_id,),
+            ).fetchone()
+        component_id = comp_row["id"]
+
+        # Pre-fill the search query: prefer package (e.g. "SOIC-8"), then part_number
+        initial_query = (comp_row["package"] or comp_row["part_number"] or "").strip()
+
+        dlg = FootprintPickerDialog(initial_query=initial_query, parent=self)
+        if dlg.exec() != FootprintPickerDialog.DialogCode.Accepted:
+            return
+        fp = dlg.selected_footprint
+        if fp is None or not fp.pads:
+            return
+
+        pads, _bbox_mm = footprint_to_pad_detections(fp)
+
+        result = PinoutResult(
+            pads=pads,
+            image_width=1000,
+            image_height=1000,
+            source_page=0,
+            source_bbox=BBox(0.0, 0.0, 1.0, 1.0),
+        )
+
+        pinout_id = self._db.save_component_pinout(
+            component_id,
+            datasheet_id=None,
+            source_page=0,
+            source_bbox=None,
+            pins=result.to_db_pins(),
+            source="kicad_library",
+        )
+        self._footprint_pinout_id = pinout_id
+        self._footprint_object_id = object_id
+
+        self._log.append(
+            f"KiCad footprint "{fp.library}/{fp.name}" imported: "
+            f"{len(fp.pads)} pads.  "
             "Align the footprint on the canvas — press R, +/-, arrows, then Enter."
         )
         self._start_pinout_alignment(result, object_id)
