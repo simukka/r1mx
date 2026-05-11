@@ -41,6 +41,7 @@ from PyQt6.QtGui import (
     QPen, QPixmap,
 )
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -286,19 +287,37 @@ def _ndarray_to_qpixmap(img: np.ndarray) -> QPixmap:
 
 
 class _ReviewLabel(QLabel):
-    """QLabel with pad overlay; click a pad to select it."""
+    """Pad overlay image.
 
-    padClicked = pyqtSignal(int)   # pad index
+    Interactions
+    ------------
+    * Click on a pad      → select it (padClicked)
+    * Drag a pad          → move it in real time (padMoved on release)
+    * Click on empty area → create a new pad at that position (newPadRequested)
+    """
+
+    padClicked      = pyqtSignal(int)          # index of pad that was clicked
+    padMoved        = pyqtSignal(int)          # index of pad that was dragged
+    newPadRequested = pyqtSignal(float, float) # normalised cx, cy for new pad
+
+    _DRAG_THRESHOLD = 4  # px before a press becomes a drag
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pads:   list[PadDetection] = []
+        self._pads:    list[PadDetection] = []
         self._selected: int | None = None
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setMouseTracking(True)
+
+        self._press_pos:      QPoint | None = None
+        self._drag_pad_idx:   int | None    = None
+        self._click_pad_idx:  int | None    = None
+        self._dragging:       bool          = False
 
     def set_result(self, result: PinoutResult, pixmap: QPixmap) -> None:
-        self._pads = result.pads
-        self._selected = None
+        self._pads      = result.pads
+        self._selected  = None
+        self._dragging  = False
+        self._drag_pad_idx = None
         self.setPixmap(pixmap)
         self.resize(pixmap.size())
         self.update()
@@ -307,26 +326,68 @@ class _ReviewLabel(QLabel):
         self._selected = idx
         self.update()
 
+    # ── Mouse ─────────────────────────────────────────────────────────────────
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if not self._pads or not self.pixmap():
+        if event.button() != Qt.MouseButton.LeftButton or not self.pixmap():
             return
-        pw = self.pixmap().width()
-        ph = self.pixmap().height()
-        mx = event.pos().x()
-        my = event.pos().y()
-        # Find nearest pad
-        best_idx = None
-        best_dist = float("inf")
-        for i, pad in enumerate(self._pads):
-            cx = pad.cx * pw
-            cy = pad.cy * ph
-            r = max(pad.bbox.w * pw, pad.bbox.h * ph) / 2 + 8
-            dist = ((mx - cx) ** 2 + (my - cy) ** 2) ** 0.5
-            if dist < r and dist < best_dist:
-                best_dist = dist
-                best_idx = i
-        if best_idx is not None:
-            self.padClicked.emit(best_idx)
+        self._press_pos      = event.pos()
+        self._dragging       = False
+        self._click_pad_idx  = self._find_pad_at(event.pos())
+        self._drag_pad_idx   = self._click_pad_idx
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        # Update cursor based on hover
+        if not self._dragging and self._press_pos is None:
+            hover = self._find_pad_at(event.pos())
+            self.setCursor(QCursor(
+                Qt.CursorShape.SizeAllCursor if hover is not None
+                else Qt.CursorShape.CrossCursor
+            ))
+
+        if self._press_pos is None or self._drag_pad_idx is None:
+            return
+        delta = event.pos() - self._press_pos
+        if not self._dragging and (
+            abs(delta.x()) > self._DRAG_THRESHOLD
+            or abs(delta.y()) > self._DRAG_THRESHOLD
+        ):
+            self._dragging = True
+
+        if self._dragging and self.pixmap():
+            pw = self.pixmap().width()
+            ph = self.pixmap().height()
+            pad = self._pads[self._drag_pad_idx]
+            nx = max(0.0, min(1.0, event.pos().x() / pw))
+            ny = max(0.0, min(1.0, event.pos().y() / ph))
+            pad.bbox = BBox(
+                x=nx - pad.bbox.w / 2,
+                y=ny - pad.bbox.h / 2,
+                w=pad.bbox.w,
+                h=pad.bbox.h,
+            )
+            self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._dragging and self._drag_pad_idx is not None:
+            self.padMoved.emit(self._drag_pad_idx)
+        elif not self._dragging:
+            if self._click_pad_idx is not None:
+                self.padClicked.emit(self._click_pad_idx)
+            elif self.pixmap():
+                pw = self.pixmap().width()
+                ph = self.pixmap().height()
+                nx = max(0.0, min(1.0, event.pos().x() / pw))
+                ny = max(0.0, min(1.0, event.pos().y() / ph))
+                self.newPadRequested.emit(nx, ny)
+        self._press_pos     = None
+        self._drag_pad_idx  = None
+        self._click_pad_idx = None
+        self._dragging      = False
+
+    # ── Paint ─────────────────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -342,6 +403,9 @@ class _ReviewLabel(QLabel):
             if i == self._selected:
                 painter.setPen(QPen(QColor(255, 80, 80), 3))
                 painter.setBrush(QColor(255, 80, 80, 120))
+            elif i == self._drag_pad_idx and self._dragging:
+                painter.setPen(QPen(QColor(100, 200, 255), 3))
+                painter.setBrush(QColor(100, 200, 255, 120))
             else:
                 painter.setPen(QPen(QColor(255, 200, 0), 2))
                 painter.setBrush(QColor(255, 200, 0, 80))
@@ -355,26 +419,56 @@ class _ReviewLabel(QLabel):
                 painter.drawText(QPoint(cx + r + 2, cy + 4), lbl)
         painter.end()
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _find_pad_at(self, pos: QPoint) -> int | None:
+        if not self._pads or not self.pixmap():
+            return None
+        pw = self.pixmap().width()
+        ph = self.pixmap().height()
+        best_idx  = None
+        best_dist = float("inf")
+        for i, pad in enumerate(self._pads):
+            cx   = pad.cx * pw
+            cy   = pad.cy * ph
+            r    = max(pad.bbox.w * pw, pad.bbox.h * ph) / 2 + 8
+            dist = ((pos.x() - cx) ** 2 + (pos.y() - cy) ** 2) ** 0.5
+            if dist < r and dist < best_dist:
+                best_dist = dist
+                best_idx  = i
+        return best_idx
+
 
 class _ReviewPage(QWidget):
-    """Wizard page 1: review + fix detected pads."""
+    """Wizard page 1: review and manually fix detected pads.
+
+    Supported edits
+    ---------------
+    * Click pad image or list row  → select
+    * Drag pad on image            → move
+    * Click empty area on image    → add new pad
+    * Delete button / Delete key   → remove selected pad
+    * Pin #, Label, Shape fields   → edit metadata of selected pad
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._result:  PinoutResult | None = None
-        self._crop_px: QPixmap | None = None
-        self._selected_idx: int | None = None
+        self._result:       PinoutResult | None = None
+        self._crop_px:      QPixmap | None      = None
+        self._selected_idx: int | None          = None
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        layout = QVBoxLayout(self)
+        layout   = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Left: crop image
+        # ── Left: image ──────────────────────────────────────────────────────
         left = QWidget()
-        lv = QVBoxLayout(left)
+        lv   = QVBoxLayout(left)
         self._review_lbl = _ReviewLabel()
         self._review_lbl.padClicked.connect(self._on_pad_clicked)
+        self._review_lbl.padMoved.connect(self._on_pad_moved)
+        self._review_lbl.newPadRequested.connect(self._add_pad)
         scroll = QScrollArea()
         scroll.setWidget(self._review_lbl)
         scroll.setWidgetResizable(False)
@@ -385,25 +479,47 @@ class _ReviewPage(QWidget):
         lv.addWidget(self._detect_lbl)
         splitter.addWidget(left)
 
-        # Right: pad editor
+        # ── Right: editor ────────────────────────────────────────────────────
         right = QWidget()
-        rv = QVBoxLayout(right)
+        rv    = QVBoxLayout(right)
         rv.setContentsMargins(4, 4, 4, 4)
 
         box = QGroupBox("Selected pad")
-        bv = QVBoxLayout(box)
+        bv  = QVBoxLayout(box)
         from PyQt6.QtWidgets import QFormLayout
         form = QFormLayout()
+
         self._pin_num_edit = QLineEdit()
         self._pin_num_edit.setPlaceholderText("e.g. 14")
-        self._pin_num_edit.editingFinished.connect(self._save_pin_edit)
+        self._pin_num_edit.editingFinished.connect(self._save_pad_edits)
         form.addRow("Pin #:", self._pin_num_edit)
+
         self._pin_lbl_edit = QLineEdit()
         self._pin_lbl_edit.setPlaceholderText("e.g. GND")
-        self._pin_lbl_edit.editingFinished.connect(self._save_pin_edit)
+        self._pin_lbl_edit.editingFinished.connect(self._save_pad_edits)
         form.addRow("Label:", self._pin_lbl_edit)
+
+        self._shape_combo = QComboBox()
+        self._shape_combo.addItems(["circle", "rect", "square"])
+        self._shape_combo.currentTextChanged.connect(self._save_pad_edits)
+        form.addRow("Shape:", self._shape_combo)
+
         bv.addLayout(form)
+
+        del_btn = QPushButton("🗑  Delete selected pad")
+        del_btn.setToolTip("Delete (or press the Delete key)")
+        del_btn.clicked.connect(self._delete_selected)
+        bv.addWidget(del_btn)
+
         rv.addWidget(box)
+
+        hint = QLabel(
+            "<small><i>Click image to select/move pads.<br>"
+            "Click empty area to add a new pad.</i></small>"
+        )
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setWordWrap(True)
+        rv.addWidget(hint)
 
         self._pad_list = QListWidget()
         self._pad_list.currentRowChanged.connect(self._on_list_row_changed)
@@ -413,61 +529,130 @@ class _ReviewPage(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
 
+        self._set_editor_enabled(False)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_result(self, result: PinoutResult, crop_img: np.ndarray) -> None:
-        self._result = result
-        self._crop_px = _ndarray_to_qpixmap(crop_img)
+        self._result   = result
+        self._crop_px  = _ndarray_to_qpixmap(crop_img)
         self._refresh()
 
     @property
     def result(self) -> PinoutResult | None:
         return self._result
 
-    # ── Private ───────────────────────────────────────────────────────────────
+    # ── Keyboard ──────────────────────────────────────────────────────────────
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Delete:
+            self._delete_selected()
+        else:
+            super().keyPressEvent(event)
+
+    # ── Slots ─────────────────────────────────────────────────────────────────
+
+    def _on_pad_clicked(self, idx: int) -> None:
+        self._select(idx)
+
+    def _on_list_row_changed(self, row: int) -> None:
+        if row >= 0:
+            self._select(row)
+
+    def _on_pad_moved(self, idx: int) -> None:
+        """Pad was dragged — just refresh the list item text."""
+        self._refresh_list_item(idx)
+
+    def _add_pad(self, cx: float, cy: float) -> None:
+        if not self._result:
+            return
+        default_size = 0.025
+        new_pad = PadDetection(
+            bbox=BBox(
+                x=cx - default_size / 2,
+                y=cy - default_size / 2,
+                w=default_size,
+                h=default_size,
+            ),
+            shape="circle",
+        )
+        self._result.pads.append(new_pad)
+        new_idx = len(self._result.pads) - 1
+        self._pad_list.addItem(self._pad_item_text(new_idx))
+        self._review_lbl.update()
+        self._update_detect_label()
+        self._select(new_idx)
+
+    def _delete_selected(self) -> None:
+        if self._selected_idx is None or not self._result:
+            return
+        idx = self._selected_idx
+        self._result.pads.pop(idx)
+        self._selected_idx = None
+        self._review_lbl.select_pad(None)
+        self._set_editor_enabled(False)
+        self._refresh()
+
+    def _save_pad_edits(self) -> None:
+        if self._selected_idx is None or not self._result:
+            return
+        pad            = self._result.pads[self._selected_idx]
+        pad.pin_number = self._pin_num_edit.text().strip()
+        pad.label      = self._pin_lbl_edit.text().strip()
+        pad.shape      = self._shape_combo.currentText()
+        self._refresh_list_item(self._selected_idx)
+        self._review_lbl.update()
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _select(self, idx: int) -> None:
+        if not self._result or idx >= len(self._result.pads):
+            return
+        self._selected_idx = idx
+        self._review_lbl.select_pad(idx)
+        # Block list signals while we set the row to avoid recursion
+        self._pad_list.blockSignals(True)
+        self._pad_list.setCurrentRow(idx)
+        self._pad_list.blockSignals(False)
+        pad = self._result.pads[idx]
+        self._set_editor_enabled(True)
+        self._pin_num_edit.setText(pad.pin_number)
+        self._pin_lbl_edit.setText(pad.label)
+        self._shape_combo.setCurrentText(pad.shape)
 
     def _refresh(self) -> None:
         if not self._result or not self._crop_px:
             return
         self._review_lbl.set_result(self._result, self._crop_px)
-        self._detect_lbl.setText(
-            f"Detected {len(self._result.pads)} pad(s). Click a pad to edit."
-        )
         self._pad_list.clear()
-        for i, pad in enumerate(self._result.pads):
-            lbl = f"[{i+1}] #{pad.pin_number or '—'}  {pad.label or ''}  ({pad.shape})"
-            self._pad_list.addItem(lbl)
+        for i in range(len(self._result.pads)):
+            self._pad_list.addItem(self._pad_item_text(i))
+        self._update_detect_label()
         self._selected_idx = None
-        self._pin_num_edit.clear()
-        self._pin_lbl_edit.clear()
-        self._pin_num_edit.setEnabled(False)
-        self._pin_lbl_edit.setEnabled(False)
+        self._set_editor_enabled(False)
 
-    def _on_pad_clicked(self, idx: int) -> None:
-        self._selected_idx = idx
-        self._review_lbl.select_pad(idx)
-        self._pad_list.setCurrentRow(idx)
+    def _refresh_list_item(self, idx: int) -> None:
+        if item := self._pad_list.item(idx):
+            item.setText(self._pad_item_text(idx))
+
+    def _update_detect_label(self) -> None:
+        n = len(self._result.pads) if self._result else 0
+        self._detect_lbl.setText(
+            f"{n} pad(s). Click to select/move. Click empty area to add."
+        )
+
+    def _pad_item_text(self, idx: int) -> str:
         pad = self._result.pads[idx]
-        self._pin_num_edit.setEnabled(True)
-        self._pin_lbl_edit.setEnabled(True)
-        self._pin_num_edit.setText(pad.pin_number)
-        self._pin_lbl_edit.setText(pad.label)
+        return f"[{idx+1}] #{pad.pin_number or '—'}  {pad.label or ''}  ({pad.shape})"
 
-    def _on_list_row_changed(self, row: int) -> None:
-        if row >= 0:
-            self._on_pad_clicked(row)
+    def _set_editor_enabled(self, enabled: bool) -> None:
+        self._pin_num_edit.setEnabled(enabled)
+        self._pin_lbl_edit.setEnabled(enabled)
+        self._shape_combo.setEnabled(enabled)
+        if not enabled:
+            self._pin_num_edit.clear()
+            self._pin_lbl_edit.clear()
 
-    def _save_pin_edit(self) -> None:
-        if self._selected_idx is None or not self._result:
-            return
-        pad = self._result.pads[self._selected_idx]
-        pad.pin_number = self._pin_num_edit.text().strip()
-        pad.label      = self._pin_lbl_edit.text().strip()
-        # Update list label
-        lbl = f"[{self._selected_idx+1}] #{pad.pin_number or '—'}  {pad.label or ''}  ({pad.shape})"
-        if item := self._pad_list.item(self._selected_idx):
-            item.setText(lbl)
-        self._review_lbl.update()
 
 
 # ─── Main wizard dialog ───────────────────────────────────────────────────────
