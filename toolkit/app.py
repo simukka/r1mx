@@ -21,9 +21,11 @@ from PyQt6.QtWidgets import (
 
 from toolkit.analysis.calibrate import CalibrationGUI, find_all_images, save_calibration, run_coord_calibration
 from toolkit.db import DB
+from toolkit.gui.dialogs.datasheet_find import DatasheetFindDialog
 from toolkit.gui.dialogs.datasheet_scan import DatasheetScanDialog
 from toolkit.gui.dialogs.edit_layer import EditLayerDialog
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
+from toolkit.gui.dialogs.merge_entities import MergeEntitiesDialog
 from toolkit.gui.dialogs.probe_wizard import ProbeWizardDialog
 from toolkit.gui.dialogs.scan_layer import ScanLayerWizard, ScanLayerResult
 from toolkit.gui.dialogs.scan_preview import ScanPreviewDialog
@@ -35,6 +37,16 @@ from toolkit.gui.viewer import ImageViewer
 from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
 from toolkit.workers.base import SubprocessWorker
 
+from enum import Enum, auto
+
+class CanvasMode(Enum):
+    """Active interaction mode for the main canvas."""
+    NORMAL          = auto()   # pan / zoom / select (default)
+    ADD_VIA         = auto()   # next click places a via
+    ADD_COMPONENT   = auto()   # click+drag defines a component bounding box
+    ADD_TEXT        = auto()   # next click places a text_label
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self, db: DB, initial_board: str | None = None):
@@ -45,6 +57,8 @@ class MainWindow(QMainWindow):
         self._active_board: str | None = None
         self._active_layer: str | None = None
         self._probe_wizard: ProbeWizardDialog | None = None
+        self._canvas_mode: CanvasMode = CanvasMode.NORMAL
+        self._add_target_object_id: int | None = None  # object being outlined
 
         self.setWindowTitle("r1mx Toolkit")
         self.resize(1400, 900)
@@ -65,7 +79,9 @@ class MainWindow(QMainWindow):
         # Central widget: ImageViewer canvas
         self._viewer = ImageViewer(self)
         self._viewer.imageClicked.connect(self._on_canvas_click)
+        self._viewer.imageReleased.connect(self._on_canvas_release)
         self._viewer.imageMoved.connect(self._on_canvas_move)
+        self._viewer.debugClicked.connect(self._on_debug_click)
         self._viewer.scene().selectionChanged.connect(self._on_selection_changed)
         self.setCentralWidget(self._viewer)
 
@@ -80,6 +96,13 @@ class MainWindow(QMainWindow):
         self._tree.componentSelected.connect(self._on_component_selected)
         self._tree.removeDataRequested.connect(self._remove_layer_data)
         self._tree.scanDatasheetRequested.connect(self._scan_datasheet)
+        # Entity CRUD
+        self._tree.entityDeleteRequested.connect(self._on_entity_delete)
+        self._tree.entityEditRequested.connect(self._on_entity_edit)
+        self._tree.entityVerifyRequested.connect(self._on_entity_verify)
+        self._tree.mergeRequested.connect(self._on_merge_requested)
+        self._tree.removeDataRequested.connect(self._remove_layer_data)
+        self._tree.scanDatasheetRequested.connect(self._scan_datasheet)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -91,6 +114,9 @@ class MainWindow(QMainWindow):
 
         # Right dock: inspector
         self._inspector = InspectorPanel(self._db, self)
+        self._inspector.drawOutlineRequested.connect(self._on_draw_outline_requested)
+        self._inspector.refineScaleRequested.connect(self._on_refine_scale_requested)
+        self._inspector.datasheetSearchRequested.connect(self._find_datasheet)
         right_dock = QDockWidget("Inspector", self)
         right_dock.setWidget(self._inspector)
         right_dock.setMinimumWidth(240)
@@ -191,6 +217,19 @@ class MainWindow(QMainWindow):
         )
         ext_act.triggered.connect(self._run_scan_layer)
         tb.addAction(ext_act)
+
+        # "Add entity" dropdown
+        from PyQt6.QtWidgets import QToolButton, QMenu as _QMenu
+        add_btn = QToolButton(self)
+        add_btn.setText("✚ Add")
+        add_btn.setToolTip("Manually place a via, component, or text label on the canvas")
+        add_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        add_menu = _QMenu(add_btn)
+        add_menu.addAction("📍 Via",       lambda: self._set_canvas_mode(CanvasMode.ADD_VIA))
+        add_menu.addAction("□ Component",  lambda: self._set_canvas_mode(CanvasMode.ADD_COMPONENT))
+        add_menu.addAction("T Text Label", lambda: self._set_canvas_mode(CanvasMode.ADD_TEXT))
+        add_btn.setMenu(add_menu)
+        tb.addWidget(add_btn)
 
         tb.addSeparator()
 
@@ -380,17 +419,258 @@ class MainWindow(QMainWindow):
 
     # ── Canvas events ─────────────────────────────────────────────────────
 
+    def _set_canvas_mode(self, mode: CanvasMode, target_object_id: int | None = None) -> None:
+        """Switch the canvas interaction mode and update the status bar hint."""
+        self._canvas_mode = mode
+        self._add_target_object_id = target_object_id
+        capture = mode != CanvasMode.NORMAL
+        self._viewer.set_capture_mode(capture)
+        if mode == CanvasMode.ADD_VIA:
+            self._status.showMessage("ADD VIA — click to place  |  Middle-mouse to pan  |  Esc to cancel")
+        elif mode == CanvasMode.ADD_COMPONENT:
+            if target_object_id is not None:
+                self._status.showMessage("DRAW OUTLINE — click and drag  |  Middle-mouse to pan  |  Esc to cancel")
+            else:
+                self._status.showMessage("ADD COMPONENT — click and drag to draw bounding box  |  Middle-mouse to pan  |  Esc to cancel")
+        elif mode == CanvasMode.ADD_TEXT:
+            self._status.showMessage("ADD TEXT — click to place  |  Middle-mouse to pan  |  Esc to cancel")
+        else:
+            self._status.clearMessage()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape and self._canvas_mode != CanvasMode.NORMAL:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+        else:
+            super().keyPressEvent(event)
+
+    def _on_debug_click(
+        self,
+        sp: QPointF,
+        in_bounds: bool,
+        img_w: int,
+        img_h: int,
+        capture: bool,
+        rb_set: bool,
+        zoom: float,
+    ) -> None:
+        """Log a structured click event when crosshairs are active."""
+        if not capture:
+            return
+        mode_name = self._canvas_mode.name
+        scene_rect = self._viewer.scene().sceneRect()
+        lines = [
+            "<b>── canvas click ──</b>",
+            f"  mode        : {mode_name}",
+            f"  scene pos   : ({sp.x():.1f}, {sp.y():.1f}) px",
+            f"  in_bounds   : {in_bounds}  (img_w={img_w} img_h={img_h})",
+            f"  scene rect  : {scene_rect.width():.0f} × {scene_rect.height():.0f}",
+            f"  zoom        : {zoom:.4f}×",
+            f"  rb_anchor   : {'set' if rb_set else 'none'}",
+            f"  board/layer : {self._active_board or '—'} / {self._active_layer or '—'}",
+        ]
+        self._log.append("<br>".join(lines))
+
     def _on_canvas_click(self, pt: QPointF):
-        self._status.showMessage(
-            f"Clicked: ({pt.x():.1f}, {pt.y():.1f}) px  "
-            f"Board: {self._active_board}  Layer: {self._active_layer}"
-        )
+        if self._canvas_mode == CanvasMode.NORMAL:
+            self._status.showMessage(
+                f"Clicked: ({pt.x():.1f}, {pt.y():.1f}) px  "
+                f"Board: {self._active_board}  Layer: {self._active_layer}"
+            )
+            return
+
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        if self._canvas_mode == CanvasMode.ADD_VIA:
+            self._place_via(pt, board, layer)
+        elif self._canvas_mode == CanvasMode.ADD_COMPONENT:
+            # First click: anchor for rubber-band
+            self._viewer.start_rubber_band(pt)
+        elif self._canvas_mode == CanvasMode.ADD_TEXT:
+            self._place_text(pt, board, layer)
+
+    def _on_canvas_release(self, pt: QPointF):
+        if self._canvas_mode == CanvasMode.ADD_COMPONENT:
+            board, layer = self._require_board_and_layer()
+            if not board or not layer:
+                self._set_canvas_mode(CanvasMode.NORMAL)
+                return
+            rect = self._viewer.finish_rubber_band()
+            if rect is not None:
+                self._place_component_rect(rect, board, layer)
+            else:
+                self._set_canvas_mode(CanvasMode.NORMAL)
 
     def _on_canvas_move(self, pt: QPointF):
-        self._status.showMessage(
-            f"({pt.x():.0f}, {pt.y():.0f}) px   "
-            f"{self._active_board or ''}  {self._active_layer or ''}"
+        if self._canvas_mode == CanvasMode.NORMAL:
+            self._status.showMessage(
+                f"({pt.x():.0f}, {pt.y():.0f}) px   "
+                f"{self._active_board or ''}  {self._active_layer or ''}"
+            )
+
+    def _px_to_mm(self, pt: QPointF) -> tuple[float, float]:
+        """Convert scene-pixel coords to mm using the active layer's calibration."""
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            return float(pt.x()), float(pt.y())
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row or not layer_row["calibration"]:
+            return float(pt.x()), float(pt.y())
+        cal = json.loads(layer_row["calibration"])
+        px_per_mm = cal.get("px_per_mm", 20.0)
+        return pt.x() / px_per_mm, pt.y() / px_per_mm
+
+    def _place_via(self, pt: QPointF, board: str, layer: str) -> None:
+        from PyQt6.QtWidgets import QInputDialog as _QID
+        drill, ok = _QID.getDouble(
+            self, "Via Drill Diameter", "Drill diameter (mm):", 0.3, 0.05, 5.0, 2
         )
+        if not ok:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        x_mm, y_mm = self._px_to_mm(pt)
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        self._db.create_object(
+            layer_id=layer_row["id"],
+            obj_type="via",
+            x_mm=x_mm, y_mm=y_mm,
+            width_mm=drill, height_mm=drill,
+            verified=1,
+            properties={"drill_mm": drill, "manual": True},
+        )
+        self._reload_active_layer()
+        self._set_canvas_mode(CanvasMode.NORMAL)
+
+    def _place_component_rect(self, rect, board: str, layer: str) -> None:
+        """Place a component at the given scene rect (after rubber-band complete)."""
+        from PyQt6.QtWidgets import QDialog as _QDialog
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        cal = json.loads(layer_row["calibration"] or "{}")
+        px_per_mm = cal.get("px_per_mm", 20.0)
+
+        x_mm      = rect.x()      / px_per_mm
+        y_mm      = rect.y()      / px_per_mm
+        width_mm  = rect.width()  / px_per_mm
+        height_mm = rect.height() / px_per_mm
+
+        # drawn_px is the pixel-space ground truth used later for calibration refinement
+        drawn_px = [rect.x(), rect.y(), rect.width(), rect.height()]
+
+        # Log full coordinate chain so calibration errors are easy to spot
+        self._log.append(
+            "<b>── place component ──</b><br>"
+            f"  rubber-band  : ({rect.x():.1f}, {rect.y():.1f})  "
+            f"{rect.width():.1f} × {rect.height():.1f} px<br>"
+            f"  px_per_mm    : {px_per_mm:.4f}<br>"
+            f"  stored mm    : ({x_mm:.3f}, {y_mm:.3f})  "
+            f"{width_mm:.3f} × {height_mm:.3f} mm<br>"
+            f"  render back  : ({x_mm*px_per_mm:.1f}, {y_mm*px_per_mm:.1f})  "
+            f"{width_mm*px_per_mm:.1f} × {height_mm*px_per_mm:.1f} px"
+        )
+
+        target_id = self._add_target_object_id
+        if target_id is not None:
+            # Updating an existing component outline — preserve drawn_px as ground truth
+            existing = self._db.conn().execute(
+                "SELECT properties FROM objects WHERE id=?", (target_id,)
+            ).fetchone()
+            existing_props = json.loads(existing["properties"] or "{}") if existing else {}
+            existing_props["drawn_px"] = drawn_px
+            self._db.update_object(
+                target_id,
+                x_mm=x_mm, y_mm=y_mm,
+                width_mm=width_mm, height_mm=height_mm,
+                properties=existing_props,
+            )
+            self._reload_active_layer()
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        # New component: ask for ref + part
+        from PyQt6.QtWidgets import (
+            QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QVBoxLayout
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New Component")
+        form = QFormLayout()
+        ref_edit  = QLineEdit(); ref_edit.setPlaceholderText("e.g. U1")
+        part_edit = QLineEdit(); part_edit.setPlaceholderText("e.g. SiI3512")
+        form.addRow("Ref designator:", ref_edit)
+        form.addRow("Part number:",    part_edit)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        vl = QVBoxLayout(dlg)
+        vl.addLayout(form)
+        vl.addWidget(btns)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        ref  = ref_edit.text().strip()
+        part = part_edit.text().strip()
+        if not ref:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        board_id = self._db.get_or_create_board(board)
+        obj_id = self._db.create_object(
+            layer_id=layer_row["id"],
+            obj_type="component",
+            x_mm=x_mm, y_mm=y_mm,
+            width_mm=width_mm, height_mm=height_mm,
+            label=ref,
+            verified=1,
+            properties={"drawn_px": drawn_px, "manual": True},
+        )
+        self._db.upsert_component(
+            board_id,
+            ref_designator=ref,
+            object_id=obj_id,
+            part_number=part or None,
+        )
+        self._reload_active_layer()
+        self._set_canvas_mode(CanvasMode.NORMAL)
+
+    def _place_text(self, pt: QPointF, board: str, layer: str) -> None:
+        from PyQt6.QtWidgets import QInputDialog as _QID
+        text, ok = _QID.getText(self, "Text Label", "Label text:")
+        if not ok or not text.strip():
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        x_mm, y_mm = self._px_to_mm(pt)
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        self._db.create_object(
+            layer_id=layer_row["id"],
+            obj_type="text_label",
+            x_mm=x_mm, y_mm=y_mm,
+            label=text.strip(),
+            verified=1,
+        )
+        self._reload_active_layer()
+        self._set_canvas_mode(CanvasMode.NORMAL)
 
     def _on_selection_changed(self):
         items = self._viewer.scene().selectedItems()
@@ -624,6 +904,134 @@ class MainWindow(QMainWindow):
             return
         self._inspector.show_object(obj_id)
 
+    # ── Entity CRUD handlers ──────────────────────────────────────────────
+
+    def _on_entity_delete(self, object_id: int) -> None:
+        """Delete a single object and refresh canvas + tree."""
+        self._db.delete_object(object_id)
+        self._reload_active_layer()
+
+    def _on_entity_edit(self, object_id: int) -> None:
+        """Called after an inline label edit — just refresh the canvas."""
+        self._reload_active_layer()
+
+    def _on_entity_verify(self, object_id: int) -> None:
+        self._db.update_object(object_id, verified=1)
+        self._reload_active_layer()
+
+    def _on_merge_requested(self, object_ids: list) -> None:
+        """Open MergeEntitiesDialog for the given text_label object_ids."""
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            return
+        board_id  = int(self._db.get_or_create_board(board))
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+
+        dlg = MergeEntitiesDialog(object_ids, self._db, layer_row["id"], board_id, parent=self)
+        if dlg.exec() != MergeEntitiesDialog.DialogCode.Accepted:
+            return
+
+        if dlg.new_object_id:
+            self._log.append(
+                f"Created component (id={dlg.new_object_id}) from {len(object_ids)} labels"
+            )
+            self._reload_active_layer()
+            # Show the new component in the inspector
+            comp_row = self._db.conn().execute(
+                "SELECT id FROM components WHERE object_id=?", (dlg.new_object_id,)
+            ).fetchone()
+            if comp_row:
+                self._inspector.show_component(comp_row["id"])
+
+    def _on_draw_outline_requested(self, object_id: int) -> None:
+        """Inspector 'Draw outline' button: enter ADD_COMPONENT mode to update object bounds."""
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            return
+        self._set_canvas_mode(CanvasMode.ADD_COMPONENT, target_object_id=object_id)
+
+    def _on_refine_scale_requested(self, object_id: int) -> None:
+        """Inspector 'Refine scale' button: compute new px_per_mm from known component size."""
+        from PyQt6.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QLabel, QVBoxLayout
+        )
+        # Look up the label for a friendlier prompt
+        obj_row = self._db.conn().execute(
+            "SELECT label, properties FROM objects WHERE id=?", (object_id,)
+        ).fetchone()
+        if not obj_row:
+            return
+        props = json.loads(obj_row["properties"] or "{}")
+        drawn_px = props.get("drawn_px")
+        if not drawn_px:
+            self._log.append("⚠ This component has no drawn_px — draw its outline first.")
+            return
+        _, _, dpx_w, dpx_h = drawn_px
+        label = obj_row["label"] or f"object {object_id}"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Refine Scale from Datasheet")
+        vl = QVBoxLayout(dlg)
+        vl.addWidget(QLabel(
+            f"<b>{label}</b> was drawn as <b>{dpx_w:.0f} × {dpx_h:.0f} px</b>.<br>"
+            "Enter its physical dimensions from the datasheet to refine px/mm calibration.<br>"
+            "<i>All manually drawn objects on this layer will be rescaled.</i>"
+        ))
+        form = QFormLayout()
+        w_spin = QDoubleSpinBox(); w_spin.setRange(0.1, 500); w_spin.setDecimals(3)
+        w_spin.setSuffix(" mm"); w_spin.setValue(round(dpx_w / 20.0, 2))
+        h_spin = QDoubleSpinBox(); h_spin.setRange(0.1, 500); h_spin.setDecimals(3)
+        h_spin.setSuffix(" mm"); h_spin.setValue(round(dpx_h / 20.0, 2))
+        form.addRow("Component width:", w_spin)
+        form.addRow("Component height:", h_spin)
+        vl.addLayout(form)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        vl.addWidget(btns)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        known_w = w_spin.value()
+        known_h = h_spin.value()
+        try:
+            new_ppm = self._db.refine_calibration_from_component(
+                object_id, known_w, known_h
+            )
+        except ValueError as exc:
+            self._log.append(f"⚠ Refine scale failed: {exc}")
+            return
+
+        self._log.append(
+            f"<b>Calibration refined</b> from <i>{label}</i>:<br>"
+            f"  known size  : {known_w:.3f} × {known_h:.3f} mm<br>"
+            f"  drawn px    : {dpx_w:.0f} × {dpx_h:.0f} px<br>"
+            f"  new px/mm   : {new_ppm:.4f}"
+        )
+        self._reload_active_layer()
+
+    def _reload_active_layer(self) -> None:
+        """Reload canvas objects and rebuild tree for the active board/layer."""
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            return
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+        cal       = json.loads(layer_row["calibration"] or "{}")
+        px_per_mm = cal.get("px_per_mm", 20.0)
+        key = (board, layer)
+        if key in self._layer_scenes:
+            self._layer_scenes[key].load_objects(self._db, layer_row["id"], px_per_mm)
+            self._viewer.scene().update()
+        vis = self._tree.get_full_vis_state()
+        self._tree.refresh(vis)
+
     def _scan_datasheet(self, board: str, layer: str, object_id: int) -> None:
         """Open the datasheet scan dialog for a component / text_label object."""
         # Resolve the part number label from the object row
@@ -664,6 +1072,31 @@ class MainWindow(QMainWindow):
         )
 
         # Refresh inspector to show the newly linked datasheets
+        self._on_component_selected(object_id)
+
+    def _find_datasheet(self, object_id: int, part_number: str, mode: str) -> None:
+        """Open the DatasheetFindDialog for *object_id* in the given *mode*."""
+        board = self._active_board or ""
+        board_dir = COMPONENTS_DIR / board / "datasheets"
+
+        dlg = DatasheetFindDialog(
+            part_number,
+            board_dir,
+            initial_mode=mode,
+            parent=self,
+        )
+        if dlg.exec() != DatasheetFindDialog.DialogCode.Accepted:
+            return
+        if not dlg.selected_path:
+            return
+
+        self._db.ensure_component_row(object_id)
+        ds_id = self._db.get_or_create_datasheet_by_path(dlg.selected_path, part_number)
+        self._db.link_object_datasheet(object_id, ds_id)
+
+        self._log.append(
+            f"Linked datasheet '{dlg.selected_path.name}' to {part_number} ({board})"
+        )
         self._on_component_selected(object_id)
 
     def _remove_layer_data(self, board: str, layer: str, type_filter: str):
