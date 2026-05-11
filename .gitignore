@@ -2,9 +2,10 @@
 .venv/
 
 # Generated OCR output — re-run extract_bom.py to regenerate
-#bom_master.csv
-#components/**/bom.csv
+bom_master.csv
+components/**/bom.csv
 components/**/_debug/
+components/**/calibration.json
 
 # Raw camera files
 *.RW2
@@ -19,3 +20,10 @@ __pycache__/
 datasheet_db/
 datasheet_index.json
 r1mx.db
+r1mx.db-shm
+r1mx.db-wal
+components/*/layout.json
+
+# Firmware 
+**/*.extracted
+**/*__MACOSX

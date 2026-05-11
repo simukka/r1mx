@@ -685,6 +685,202 @@ BUILD32_PATCHES: list[Patch] = [
         description="NOP XUartLite TX-FULL poll loop in fn_1b9b0 (0xe0600008 unmapped in QEMU bamboo → reads 0xFFFFFFFF → bit3=TX_FULL=1 → infinite spin)",
         phase=2,
     ),
+    # Patch #38 — NOP XUartLite TX-FIFO write in fn_1b9b0
+    #
+    # After the TX-FULL poll loop is NOP'd (Patch #37), fn_1b9b0 proceeds to
+    # write the byte to the TX FIFO at (UART_BASE + 4) = 0xe0600004 via fn_e900:
+    #
+    #   0x1b9e4: addi r3, r30, 4       ; r3 = UART_BASE+4 (TX FIFO addr)
+    #   0x1b9e8: mr   r4, r29          ; r4 = byte to write
+    #   0x1b9ec: bl   0xe900           ; MMIO write: stw r4, 0(r3)  ← THIS PATCH
+    #
+    # fn_e900 executes:  stwu r1,-0x10(r1) / stw r4,0(r3) / eieio / blr
+    # The "stw r4, 0(r3)" writes to physical address 0xe0600004.
+    # QEMU's bamboo machine does not map 0xe0600000 — the write triggers a
+    # PPC405 Machine Check exception (NIP → 0x00000010).
+    #
+    # The machine check vector at 0x10 is NOT a proper VxWorks handler — it is
+    # the romInit SPR-clearing code that resets the stack pointer and calls
+    # usrInit again, causing an infinite re-initialisation loop.
+    #
+    # Fix: NOP the "bl 0xe900" call.  UART output is already discarded by QEMU;
+    # silently dropping the TX FIFO write is safe.
+    Patch(
+        offset=0x1b9ec,
+        original=b'\x4b\xff\x2f\x15',   # bl 0xe900 (UART TX FIFO write)
+        replacement=PPC_NOP,
+        description="NOP XUartLite TX-FIFO write in fn_1b9b0 (0xe0600004 unmapped in QEMU bamboo → write triggers Machine Check at 0x10 → romInit re-runs → infinite boot loop)",
+        phase=2,
+    ),
+    # Patch #39 — NOP XUartLite status read in fn_1b9b0
+    #
+    # fn_1b9b0 structure after Patches #37 + #38:
+    #
+    #   0x1b9d4: mr   r3, r31             ; r3 = UART_BASE+8 (status reg addr)
+    #   0x1b9d8: bl   0xe898              ; MMIO read: lwz r3, 0(r3)  ← THIS PATCH
+    #   0x1b9dc: andi. r0, r3, 8          ; test TX_FULL bit (result used only by…)
+    #   0x1b9e0: nop                      ; [Patch #37: was bne 0x1b9d4 poll loop]
+    #   0x1b9e4: addi r3, r30, 4          ; TX FIFO addr
+    #   0x1b9e8: mr   r4, r29             ; byte to write
+    #   0x1b9ec: nop                      ; [Patch #38: was bl 0xe900 TX write]
+    #
+    # fn_e898 executes: stwu r1,-0x10(r1) / eieio / lwz r3,0(r3) / addi r1,r1,0x10 / blr
+    # The "lwz r3, 0(r3)" reads from physical address 0xe0600008 (UART status reg).
+    # QEMU's bamboo machine does not map 0xe0600000 — the read triggers a PPC405
+    # Machine Check exception (NIP → machine check vector).
+    #
+    # With EVPR installed by fn_36e168, the machine check vector now points to the
+    # VxWorks MChk handler at 0x200, which recovers via rfi back to 0xe8a4 — but
+    # the per-character machine check + full handler overhead (~100 instructions)
+    # makes each byte print extremely slow (effectively serialised through the
+    # exception path), stalling fn_458a14's init sequence for many minutes.
+    #
+    # Fix: NOP the "bl 0xe898" call.  The TX-FULL test that follows (andi./bne) is
+    # already dead code after Patch #37 NOP'd the branch, so removing the MMIO read
+    # is fully safe and eliminates the per-character machine check.
+    Patch(
+        offset=0x1b9d8,
+        original=b'\x4b\xff\x2e\xc1',   # bl 0xe898 (UART status read)
+        replacement=PPC_NOP,
+        description="NOP XUartLite status read in fn_1b9b0 (0xe0600008 unmapped → Machine Check per character through VxWorks MChk handler; result unused after Patch #37 killed the TX-FULL poll loop)",
+        phase=2,
+    ),
+
+    # Patch #40 — NOP error-counter MMIO write in fn_9b78 (early-return path)
+    #
+    # fn_9b78 is the shared boot-error logger called by every fn_DCB0 sub-function
+    # (fn_9bc8, fn_9e24, …) when a hardware device is not found.  It maintains a
+    # counter in MMIO register 0xe0be00 (= lis 0xe1 + d=-0x4200 → 0xe10000-0x4200).
+    #
+    # Structure:
+    #   0x9b78: stwu  r1, -0x10(r1)
+    #   0x9b7c: lis   r8, 0xe1           ; r8 = 0xe10000
+    #   0x9b80: lwz   r9, -0x4200(r8)    ; r9 = *(0xe0be00) — MMIO READ (safe: ret 0xFF)
+    #   0x9b84: cmpwi cr7, r9, 4         ; 0xFF > 4 → ble not taken
+    #   ...
+    #   0x9b94: ble   cr7, 0x9ba4        ; NOT taken (0xFF > 4) → fall through
+    #   0x9b98: addi  r1, r1, 0x10       ; restore stack (early-return path)
+    #   0x9b9c: stw   r11, -0x4200(r8)   ; ← WRITE to 0xe0be00 → Machine Check  THIS PATCH
+    #   0x9ba0: blr
+    #
+    # 0xe0be00 is not mapped in QEMU bamboo; the write triggers a PPC405 Machine
+    # Check exception.  After fn_36e168 has installed the VxWorks exception handler
+    # at 0x200, that handler performs a controlled system restart → usrInit re-init
+    # loop. fn_9b78 is called from 7 different error paths in fn_9bc8 and fn_9e24,
+    # so this single write site stalls fn_DCB0 on every device-not-found error.
+    #
+    # Fix: NOP the stw — the counter write is optional telemetry; the RAM-based
+    # error log arrays (written on the normal path below) remain intact.
+    Patch(
+        offset=0x9b9c,
+        original=b'\x91\x68\xbe\x00',   # stw r11, -0x4200(r8) — write to 0xe0be00
+        replacement=PPC_NOP,
+        description="NOP error-counter write to 0xe0be00 in fn_9b78 early-return path (0x9b9c): unmapped MMIO write triggers Machine Check → VxWorks restart loop; counter is optional telemetry",
+        phase=2,
+    ),
+
+    # Patch #41 — NOP error-counter MMIO write in fn_9b78 (normal path)
+    #
+    # Same address 0xe0be00, normal-path write (counter ≤ 4 branch taken):
+    #   0x9ba4: lis   r9, 0xea           ; RAM log array base
+    #   ...
+    #   0x9bb8: stwx  r4, r9, r0         ; store to RAM error log — safe
+    #   0x9bbc: stwx  r3, r11, r0        ; store to RAM error log — safe
+    #   0x9bc0: stw   r10, -0x4200(r8)   ; ← WRITE to 0xe0be00 → Machine Check  THIS PATCH
+    #   0x9bc4: blr
+    #
+    # The RAM log stores at 0x9bb8/0x9bbc are fine (BSS area).  Only the
+    # final counter-increment write to 0xe0be00 must be suppressed.
+    Patch(
+        offset=0x9bc0,
+        original=b'\x91\x48\xbe\x00',   # stw r10, -0x4200(r8) — write to 0xe0be00
+        replacement=PPC_NOP,
+        description="NOP error-counter write to 0xe0be00 in fn_9b78 normal path (0x9bc0): same unmapped MMIO address as Patch #40; RAM log stores above remain intact",
+        phase=2,
+    ),
+
+    # Patches #42–43 — fix fn_548d78 driver-init dispatch (crashes via bad call chain)
+    #
+    # usrInit calls fn_458a14 twice (at 0x36c3dc r3=0, at 0x36c3e4 r3=1).
+    # fn_458a14 allocates a 16-byte frame, reads *(0xe29310) = 0x00548d78, and
+    # calls fn_548d78 via bctrl.
+    #
+    # fn_548d78 (0x548d78) is a MID-FUNCTION block in a larger function:
+    #   0x548d78: li    r5, 0x8e    ; device type ID
+    #   0x548d7c: li    r7, 0x11b   ; device subtype
+    #   0x548d80: bl    fn_4a6438   ; ← Crash A: fn_4a6438→fn_4a5f00→bctrl 0x203c6000
+    #   0x548d84: li    r3, 0       ; discards fn_4a6438 return value
+    #   0x548d88: b     0x548b04    ; ← Crash B: fn_548b04 restores 316(r1) as LR,
+    #                               ;   but fn_458a14 only allocated 16 bytes → reads
+    #                               ;   garbage from caller's stack → branches to wrong addr
+    #
+    # fn_4a5f00 crash:
+    #   *(0xe2b528)=0x117 → *(0x117+0x1c)=*(0x133)=0x203c6000 → bctrl outside 256MB RAM
+    #
+    # fn_548b04 epilogue crash:
+    #   Designed for a function with 316-byte frame + callee-saves r12,r19-r31.
+    #   fn_458a14 has only 16 bytes. fn_548b04:lwz r0,316(r1) reads junk LR → crash.
+    #
+    # CONFIRMED SAFE to patch fn_548d78 directly:
+    #   - fn_36e168 does NOT copy fn_548d78 bytes. The exception-handler install
+    #     loop in fn_36e168 is ALWAYS SKIPPED because *(0xe26a88)=0x00d7e0b4 ≠ 0.
+    #   - fn_4a6438 has 600+ callers but NONE are in fn_36e168 (0x36xxxx) or
+    #     fn_DCB0 (0x0-0x100000) ranges — confirmed by full-binary bl-target scan.
+    #   - fn_548d78 is ONLY called via function pointer dispatch from fn_458a14.
+    #
+    # Fix A (Patch #42): NOP the bl fn_4a6438 at 0x548d80 → skips fn_4a5f00 crash.
+    # Fix B (Patch #43): Replace b 0x548b04 at 0x548d88 with blr → fn_548d78 returns
+    #   correctly to fn_458a14 (LR = 0x458a44) instead of crashing in fn_548b04.
+    #
+    # After both patches, fn_548d78 cleanly returns r3=0 to fn_458a14. ✓
+    Patch(
+        offset=0x548d80,
+        original=b'\x4b\xf5\xd6\xb9',   # bl fn_4a6438 (4bf5d6b9)
+        replacement=PPC_NOP,
+        description="NOP bl fn_4a6438 in fn_548d78: skips fn_4a6438→fn_4a5f00 crash (bctrl to 0x203c6000 outside 256MB QEMU RAM). fn_548d78 next does li r3,0 so fn_4a6438 return value is irrelevant.",
+        phase=2,
+    ),
+    # Patch #43 — fix fn_548d78 return (b fn_548b04 → blr)
+    Patch(
+        offset=0x548d88,
+        original=b'\x4b\xff\xfd\x7c',   # b 0x548b04 (4bfffd7c)
+        replacement=PPC_BLR,
+        description="Replace b 0x548b04 with blr in fn_548d78: fn_548b04 epilogue expects 316-byte frame but fn_458a14 only allocates 16 bytes → reads garbage LR and crashes. blr correctly returns to fn_458a14's LR (0x458a44). NOTE: fn_548d78 is NOT called at runtime — *(0xe29310) is set to 0x37cd4c (not 0x548d78) by init code at 0x36cc64. This patch is harmless dead-code safety.",
+        phase=2,
+    ),
+    # Patch #44 — fn_458a14: skip dispatch table call, return 0
+    #
+    # usrInit calls fn_458a14 twice (0x36c3dc r3=0, 0x36c3e4 r3=1). fn_458a14
+    # reads *(0xe29310) at runtime and calls that address via bctrl (CTR dispatch).
+    #
+    # At runtime *(0xe29310) = 0x37cd4c (set by init code at 0x36cc64, NOT
+    # the binary's static value 0x548d78).  fn_37cd4c is the EPILOGUE of the
+    # function at 0x37cc94 (40-byte frame: saves r26-r31, LR at 44(r1)).
+    # Calling fn_37cd4c from fn_458a14 (which has only a 16-byte frame) causes:
+    #   - lwz r26-r31 from wrong stack slots (reads caller/garbage data)
+    #   - mtspr LR, r0  (sets LR to garbage from 44(r1) = SP+28 above fn_458a14)
+    #   - addi r1, r1, 40 (pops 40 bytes from a 16-byte frame → SP overshoots)
+    #   - blr → branches to garbage address → crash / MCE
+    #
+    # usrInit does NOT check the return value of fn_458a14 (no comparison after
+    # either bl — r3 is immediately overwritten by 'addis r29,0,0xea' at 0x36c3e8).
+    # It is safe to make fn_458a14 return 0 without performing the dispatch.
+    #
+    # Fix: replace bctrl at 0x458a40 with 'li r3, 0'.
+    # After the patch, fn_458a14 execution path:
+    #   0x458a40: li r3, 0      ← was bctrl; now sets return value to 0
+    #   0x458a44: mr r31, r3    ← r31 = 0
+    #   0x458a48: mr r3, r31    ← r3 = 0
+    #   0x458a4c: lwz r0, 20(r1) + mtspr LR,r0 + lwz r31 + addi SP + blr
+    # Both fn_458a14(r3=0) and fn_458a14(r3=1) return 0. usrInit continues
+    # to fn_36860c at 0x36c3ec without error.
+    Patch(
+        offset=0x458a40,
+        original=b'\x4e\x80\x04\x21',   # bctrl (4e800421)
+        replacement=b'\x38\x60\x00\x00', # li r3, 0 (38600000) — return success
+        description="fn_458a14 bctrl→li r3,0: dispatch table *(0xe29310)=0x37cd4c at runtime (epilogue of 40-byte-frame fn_37cc94). Calling it from fn_458a14's 16-byte frame corrupts stack and crashes. usrInit ignores return value so returning 0 is safe.",
+        phase=2,
+    ),
 ]
 
 # ---------------------------------------------------------------------------

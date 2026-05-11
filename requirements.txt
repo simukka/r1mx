@@ -15,7 +15,7 @@ pytesseract>=0.3.13   # Fallback: zero-download, uses system tesseract
 svgpathtools>=1.6     # Parse potrace SVG output → path coordinates
 svgwrite>=1.4         # Write SVG files for debugging / Inkscape review
 # potrace: installed system-wide (/usr/bin/potrace) — used via subprocess
-# pcbnew: KiCad 9 Python API — system /usr/bin/python3 only, not in venv
+# pcbnew: KiCad 9 Python API — available in venv via .venv/lib/python3.13/site-packages/kicad.pth
 
 # Progress and output
 tqdm>=4.66

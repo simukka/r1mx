@@ -203,7 +203,7 @@ Use the top-level `README.md` for the overview, common failures, and cross-board
 ## Coding and Scripting Conventions
 
 - **Shell scripts** go in `firmware/scripts/`
-- **Python analysis scripts** go in a `scripts/` folder at the appropriate level
+- **Python analysis scripts** go in `toolkit/analysis/` (or the appropriate `toolkit/` subpackage)
 - Prefer simple, readable scripts over clever one-liners — this is a collaborative repair community project
 - Document any non-obvious steps with comments
 - Do not commit firmware binaries or extracted firmware content — gitignore those

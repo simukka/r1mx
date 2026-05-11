@@ -115,6 +115,33 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 
 **Note:** EVPR (SPR 982) shifts the base of the exception table. At boot EVPR=0, so vectors are at physical 0x0. VxWorks later sets EVPR to keep vectors accessible after possible memory remapping.
 
+**CRITICAL for QEMU debugging:** Before kernelInit (0x5a7f30), the exception vector table
+(0x100–0xd00) contains the binary's raw code (not VxWorks handlers). QEMU's SW BP trap
+instruction, when it fires before fn_36e168 completes (0x36c3d0), triggers a jump into this
+garbage code → crash. **Never place SW BPs inside functions that run between fn_36e168 entry
+and kernelInit.** Place BPs only at call/return boundaries in usrInit.
+
+### PPC405 SPR Field Encoding (corrected)
+
+The `mfspr`/`mtspr` instruction encodes the SPR number across two 5-bit fields that are **swapped**:
+
+```
+mtspr SPRN, rS  ==>  [6:10]=rS [11:15]=spr[4:0] [16:20]=spr[9:5] [21:30]=467 [31]=0
+```
+
+Decoding formula:
+```python
+spr = ((w >> 11) & 0x1f) << 5 | ((w >> 16) & 0x1f)
+```
+
+Examples:
+- `0x7C0802A6` → `mflr r0`       (SPR 8 = LR)
+- `0x7C0902A6` → `mfctr r0`      (SPR 9 = CTR)
+- `0x7C76F3A6` → `mtspr EVPR(982), r3`
+
+**IMPORTANT**: earlier docs had this formula wrong (high/low bits swapped). Always use the
+formula above when decoding SPR numbers from raw instruction words.
+
 ---
 
 ## 2. Ha/Lo Addressing — The Pointer Offset Problem
@@ -542,7 +569,7 @@ Applied in addition to the Phase 1 patches above. All offsets are also runtime a
 
 Run `cd firmware && python3 scripts/patch_firmware.py` to apply all patches and produce `software.patched.bin`.
 
-### Complete Patch Table (36 patches — current as of session 4)
+### Complete Patch Table (44 patches — current as of session 8)
 
 | # | Phase | Offset | Description |
 |---|-------|--------|-------------|
@@ -559,19 +586,71 @@ Run `cd firmware && python3 scripts/patch_firmware.py` to apply all patches and 
 | 13 | 2 | `0x36E038` | Bypass 1st corrupted bctrl dispatch (LR=0x36E03C confirmed) |
 | 14 | 2 | `0x36E12C` | Bypass 2nd corrupted bctrl dispatch (infinite loop guard) |
 | 15–20 | 2 | `0x36DC2C`, `0x36DCEC`, `0x370EDC`, `0x370EE4`, `0x370FD0`, `0x370FD8` | NOP/bypass 3rd–8th corrupted bctrl dispatch sites |
-| 21–33 | 2 | BSS data | Null 13 sentinel `0xFFFFFFFF` values used as fn-ptrs (since BSS memset was skipped by Patch #5, they remain uninitialized) |
-| 34–35 | 3 | `0x5D58B8`, `0x5D58E8` | SSD whitelist bypass: patch IsCompatible check to always return 1 |
-| 36 | 2 | `0x62CC` | NOP null bctrl in fn_6288 — fn_2748 clears *(r30+64) leaving CTR=0; bctrl→0x0 resets CPU |
+| 21–33 | 2 | BSS data | Null 13 sentinel `0xFFFFFFFF` values used as fn-ptrs (BSS memset skipped by Patch #5) |
+| 34–35 | 3 | `0x5D58B8`, `0x5D58E8` | SSD whitelist bypass: IsCompatible always returns 1 |
+| 36 | 2 | `0x62CC` | NOP null bctrl in fn_6288 — CTR=0 after fn_2748 clears ptr; bctrl→0x0 resets |
+| 37 | 2 | `0x1B9EC` | NOP XUartLite TX-FIFO write (0xe0600004 unmapped → MCE per char) |
+| 38 | 2 | `0x1B9D8` | NOP XUartLite status read (0xe0600008 unmapped; result unused after #37) |
+| 39 | 2 | `0x9B78` region | NOP fn_9B78 early path: MMIO write to 0xe0be00 → MCE |
+| 40 | 2 | `0x9B9C` | NOP fn_9B78 normal path: same unmapped MMIO (0xe0be00) |
+| 41 | 2 | `0x9BC0` | NOP fn_9B78 second MMIO write in normal path |
+| 42 | 2 | `0x548d80` | NOP `bl fn_4a6438` in fn_548d78 (dead code — fn_548d78 never called at runtime) |
+| 43 | 2 | `0x548d88` | blr at fn_548d78+0x10 (dead code safety — fn_548d78 never called at runtime) |
+| **44** | **2** | **`0x458a40`** | **KEY FIX: bctrl → `li r3,0` in fn_458a14 — bypasses dispatch to fn_37cd4c (stack frame mismatch crash)** |
 
-### Current Boot State (after 36 patches — session 4)
+**sha256 of current patched binary:** `b2a63a78d7606a0cb75486cbc03038e08f0f0470b43e8a270c4c325611bc8d8c`
 
-After all 36 patches, the boot successfully reaches `fn_DCB0` (`sysHwInit_seq`) and begins
-executing the hardware sequencer. This is confirmed by:
+### fn_458a14 dispatch table — static vs runtime
 
-- **NIP sampling**: 0xE8A4 (UART TX write helper) dominates — firmware is writing characters
-- **r0 = 0xDD84** at sample time — saved LR inside fn_DCB0's call chain
-- **SP = 0x07FFFF90** — consistent with fn_DCB0 stack frame (16-byte frame below 0x07FFFFA0)
-- **Single-step trace**: previously confirmed NIP=0xDCC4 (fn_DCB0 + 0x14), LR=0xDCCC
+**CRITICAL:** The dispatch table pointer at `0xe29310` has TWO values:
+- **Static binary value:** `0x00548d78` — stale, written at link time, NOT the runtime value
+- **Runtime value:** `0x0037cd4c` — written at boot by init code at `0x36cc64-0x36cc68`
+
+The init code runs (via fn_36e3dc → fn_36cb6c) BEFORE fn_458a14 is called. fn_548d78 is
+never reached via the dispatch table at runtime. Patches #42 and #43 are dead-code safety
+patches; Patch #44 is the actual fix.
+
+`fn_37cd4c` is the **epilogue** of `fn_37cc94` (40-byte frame). Calling it from fn_458a14's
+16-byte frame causes a stack frame size mismatch: epilogue reads garbage registers and blrs to
+a bad LR → crash. Patch #44 replaces `bctrl` with `li r3, 0`, bypassing the call entirely.
+usrInit ignores the return value of both fn_458a14 calls.
+
+### Current Boot State (session 8 — 44 patches)
+
+With all 44 patches applied, confirmed via single-step tracing:
+- **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc.
+- **fn_DCB0** completes — hardware sequencer runs to completion
+- **fn_458a14(r3=0)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e0, r3=0)
+- **fn_458a14(r3=1)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e8, r3=0)
+- **fn_36860c** entered at 0x36860c — not yet confirmed to complete
+
+**Next milestone:** Run with BP at 0x36c3f0 (fn_36860c return) and 0x36c424 (kernelInit).
+If fn_36860c stalls, single-step through its 8 sub-calls to find the blocker.
+
+### Session 8 — Critical GDB RSP Operational Notes
+
+**SW BP trap crashes (DISCOVERED THIS SESSION):**
+- QEMU SW BPs use a PPC trap instruction. When the trap fires, the CPU takes a Program Check
+  exception (vector 0x700). Before fn_36e168 installs proper handlers, 0x700 contains raw
+  binary code — not a handler. This causes an immediate crash, creating a phantom restart loop.
+- **Symptom:** BP at call-site X fires repeatedly; BP at target function entry never fires.
+- **Fix:** ONLY place BPs at call/return boundaries in usrInit. Never inside any function
+  that executes between 0x36c3d0 (fn_36e168 entry) and 0x36c424 (kernelInit).
+- **Note:** After fn_36e168 completes, VxWorks handlers ARE installed, but the Program Check
+  handler at 0x700 may still mishandle QEMU's trap instruction. Continue using boundary-only BPs.
+
+**Write watchpoints DO work on QEMU PPC405:**
+- `Z2,addr,4` (write watchpoint) and `Z4,addr,4` (access watchpoint) accepted with `$OK#9a`
+- Used successfully to catch runtime writes to `0xe29310` (dispatch table populate)
+- Useful for "who writes this memory?" questions
+
+**Stale BPs persist between sessions — ALWAYS clear at start:**
+```python
+for bp in [all addresses ever used in prior sessions]:
+    gdb_cmd(s, f'z0,{bp:x},4')  # E22 response = wasn't set; OK = cleared
+```
+
+**GDB restart (`R00`) resets the CPU but preserves SW BPs in QEMU memory.**
 
 ### fn_DCB0 — `sysHwInit_seq` Full Disassembly
 
@@ -692,15 +771,42 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 |---------|----------|-------------|
 | `0x00000000` | `romInit` / reset vector | Hardware init, exception table |
 | `0x00000124` | halt loop | `b 0x124` — infinite loop |
-| `0x0000DCB0` | `sysHwInit_seq` | Hardware sequencer — first MMIO |
+| `0x0000DCB0` | `sysHwInit_seq` / `fn_DCB0` | Hardware sequencer — completes with patches 1–41 |
 | `0x0000D8A0` | timer/clock helper | Called from `0x36C3F0/F8` |
 | `0x00012D90` | MMIO dispatch table | Large switch on peripheral base |
 | `0x001C18DC` | `sysSerialInit` | XUartLite init at 0x40600000 |
 | `0x001C1A0C` | first UART Lite access | `lis rX, 0x4060` in serial init |
 | `0x0036B3DC` | `usrWdbInit` | WDB agent init — always called |
 | `0x0036B7EC` | BSP init caller | Calls `usrWdbInit`, spawns WDB task |
-| `0x0036C350` | main boot init | Equivalent of `usrInit`/`usrConfig` |
+| `0x0036C350` | `usrInit` | Main boot init |
+| `0x0036E168` | `fn_36e168` | VxWorks exc handler installer; writes MC handler to 0x200 |
+| `0x00458A14` | `fn_458a14` | Driver dispatch — **PATCHED** (Patch #44: bctrl→li r3,0; returns 0 for both calls) |
 | `0x00496698` | `memset` | BSS zero-init target |
+| `0x004A5F00` | `fn_4a5f00` | Historical crash site (fn_4a5f44: bctrl to 0x203c6000) — no longer reached at runtime |
+| `0x004A6438` | `fn_4a6438` | Core library fn (600+ callers); called by fn_36e168 chain |
+| `0x00548D78` | `fn_548d78` | Driver init stub; bytes copied by fn_36e168 as exc handler stubs. **Never reached via dispatch table at runtime** |
+| `0x0037CC94` | `fn_37cc94` | 40-byte frame function; fn_37cd4c is its epilogue |
+| `0x0037CD4C` | `fn_37cd4c` | Epilogue of fn_37cc94 — RUNTIME dispatch table entry 0 (would crash fn_458a14; bypassed by Patch #44) |
+| `0x0037CE78` | `fn_37ce78` | RUNTIME dispatch table entry 1 (mid-function of fn_37cc94) |
+| `0x0036860C` | `fn_36860c` | Called after both fn_458a14 calls (usrInit:0x36c3ec) — 8 sub-calls, likely VxWorks memory pool init |
+| `0x005A7F30` | `kernelInit` | VxWorks kernel init — MILESTONE (usrInit:0x36c424) |
+
+**usrInit layout (0x36c350):**
+```
+0x36c3cc: bl fn_36e3dc        <- pre-init (sets dispatch table via 0x36cc64)
+0x36c3d0: bl fn_36e168        <- VxWorks exc handler install
+0x36c3d4: bl fn_DCB0          <- hardware sequencer
+0x36c3d8: li r3, 0
+0x36c3dc: bl fn_458a14 r3=0   <- PATCHED: Patch #44 → returns 0 ✓
+0x36c3e0: li r3, 1
+0x36c3e4: bl fn_458a14 r3=1   <- PATCHED: Patch #44 → returns 0 ✓
+0x36c3e8: addis r29,r0,0xea   <- overwrites r3; return value ignored
+0x36c3ec: bl fn_36860c        <- CURRENT TARGET (entered; may or may not complete)
+0x36c3f0: bl fn_0000d8a0      <- timer/clock helper
+...
+0x36c424: bl 0x5a7f30         <- kernelInit MILESTONE
+0x36c43c: blr                 <- usrInit end
+```
 
 ### WDB Agent
 
@@ -746,6 +852,26 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 | WDB port var | `0x00E9C4BC` | Stores value `17185` (0x4321) |
 | Canary addr 1 | `0x00E269A4` | Expected: `0x12348765` (in BSS region) |
 | Canary addr 2 | `0x00E269A0` | Expected: `0x5A5AC3C3` |
+
+### Key Static Data Addresses (dispatch table / fn_458a14)
+
+| Address | Static Binary Value | Runtime Value | Purpose |
+|---------|---------------------|---------------|---------|
+| `0xe29310` | `0x00548D78` (stale) | `0x0037cd4c` | fn_458a14 dispatch table entry 0 |
+| `0xe29314` | `0x005489F8` (stale) | `0x0037ce78` | fn_458a14 dispatch table entry 1 |
+| `0xe2b528` | `0x00000117` | — | Integer ID (not a pointer); caused fn_4a5f00 crash (historical) |
+| `0xe26d2c` | `0x00000000` | — | Zeroed by Patch #6 (was 0x8 = ROM reset entry) |
+| `0xe26a5c` | `0x0000000F` | — | Read by fn_36e168 prologue (`cmpwi r12,1`) |
+
+**Dispatch table init code:** At `0x36cc64-0x36cc68` (inside fn_36cb6c, called from fn_36e3dc):
+```asm
+lis  r5,  0xe3;  addi r5,  r5,  -27888   ; r5  = 0x00e29310 (table base)
+lis  r11, 0x38;  addi r11, r11, -12980   ; r11 = 0x0037cd4c (entry 0)
+lis  r10, 0x38;  addi r10, r10, -12680   ; r10 = 0x0037ce78 (entry 1)
+stw  r11, 0(r5)                           ; *(0xe29310) = 0x37cd4c
+stw  r10, 4(r5)                           ; *(0xe29314) = 0x37ce78
+```
+This runs before fn_458a14 is called; the static binary value is never used at runtime.
 
 ### Parameter Strings & Data (in `.rodata`/data segment)
 
@@ -1036,7 +1162,32 @@ python3 scripts/patch_firmware.py --probe 0x<CRASH_ADDR>
 
 - **SW-BPs (Z0)** — WORK: replace instruction with PPC `trap`, QEMU traps it before firmware
 - **HW-BPs (Z1)** — BROKEN on this target: `Z1,addr,4` never fires on QEMU PPC405
+- **Write watchpoints (Z2/Z4)** — WORK: successfully used to catch runtime writes to data
 - **Always use `Z0`, never `Z1`**
+
+#### CRITICAL: Where SW BPs Are Safe
+
+QEMU's SW BP trap instruction fires the CPU's Program Check exception (vector 0x700).
+**Before fn_36e168 completes (0x36c3d0), the vector table contains raw binary code**, not
+handlers → crash. **After fn_36e168** VxWorks handlers are installed, but placing BPs INSIDE
+functions that fn_458a14 or fn_36860c call is still risky.
+
+**Safe rule:** Place BPs ONLY at call/return boundaries in usrInit:
+- ✅ `bl fn_X` in usrInit (the bl instruction itself)
+- ✅ Return address after a bl (first instruction of next call)  
+- ❌ Inside fn_X body (function entry, middle, or epilogue)
+
+#### Stale BPs — Must Clear at Session Start
+
+QEMU preserves SW BPs as long as it's running. Old BPs from prior sessions cause phantom
+crashes. **ALWAYS clear all previously-used addresses at session start:**
+
+```python
+stale_bps = [0x36c3dc, 0x36c3e0, 0x36c3e4, 0x36c3e8, 0x36c3ec, 0x36c3f0, 0x36c424,
+             0x458a14, 0x458a3c, 0x458a40, 0x458a44, 0x36860c, 0x36c43c]
+for bp in stale_bps:
+    gdb_cmd(s, f'z0,{bp:x},4')  # E22 = wasn't set (OK); OK = cleared
+```
 
 #### Connection + BP Protocol
 
