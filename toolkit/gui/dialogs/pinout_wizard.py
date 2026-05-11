@@ -291,31 +291,34 @@ class _ReviewLabel(QLabel):
 
     Interactions
     ------------
-    * Click on a pad      → select it (padClicked)
-    * Drag a pad          → move it in real time (padMoved on release)
-    * Click on empty area → create a new pad at that position (newPadRequested)
+    * Click on a pad           → single-select (replaces selection)
+    * Ctrl+click on a pad      → toggle pad in/out of selection
+    * Drag a pad               → move it in real time (padMoved on release)
+    * Click on empty area      → create a new pad (newPadRequested)
     """
 
-    padClicked      = pyqtSignal(int)          # index of pad that was clicked
-    padMoved        = pyqtSignal(int)          # index of pad that was dragged
-    newPadRequested = pyqtSignal(float, float) # normalised cx, cy for new pad
+    padClicked      = pyqtSignal(int)          # single-select click
+    padMoved        = pyqtSignal(int)          # drag released
+    newPadRequested = pyqtSignal(float, float) # normalised cx, cy
+    selectionChanged = pyqtSignal(list)        # full selection list on Ctrl+click
 
     _DRAG_THRESHOLD = 4  # px before a press becomes a drag
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pads:    list[PadDetection] = []
-        self._selected: int | None = None
+        self._pads:      list[PadDetection] = []
+        self._selection: list[int]          = []   # ordered; first = primary
         self.setMouseTracking(True)
 
-        self._press_pos:      QPoint | None = None
-        self._drag_pad_idx:   int | None    = None
-        self._click_pad_idx:  int | None    = None
-        self._dragging:       bool          = False
+        self._press_pos:     QPoint | None = None
+        self._drag_pad_idx:  int | None    = None
+        self._click_pad_idx: int | None    = None
+        self._dragging:      bool          = False
+        self._ctrl_held:     bool          = False
 
     def set_result(self, result: PinoutResult, pixmap: QPixmap) -> None:
         self._pads      = result.pads
-        self._selected  = None
+        self._selection = []
         self._dragging  = False
         self._drag_pad_idx = None
         self.setPixmap(pixmap)
@@ -323,7 +326,13 @@ class _ReviewLabel(QLabel):
         self.update()
 
     def select_pad(self, idx: int | None) -> None:
-        self._selected = idx
+        """Single-select (or clear)."""
+        self._selection = [idx] if idx is not None else []
+        self.update()
+
+    def set_selection(self, indices: list[int]) -> None:
+        """Set multi-selection without emitting any signal."""
+        self._selection = list(indices)
         self.update()
 
     # ── Mouse ─────────────────────────────────────────────────────────────────
@@ -331,13 +340,15 @@ class _ReviewLabel(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or not self.pixmap():
             return
-        self._press_pos      = event.pos()
-        self._dragging       = False
-        self._click_pad_idx  = self._find_pad_at(event.pos())
-        self._drag_pad_idx   = self._click_pad_idx
+        self._press_pos     = event.pos()
+        self._dragging      = False
+        self._ctrl_held     = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        hit                 = self._find_pad_at(event.pos())
+        self._click_pad_idx = hit
+        # Only drag in single-select mode (no Ctrl)
+        self._drag_pad_idx  = hit if not self._ctrl_held else None
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        # Update cursor based on hover
         if not self._dragging and self._press_pos is None:
             hover = self._find_pad_at(event.pos())
             self.setCursor(QCursor(
@@ -355,17 +366,13 @@ class _ReviewLabel(QLabel):
             self._dragging = True
 
         if self._dragging and self.pixmap():
-            pw = self.pixmap().width()
-            ph = self.pixmap().height()
+            pw  = self.pixmap().width()
+            ph  = self.pixmap().height()
             pad = self._pads[self._drag_pad_idx]
-            nx = max(0.0, min(1.0, event.pos().x() / pw))
-            ny = max(0.0, min(1.0, event.pos().y() / ph))
-            pad.bbox = BBox(
-                x=nx - pad.bbox.w / 2,
-                y=ny - pad.bbox.h / 2,
-                w=pad.bbox.w,
-                h=pad.bbox.h,
-            )
+            nx  = max(0.0, min(1.0, event.pos().x() / pw))
+            ny  = max(0.0, min(1.0, event.pos().y() / ph))
+            pad.bbox = BBox(x=nx - pad.bbox.w / 2, y=ny - pad.bbox.h / 2,
+                            w=pad.bbox.w, h=pad.bbox.h)
             self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -374,17 +381,28 @@ class _ReviewLabel(QLabel):
         if self._dragging and self._drag_pad_idx is not None:
             self.padMoved.emit(self._drag_pad_idx)
         elif not self._dragging:
-            if self._click_pad_idx is not None:
-                self.padClicked.emit(self._click_pad_idx)
-            elif self.pixmap():
-                pw = self.pixmap().width()
-                ph = self.pixmap().height()
-                nx = max(0.0, min(1.0, event.pos().x() / pw))
-                ny = max(0.0, min(1.0, event.pos().y() / ph))
-                self.newPadRequested.emit(nx, ny)
+            if self._ctrl_held:
+                if self._click_pad_idx is not None:
+                    if self._click_pad_idx in self._selection:
+                        self._selection = [i for i in self._selection
+                                           if i != self._click_pad_idx]
+                    else:
+                        self._selection = self._selection + [self._click_pad_idx]
+                    self.update()
+                    self.selectionChanged.emit(list(self._selection))
+            else:
+                if self._click_pad_idx is not None:
+                    self.padClicked.emit(self._click_pad_idx)
+                elif self.pixmap():
+                    pw = self.pixmap().width()
+                    ph = self.pixmap().height()
+                    nx = max(0.0, min(1.0, event.pos().x() / pw))
+                    ny = max(0.0, min(1.0, event.pos().y() / ph))
+                    self.newPadRequested.emit(nx, ny)
         self._press_pos     = None
         self._drag_pad_idx  = None
         self._click_pad_idx = None
+        self._ctrl_held     = False
         self._dragging      = False
 
     # ── Paint ─────────────────────────────────────────────────────────────────
@@ -393,19 +411,24 @@ class _ReviewLabel(QLabel):
         super().paintEvent(event)
         if not self._pads or not self.pixmap():
             return
-        pw = self.pixmap().width()
-        ph = self.pixmap().height()
+        pw      = self.pixmap().width()
+        ph      = self.pixmap().height()
         painter = QPainter(self)
         for i, pad in enumerate(self._pads):
             cx = int(pad.cx * pw)
             cy = int(pad.cy * ph)
             r  = max(int(max(pad.bbox.w * pw, pad.bbox.h * ph) / 2), 5)
-            if i == self._selected:
-                painter.setPen(QPen(QColor(255, 80, 80), 3))
-                painter.setBrush(QColor(255, 80, 80, 120))
-            elif i == self._drag_pad_idx and self._dragging:
+            if i == self._drag_pad_idx and self._dragging:
                 painter.setPen(QPen(QColor(100, 200, 255), 3))
                 painter.setBrush(QColor(100, 200, 255, 120))
+            elif self._selection and i == self._selection[0]:
+                # Primary selected
+                painter.setPen(QPen(QColor(255, 80, 80), 3))
+                painter.setBrush(QColor(255, 80, 80, 120))
+            elif i in self._selection:
+                # Additional multi-selected
+                painter.setPen(QPen(QColor(255, 140, 0), 2))
+                painter.setBrush(QColor(255, 140, 0, 100))
             else:
                 painter.setPen(QPen(QColor(255, 200, 0), 2))
                 painter.setBrush(QColor(255, 200, 0, 80))
@@ -424,8 +447,8 @@ class _ReviewLabel(QLabel):
     def _find_pad_at(self, pos: QPoint) -> int | None:
         if not self._pads or not self.pixmap():
             return None
-        pw = self.pixmap().width()
-        ph = self.pixmap().height()
+        pw        = self.pixmap().width()
+        ph        = self.pixmap().height()
         best_idx  = None
         best_dist = float("inf")
         for i, pad in enumerate(self._pads):
@@ -444,18 +467,22 @@ class _ReviewPage(QWidget):
 
     Supported edits
     ---------------
-    * Click pad image or list row  → select
+    * Click pad / list row         → single-select
+    * Ctrl+click pad / list row    → add/remove from selection
     * Drag pad on image            → move
     * Click empty area on image    → add new pad
-    * Delete button / Delete key   → remove selected pad
-    * Pin #, Label, Shape fields   → edit metadata of selected pad
+    * Delete key / Delete button   → remove all selected pads
+    * Merge button (2+ selected)   → merge into one pad; labels concatenated
+                                     in spatial (left→right, top→bottom) order
+    * Pin #, Label, Shape fields   → edit metadata of single selected pad
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._result:       PinoutResult | None = None
         self._crop_px:      QPixmap | None      = None
-        self._selected_idx: int | None          = None
+        self._selection:    list[int]           = []
+        self._updating_sel: bool                = False   # recursion guard
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         layout   = QVBoxLayout(self)
@@ -469,6 +496,7 @@ class _ReviewPage(QWidget):
         self._review_lbl.padClicked.connect(self._on_pad_clicked)
         self._review_lbl.padMoved.connect(self._on_pad_moved)
         self._review_lbl.newPadRequested.connect(self._add_pad)
+        self._review_lbl.selectionChanged.connect(self._on_label_sel_changed)
         scroll = QScrollArea()
         scroll.setWidget(self._review_lbl)
         scroll.setWidgetResizable(False)
@@ -484,8 +512,9 @@ class _ReviewPage(QWidget):
         rv    = QVBoxLayout(right)
         rv.setContentsMargins(4, 4, 4, 4)
 
-        box = QGroupBox("Selected pad")
-        bv  = QVBoxLayout(box)
+        # Single-pad editor
+        self._editor_box = QGroupBox("Selected pad")
+        bv = QVBoxLayout(self._editor_box)
         from PyQt6.QtWidgets import QFormLayout
         form = QFormLayout()
 
@@ -506,23 +535,40 @@ class _ReviewPage(QWidget):
 
         bv.addLayout(form)
 
-        del_btn = QPushButton("🗑  Delete selected pad")
-        del_btn.setToolTip("Delete (or press the Delete key)")
+        del_btn = QPushButton("🗑  Delete selected")
+        del_btn.setToolTip("Delete all selected pads (or press Delete key)")
         del_btn.clicked.connect(self._delete_selected)
         bv.addWidget(del_btn)
 
-        rv.addWidget(box)
+        rv.addWidget(self._editor_box)
+
+        # Merge panel — shown when 2+ pads selected
+        self._merge_box = QGroupBox("Merge selected pads")
+        mv = QVBoxLayout(self._merge_box)
+        self._merge_preview_lbl = QLabel()
+        self._merge_preview_lbl.setWordWrap(True)
+        self._merge_preview_lbl.setStyleSheet("color: #ccc; font-size: 10px;")
+        mv.addWidget(self._merge_preview_lbl)
+        self._merge_btn = QPushButton("⊕  Merge into one pad")
+        self._merge_btn.clicked.connect(self._merge_selected)
+        mv.addWidget(self._merge_btn)
+        self._merge_box.setVisible(False)
+        rv.addWidget(self._merge_box)
 
         hint = QLabel(
-            "<small><i>Click image to select/move pads.<br>"
-            "Click empty area to add a new pad.</i></small>"
+            "<small><i>Click to select · Ctrl+click to multi-select<br>"
+            "Click empty area to add a new pad</i></small>"
         )
         hint.setTextFormat(Qt.TextFormat.RichText)
         hint.setWordWrap(True)
         rv.addWidget(hint)
 
+        from PyQt6.QtWidgets import QAbstractItemView
         self._pad_list = QListWidget()
-        self._pad_list.currentRowChanged.connect(self._on_list_row_changed)
+        self._pad_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self._pad_list.itemSelectionChanged.connect(self._on_list_sel_changed)
         rv.addWidget(self._pad_list, stretch=1)
 
         splitter.addWidget(right)
@@ -534,8 +580,8 @@ class _ReviewPage(QWidget):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_result(self, result: PinoutResult, crop_img: np.ndarray) -> None:
-        self._result   = result
-        self._crop_px  = _ndarray_to_qpixmap(crop_img)
+        self._result  = result
+        self._crop_px = _ndarray_to_qpixmap(crop_img)
         self._refresh()
 
     @property
@@ -553,83 +599,154 @@ class _ReviewPage(QWidget):
     # ── Slots ─────────────────────────────────────────────────────────────────
 
     def _on_pad_clicked(self, idx: int) -> None:
-        self._select(idx)
+        self._apply_selection([idx])
 
-    def _on_list_row_changed(self, row: int) -> None:
-        if row >= 0:
-            self._select(row)
+    def _on_label_sel_changed(self, indices: list[int]) -> None:
+        """Ctrl+click on image changed selection."""
+        self._apply_selection(indices)
+
+    def _on_list_sel_changed(self) -> None:
+        if self._updating_sel:
+            return
+        rows = [self._pad_list.row(item)
+                for item in self._pad_list.selectedItems()]
+        self._apply_selection(rows, _from_list=True)
 
     def _on_pad_moved(self, idx: int) -> None:
-        """Pad was dragged — just refresh the list item text."""
         self._refresh_list_item(idx)
 
     def _add_pad(self, cx: float, cy: float) -> None:
         if not self._result:
             return
-        default_size = 0.025
-        new_pad = PadDetection(
-            bbox=BBox(
-                x=cx - default_size / 2,
-                y=cy - default_size / 2,
-                w=default_size,
-                h=default_size,
-            ),
+        s = 0.025
+        self._result.pads.append(PadDetection(
+            bbox=BBox(x=cx - s / 2, y=cy - s / 2, w=s, h=s),
             shape="circle",
-        )
-        self._result.pads.append(new_pad)
+        ))
         new_idx = len(self._result.pads) - 1
         self._pad_list.addItem(self._pad_item_text(new_idx))
         self._review_lbl.update()
         self._update_detect_label()
-        self._select(new_idx)
+        self._apply_selection([new_idx])
 
     def _delete_selected(self) -> None:
-        if self._selected_idx is None or not self._result:
+        if not self._selection or not self._result:
             return
-        idx = self._selected_idx
-        self._result.pads.pop(idx)
-        self._selected_idx = None
-        self._review_lbl.select_pad(None)
+        for i in sorted(self._selection, reverse=True):
+            self._result.pads.pop(i)
+        self._selection = []
+        self._review_lbl.set_selection([])
         self._set_editor_enabled(False)
         self._refresh()
 
-    def _save_pad_edits(self) -> None:
-        if self._selected_idx is None or not self._result:
+    def _merge_selected(self) -> None:
+        if not self._result or len(self._selection) < 2:
             return
-        pad            = self._result.pads[self._selected_idx]
+        # Sort spatially: left→right then top→bottom for natural text order
+        pads = [(i, self._result.pads[i]) for i in self._selection]
+        pads.sort(key=lambda ip: (round(ip[1].cy * 20), round(ip[1].cx * 20)))
+
+        # Centroid and bounding size
+        cx   = sum(p.cx for _, p in pads) / len(pads)
+        cy   = sum(p.cy for _, p in pads) / len(pads)
+        size = max(max(p.bbox.w, p.bbox.h) for _, p in pads)
+
+        # Concatenate labels in spatial order (no separator — they're text fragments)
+        pin_parts = [p.pin_number for _, p in pads if p.pin_number]
+        lbl_parts = [p.label      for _, p in pads if p.label]
+        merged_pin = "".join(pin_parts)
+        merged_lbl = "".join(lbl_parts)
+
+        merged = PadDetection(
+            bbox=BBox(x=cx - size / 2, y=cy - size / 2, w=size, h=size),
+            shape=pads[0][1].shape,
+            pin_number=merged_pin,
+            label=merged_lbl,
+        )
+
+        # Remove all selected (reverse order to preserve indices)
+        for i in sorted(self._selection, reverse=True):
+            self._result.pads.pop(i)
+        insert_at = min(self._selection)
+        self._result.pads.insert(insert_at, merged)
+
+        self._refresh()
+        self._apply_selection([insert_at])
+
+    def _save_pad_edits(self) -> None:
+        if len(self._selection) != 1 or not self._result:
+            return
+        idx            = self._selection[0]
+        pad            = self._result.pads[idx]
         pad.pin_number = self._pin_num_edit.text().strip()
         pad.label      = self._pin_lbl_edit.text().strip()
         pad.shape      = self._shape_combo.currentText()
-        self._refresh_list_item(self._selected_idx)
+        self._refresh_list_item(idx)
         self._review_lbl.update()
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
-    def _select(self, idx: int) -> None:
-        if not self._result or idx >= len(self._result.pads):
+    def _apply_selection(self, indices: list[int], *, _from_list: bool = False) -> None:
+        """Set selection, sync image label + list, update editor state."""
+        if not self._result:
             return
-        self._selected_idx = idx
-        self._review_lbl.select_pad(idx)
-        # Block list signals while we set the row to avoid recursion
-        self._pad_list.blockSignals(True)
-        self._pad_list.setCurrentRow(idx)
-        self._pad_list.blockSignals(False)
-        pad = self._result.pads[idx]
-        self._set_editor_enabled(True)
-        self._pin_num_edit.setText(pad.pin_number)
-        self._pin_lbl_edit.setText(pad.label)
-        self._shape_combo.setCurrentText(pad.shape)
+        indices = [i for i in indices if 0 <= i < len(self._result.pads)]
+        self._selection = indices
+
+        self._review_lbl.set_selection(indices)
+
+        if not _from_list:
+            self._updating_sel = True
+            self._pad_list.clearSelection()
+            for i in indices:
+                if item := self._pad_list.item(i):
+                    item.setSelected(True)
+            self._updating_sel = False
+
+        self._update_editor_state()
+
+    def _update_editor_state(self) -> None:
+        n = len(self._selection)
+        if n == 1:
+            idx = self._selection[0]
+            pad = self._result.pads[idx]
+            self._set_editor_enabled(True)
+            self._pin_num_edit.setText(pad.pin_number)
+            self._pin_lbl_edit.setText(pad.label)
+            self._shape_combo.setCurrentText(pad.shape)
+            self._merge_box.setVisible(False)
+        elif n > 1:
+            self._set_editor_enabled(False)
+            self._merge_box.setVisible(True)
+            # Build merge preview
+            pads = [(i, self._result.pads[i]) for i in self._selection]
+            pads.sort(key=lambda ip: (round(ip[1].cy * 20), round(ip[1].cx * 20)))
+            pin_parts = [p.pin_number for _, p in pads if p.pin_number]
+            lbl_parts = [p.label      for _, p in pads if p.label]
+            preview_pin = "".join(pin_parts) or "—"
+            preview_lbl = "".join(lbl_parts) or "—"
+            self._merge_preview_lbl.setText(
+                f"{n} pads selected (sorted spatially)\n"
+                f"Pin # → \"{preview_pin}\"\n"
+                f"Label → \"{preview_lbl}\""
+            )
+        else:
+            self._set_editor_enabled(False)
+            self._merge_box.setVisible(False)
 
     def _refresh(self) -> None:
         if not self._result or not self._crop_px:
             return
         self._review_lbl.set_result(self._result, self._crop_px)
+        self._pad_list.blockSignals(True)
         self._pad_list.clear()
         for i in range(len(self._result.pads)):
             self._pad_list.addItem(self._pad_item_text(i))
+        self._pad_list.blockSignals(False)
         self._update_detect_label()
-        self._selected_idx = None
+        self._selection = []
         self._set_editor_enabled(False)
+        self._merge_box.setVisible(False)
 
     def _refresh_list_item(self, idx: int) -> None:
         if item := self._pad_list.item(idx):
@@ -638,7 +755,8 @@ class _ReviewPage(QWidget):
     def _update_detect_label(self) -> None:
         n = len(self._result.pads) if self._result else 0
         self._detect_lbl.setText(
-            f"{n} pad(s). Click to select/move. Click empty area to add."
+            f"{n} pad(s) · Click to select · Ctrl+click to multi-select · "
+            "Click empty area to add"
         )
 
     def _pad_item_text(self, idx: int) -> str:
@@ -646,12 +764,11 @@ class _ReviewPage(QWidget):
         return f"[{idx+1}] #{pad.pin_number or '—'}  {pad.label or ''}  ({pad.shape})"
 
     def _set_editor_enabled(self, enabled: bool) -> None:
-        self._pin_num_edit.setEnabled(enabled)
-        self._pin_lbl_edit.setEnabled(enabled)
-        self._shape_combo.setEnabled(enabled)
+        self._editor_box.setEnabled(enabled)
         if not enabled:
             self._pin_num_edit.clear()
             self._pin_lbl_edit.clear()
+
 
 
 
