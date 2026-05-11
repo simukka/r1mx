@@ -1,6 +1,7 @@
 """FootprintPickerDialog — Browse KiCad footprint libraries and pick a footprint.
 
 The dialog shows:
+  • An optional "📄 Datasheet suggests:" banner with clickable hint chips
   • A search QLineEdit (queries name / library / tags)
   • An optional pin-count QSpinBox
   • A QListWidget results list ("Library / Name  [N pads]")
@@ -19,6 +20,7 @@ from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -38,6 +40,7 @@ from toolkit.analysis.kicad_footprint import (
     load_pads,
     search_index,
 )
+from toolkit.analysis.datasheet_package import PackageHint
 
 
 # ─── Preview canvas ───────────────────────────────────────────────────────────
@@ -136,7 +139,8 @@ class FootprintPickerDialog(QDialog):
 
     Usage::
 
-        dlg = FootprintPickerDialog(initial_query="SOIC-8", parent=self)
+        hints = extract_package_hints(pdf_path)
+        dlg = FootprintPickerDialog(initial_query="SOIC-8", hints=hints, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             fp = dlg.selected_footprint  # KicadFootprint with pads loaded
     """
@@ -145,6 +149,7 @@ class FootprintPickerDialog(QDialog):
         self,
         initial_query: str = "",
         initial_pin_count: int = 0,
+        hints: list[PackageHint] | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -160,15 +165,66 @@ class FootprintPickerDialog(QDialog):
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
 
-        self._build_ui(initial_query, initial_pin_count)
+        # If no query is pre-filled, auto-apply the top hint
+        if not initial_query.strip() and hints:
+            top = hints[0]
+            initial_query = top.kicad_query
+            if top.pin_count and not initial_pin_count:
+                initial_pin_count = top.pin_count
+
+        self._build_ui(initial_query, initial_pin_count, hints or [])
         self._load_index()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
-    def _build_ui(self, initial_query: str, initial_pin_count: int) -> None:
+    def _build_ui(
+        self,
+        initial_query: str,
+        initial_pin_count: int,
+        hints: list[PackageHint],
+    ) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
+
+        # ── Datasheet hints banner ──────────────────────────────────────────
+        if hints:
+            self._hints_frame = QFrame()
+            self._hints_frame.setFrameShape(QFrame.Shape.StyledPanel)
+            self._hints_frame.setStyleSheet(
+                "QFrame { background: #1e3a2a; border: 1px solid #2e6a4a; border-radius: 4px; }"
+            )
+            hints_layout = QHBoxLayout(self._hints_frame)
+            hints_layout.setContentsMargins(6, 4, 6, 4)
+            hints_layout.setSpacing(6)
+
+            lbl = QLabel("📄 Datasheet suggests:")
+            lbl.setStyleSheet("color: #7fd6a8; font-size: 11px; font-weight: bold; background: none; border: none;")
+            hints_layout.addWidget(lbl)
+
+            for hint in hints[:3]:
+                pin_str = f"  {hint.pin_count}p" if hint.pin_count else ""
+                chip_text = f"{hint.name}{pin_str}"
+                chip = QPushButton(chip_text)
+                chip.setToolTip(
+                    f'Apply: search="{hint.kicad_query}", pin_count={hint.pin_count or "any"}'
+                    f"  (confidence {hint.confidence:.0%})"
+                )
+                chip.setStyleSheet(
+                    "QPushButton { background: #2e6a4a; color: #d4f5e4; border: 1px solid #4caf80; "
+                    "border-radius: 3px; padding: 2px 8px; font-size: 11px; }"
+                    "QPushButton:hover { background: #3d8a62; }"
+                )
+                chip.setCheckable(False)
+                chip.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                # Capture hint in closure
+                chip.clicked.connect(lambda _checked, h=hint: self._apply_hint(h))
+                hints_layout.addWidget(chip)
+
+            hints_layout.addStretch()
+            root.addWidget(self._hints_frame)
+        else:
+            self._hints_frame = None
 
         # ── Search bar ──────────────────────────────────────────────────────
         search_row = QHBoxLayout()
@@ -240,6 +296,17 @@ class FootprintPickerDialog(QDialog):
 
     def _unique_library_count(self) -> int:
         return len({fp.library for fp in self._index})
+
+    # ── Hint chips ────────────────────────────────────────────────────────────
+
+    def _apply_hint(self, hint: PackageHint) -> None:
+        """Apply a datasheet hint chip: set search text and optional pin count."""
+        self._search.setText(hint.kicad_query)
+        if hint.pin_count:
+            self._pin_check.setChecked(True)
+            self._pin_spin.setValue(hint.pin_count)
+        else:
+            self._pin_check.setChecked(False)
 
     # ── Search ────────────────────────────────────────────────────────────────
 

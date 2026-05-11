@@ -38,8 +38,11 @@ from toolkit.gui.panels.log import WorkflowLog
 from toolkit.gui.panels.tree import BoardTreePanel
 from toolkit.gui.scene import LayerScene, OBJECT_TYPES
 from toolkit.gui.viewer import ImageViewer
+from toolkit.gui.widgets.service_status import ServiceStatusBar
 from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
+from toolkit.services.manager import ServiceManager, ServiceMonitor
 from toolkit.workers.base import SubprocessWorker
+from toolkit.workers.indexer import DatasheetIndexWorker
 
 from enum import Enum, auto
 
@@ -71,6 +74,11 @@ class MainWindow(QMainWindow):
         self._footprint_object_id: int | None = None   # component being aligned
         self._footprint_pinout_id: int | None = None   # pinout row id
 
+        # Background services
+        self._svc_manager: ServiceManager | None = None
+        self._svc_monitor: ServiceMonitor | None = None
+        self._indexer: DatasheetIndexWorker | None = None
+
         self.setWindowTitle("r1mx Toolkit")
         self.resize(1400, 900)
 
@@ -83,6 +91,9 @@ class MainWindow(QMainWindow):
 
         if initial_board:
             self._open_board(initial_board)
+
+        # Start background services after the window is fully built
+        self._start_background_services()
 
     # ── UI construction ────────────────────────────────────────────────────
 
@@ -152,6 +163,10 @@ class MainWindow(QMainWindow):
 
         self._status = QStatusBar()
         self.setStatusBar(self._status)
+
+        # Service status dots (right of status bar, leftmost of the permanent widgets)
+        self._svc_status_bar = ServiceStatusBar(self)
+        self._status.addPermanentWidget(self._svc_status_bar)
 
         # Persistent unresolved-component count label on the right of the status bar
         self._unresolved_label = QLabel("")
@@ -290,6 +305,45 @@ class MainWindow(QMainWindow):
         board = self._db.get_state("active_board")
         if board:
             self._open_board(board)
+
+    # ── Background services ────────────────────────────────────────────────
+
+    def _start_background_services(self) -> None:
+        """Start ChromaDB + Ollama, wire status dots, and launch the indexer."""
+        try:
+            self._svc_manager = ServiceManager()
+            self._svc_manager.start_all()
+
+            self._svc_monitor = ServiceMonitor(self._svc_manager, parent=self)
+            self._svc_monitor.statusChanged.connect(self._svc_status_bar.update_services)
+            self._svc_monitor.start()
+
+            self._indexer = DatasheetIndexWorker(parent=self)
+            self._indexer.statusChanged.connect(self._svc_status_bar.update_indexer)
+            self._indexer.logLine.connect(self._log.append)
+            self._indexer.newChunks.connect(self._on_indexer_new_chunks)
+            self._indexer.start()
+
+        except Exception as exc:
+            self._log.append(f"<b>⚠ Services startup error:</b> {exc}")
+
+    def _on_indexer_new_chunks(self, count: int) -> None:
+        self._log.append(f"<b>Indexer:</b> {count} new chunk(s) added to ChromaDB")
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Stop background services and threads on window close."""
+        if self._indexer:
+            self._indexer.stop()
+            self._indexer.wait(3000)
+
+        if self._svc_monitor:
+            self._svc_monitor.stop()
+            self._svc_monitor.wait(3000)
+
+        if self._svc_manager:
+            self._svc_manager.stop_all()
+
+        super().closeEvent(event)
 
     def _save_db_state(self):
         if self._active_board:
@@ -1299,6 +1353,7 @@ class MainWindow(QMainWindow):
 
     def _open_footprint_picker(self, object_id: int) -> None:
         """Open the KiCad footprint picker for a component."""
+        from toolkit.analysis.datasheet_package import extract_package_hints
         from toolkit.analysis.kicad_footprint import footprint_to_pad_detections
         from toolkit.analysis.pinout import BBox, PinoutResult
 
@@ -1318,7 +1373,24 @@ class MainWindow(QMainWindow):
         # Pre-fill the search query: prefer package (e.g. "SOIC-8"), then part_number
         initial_query = (comp_row["package"] or comp_row["part_number"] or "").strip()
 
-        dlg = FootprintPickerDialog(initial_query=initial_query, parent=self)
+        # Extract package hints from linked datasheets
+        hints = []
+        ds_rows = self._db.get_object_datasheets(object_id)
+        for ds in ds_rows:
+            pdf_path = Path(ds["file_path"])
+            if pdf_path.suffix.lower() == ".pdf" and pdf_path.exists():
+                try:
+                    hints = extract_package_hints(pdf_path)
+                except Exception:
+                    pass
+                if hints:
+                    break  # use first PDF that yields results
+
+        dlg = FootprintPickerDialog(
+            initial_query=initial_query,
+            hints=hints or None,
+            parent=self,
+        )
         if dlg.exec() != FootprintPickerDialog.DialogCode.Accepted:
             return
         fp = dlg.selected_footprint
