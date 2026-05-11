@@ -1347,7 +1347,7 @@ class MainWindow(QMainWindow):
         self._footprint_object_id = object_id
 
         self._log.append(
-            f"KiCad footprint "{fp.library}/{fp.name}" imported: "
+            f'KiCad footprint "{fp.library}/{fp.name}" imported: '
             f"{len(fp.pads)} pads.  "
             "Align the footprint on the canvas — press R, +/-, arrows, then Enter."
         )

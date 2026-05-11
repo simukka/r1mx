@@ -264,7 +264,7 @@ class FootprintPickerDialog(QDialog):
         total = len(self._index)
         self._status.setText(
             f"Showing {count} of {total:,} footprints"
-            + (f" matching "{query}"" if query else "")
+            + (f' matching "{query}"' if query else "")
         )
         self._use_btn.setEnabled(False)
         self._preview.set_footprint(None)
