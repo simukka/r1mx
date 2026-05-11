@@ -21,11 +21,12 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import sys
 from pathlib import Path
+
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT, SCHEMATICS_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,13 +35,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPONENTS_DIR = REPO_ROOT / "components"
-SCHEMATICS_DIR = REPO_ROOT / "schematics"
-
 
 # ---------------------------------------------------------------------------
-# pcbnew import — required; must run under /usr/bin/python3
+# pcbnew import — available in the venv via kicad.pth
 # ---------------------------------------------------------------------------
 
 def _require_pcbnew():
@@ -50,9 +47,8 @@ def _require_pcbnew():
     except ImportError:
         print(
             "ERROR: pcbnew module not found.\n"
-            "This script must be run with the system KiCad Python, e.g.:\n"
-            "    /usr/bin/python3 toolkit/analysis/kicad.py --board <board>\n"
-            "Do NOT run inside the .venv.",
+            "Ensure the venv has kicad.pth pointing to /usr/lib/python3/dist-packages,\n"
+            "or run with the system Python that has KiCad installed.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -339,39 +335,3 @@ def generate(layout: dict, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     board.Save(str(output_path))
     log.info("Wrote %s", output_path)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate KiCad .kicad_pcb from r1mx.db. "
-                    "Must be run with /usr/bin/python3 (system KiCad Python)."
-    )
-    parser.add_argument("--board", required=True, metavar="NAME",
-                        help="Board folder name under components/")
-    parser.add_argument("--layer", metavar="LABEL", default="top",
-                        help="Layer to export: top or bottom (default: top)")
-    parser.add_argument("--output", metavar="FILE",
-                        help="Output .kicad_pcb path (default: components/<board>/<board>.kicad_pcb)")
-    args = parser.parse_args()
-
-    board_dir = COMPONENTS_DIR / args.board
-    if not board_dir.is_dir():
-        log.error("Board not found: %s", board_dir)
-        sys.exit(1)
-
-    layout = load_layout_from_db(args.board, args.layer)
-
-    output_path = Path(args.output) if args.output else \
-        board_dir / f"{args.board}.kicad_pcb"
-
-    generate(layout, output_path)
-    print(f"\nKiCad PCB written to: {output_path}")
-    print("Open with: kicad or pcbnew")
-
-
-if __name__ == "__main__":
-    main()

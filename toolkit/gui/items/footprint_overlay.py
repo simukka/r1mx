@@ -8,14 +8,16 @@ The item is positioned at the component's top-left corner (in scene coords,
 i.e. mm × px_per_mm) and draws each pad at its relative position within
 the component's bounding box.
 
-Keyboard-driven transforms (handled by the parent MainWindow):
+Interaction — mouse drag moves the overlay directly; keyboard shortcuts
+are also supported (handled by the parent MainWindow):
 
+    Mouse drag      Move the overlay
     R               Rotate 90° clockwise
     Shift+R         Rotate 90° counter-clockwise
     +               Scale up by 10%
     -               Scale down by 10%
     Arrow keys      Translate by 0.5 mm (× px_per_mm for scene units)
-    Enter           Accept — caller calls ``to_component_relative_coords()``
+    Enter           Accept — caller calls ``to_absolute_scene_coords()``
     Escape          Cancel
 """
 
@@ -68,14 +70,13 @@ class FootprintOverlayItem(QGraphicsItem):
         self._base_w = component_w_scene
         self._base_h = component_h_scene
 
-        # Cumulative transforms applied by the user
+        # Cumulative rotation and scale (position tracked via Qt item pos())
         self._angle_deg: float = 0.0
         self._scale:     float = 1.0
-        self._offset_x:  float = 0.0   # scene units
-        self._offset_y:  float = 0.0
 
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(1000)   # always on top
 
     # ── Geometry ────────────────────────────────────────────────────────────
@@ -112,31 +113,65 @@ class FootprintOverlayItem(QGraphicsItem):
         self.update()
 
     def translate(self, dx: float, dy: float) -> None:
-        """Translate the overlay in scene units."""
-        self._offset_x += dx
-        self._offset_y += dy
+        """Translate the overlay in scene units (keyboard shortcut path)."""
         self.setPos(self.pos() + QPointF(dx, dy))
 
     # ── Result extraction ───────────────────────────────────────────────────
 
-    def to_component_relative_coords(self) -> list[dict]:
-        """Return per-pad positions in component-bbox-relative (0–1) coords.
+    def to_absolute_scene_coords(self) -> list[dict]:
+        """Return each pad's scene position after all transforms.
 
-        Applies the current rotation and scale to the original pad positions.
-        The returned list has the same order as the input *pads*.
+        Uses the item's current ``pos()`` (updated by both mouse drag and
+        keyboard movement) plus the current rotation and scale.  Returned
+        ``scene_x`` / ``scene_y`` values are in scene units (px = mm × px_per_mm).
+        Pads that lie outside the original component bounding box are allowed
+        and will have x_rel / y_rel values outside [0, 1] when the caller
+        converts to component-relative coordinates.
+        """
+        angle_rad = math.radians(self._angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        item_origin = self.pos()
+        w, h = self._w, self._h
+        results = []
+        for pad in self._pads:
+            # Pad in item-local space before rotation
+            lx = pad.cx * w
+            ly = pad.cy * h
+            # Rotate around item centre (w/2, h/2)
+            dx = lx - w / 2
+            dy = ly - h / 2
+            rx = cos_a * dx - sin_a * dy + w / 2
+            ry = sin_a * dx + cos_a * dy + h / 2
+            results.append({
+                "pin_number": pad.pin_number,
+                "label":      pad.label,
+                "scene_x":    item_origin.x() + rx,
+                "scene_y":    item_origin.y() + ry,
+                "shape":      pad.shape,
+                "shape_json": pad.bbox.to_dict(),
+            })
+        return results
+
+    def to_component_relative_coords(self) -> list[dict]:
+        """Legacy helper — returns per-pad (x_rel, y_rel) relative to the
+        overlay's own bounding box.
+
+        .. deprecated::
+            Use :meth:`to_absolute_scene_coords` together with the caller's
+            knowledge of the component position and ``px_per_mm`` to derive
+            component-relative coordinates that correctly handle pads outside
+            the component body.
         """
         angle_rad = math.radians(self._angle_deg)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
         results = []
         for pad in self._pads:
-            # Pad centre in [−0.5, +0.5] space (centred on overlay origin)
-            px = (pad.cx - 0.5)
-            py = (pad.cy - 0.5)
-            # Rotate
+            px = pad.cx - 0.5
+            py = pad.cy - 0.5
             rx = cos_a * px - sin_a * py
             ry = sin_a * px + cos_a * py
-            # Back to [0, 1]
             results.append({
                 "pin_number": pad.pin_number,
                 "label":      pad.label,

@@ -32,7 +32,6 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import math
@@ -45,6 +44,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
+
 # PyQt6 — only used by LayerReviewer (interactive --review mode) and
 # _interactive_hsv_tune (--tune-hsv mode).  Imported lazily inside those
 # classes so the rest of the script runs fine without a display.
@@ -55,9 +56,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPONENTS_DIR = REPO_ROOT / "components"
 
 # ---------------------------------------------------------------------------
 # Default HSV ranges for PCB feature segmentation
@@ -76,6 +74,29 @@ DEFAULT_HSV = {
     "hole_lower": [0, 0, 0],
     "hole_upper": [180, 255, 55],
 }
+
+# ---------------------------------------------------------------------------
+# Default LAB ranges for copper segmentation (supplementary to HSV).
+# Source: ericrihm/retrace pipeline — validated against real PCB images.
+# LAB is perceptually uniform and illumination-invariant in the a*/b* channels,
+# which is critical for dark-green / black solder mask boards where HSV alone
+# fails (low V makes H and S numerically meaningless).
+#
+# Override per board via hsv_cfg keys copper_lab_l, copper_lab_a, copper_lab_b.
+# ---------------------------------------------------------------------------
+
+DEFAULT_LAB = {
+    # L channel: broad lightness range — avoids clipping shadows/highlights
+    "copper_lab_l": [30, 220],
+    # a* channel: slightly red-shifted (a* > 128 = reddish); copper is warm
+    "copper_lab_a": [120, 145],
+    # b* channel: yellow-shifted (b* > 128 = yellowish); copper and gold tones
+    "copper_lab_b": [130, 175],
+}
+
+# CLAHE parameters used in preprocess_clahe() and extract_copper_mask()
+_CLAHE_CLIP_LIMIT  = 3.0
+_CLAHE_TILE_SIZE   = 16
 
 # Estimated via drill sizes in mm (used to set HoughCircles radius range)
 VIA_DRILL_MIN_MM = 0.15
@@ -145,13 +166,41 @@ def load_and_crop(image_path: Path) -> np.ndarray:
     bgr = cv2.imread(str(image_path))
     if bgr is None:
         raise FileNotFoundError(f"Cannot load {image_path}")
+    return preprocess_clahe(bgr)
 
-    # Light CLAHE to even out lighting without changing hue
+
+def preprocess_clahe(
+    bgr: np.ndarray,
+    clip_limit: float = _CLAHE_CLIP_LIMIT,
+    tile_size: int = _CLAHE_TILE_SIZE,
+) -> np.ndarray:
+    """Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to the L
+    channel of the image in LAB colour space.
+
+    This locally boosts contrast in dark regions, which is essential for dark
+    green / black solder mask boards where the copper and mask have similar
+    global brightness.  The a* and b* channels (colour) are left untouched,
+    preserving hue for subsequent HSV / LAB segmentation.
+
+    Parameters
+    ----------
+    bgr:
+        Input BGR image (uint8).
+    clip_limit:
+        CLAHE clip limit — higher values produce more aggressive contrast
+        enhancement.  Default 3.0 (vs the old value of 2.0).
+    tile_size:
+        Grid tile size in pixels.  Smaller tiles = more local adaptation.
+
+    Returns
+    -------
+    BGR image (uint8) with enhanced local contrast, same shape as input.
+    """
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    lab = cv2.merge([clahe.apply(l), a, b])
-    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    l_ch, a_ch, b_ch = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_size, tile_size))
+    enhanced_lab = cv2.merge([clahe.apply(l_ch), a_ch, b_ch])
+    return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
 
 
 def apply_perspective_warp(bgr: np.ndarray, layer_cal: dict) -> np.ndarray:
@@ -200,19 +249,52 @@ def detect_board_outline(bgr: np.ndarray) -> np.ndarray | None:
 # ---------------------------------------------------------------------------
 
 def extract_copper_mask(bgr: np.ndarray, hsv_cfg: dict) -> np.ndarray:
-    """
-    Return a binary mask of copper regions using HSV colour thresholding.
-    Morphological operations clean up noise.
-    """
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    """Return a binary mask of copper regions.
 
-    lo = np.array(hsv_cfg.get("copper_lower", DEFAULT_HSV["copper_lower"]), np.uint8)
-    hi = np.array(hsv_cfg.get("copper_upper", DEFAULT_HSV["copper_upper"]), np.uint8)
-    mask = cv2.inRange(hsv, lo, hi)
+    Pipeline (ericrihm/retrace dual-space approach):
+    1. Apply CLAHE to L channel — boosts local contrast on dark boards
+    2. HSV inRange mask — chromatic specificity
+    3. LAB a*/b* channel mask — illumination-invariant warmth/redness of copper
+    4. Bitwise OR both masks — union gives best recall on varied boards
+    5. Morphological open + close — removes noise and fills gaps
 
-    # Clean up
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    The LAB approach is critical for dark green/black solder mask boards where
+    HSV alone fails: low V makes H and S numerically meaningless, but the a*
+    (redness) and b* (yellowness) of copper remain separable from the mask even
+    at low lightness.
+
+    Override LAB ranges via ``hsv_cfg`` keys:
+      ``copper_lab_l``, ``copper_lab_a``, ``copper_lab_b``  (each a [lo, hi] list)
+    """
+    # 1. CLAHE pre-processing for contrast boost on dark boards
+    enhanced = preprocess_clahe(bgr)
+
+    # 2. HSV mask
+    hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
+    lo_hsv = np.array(hsv_cfg.get("copper_lower", DEFAULT_HSV["copper_lower"]), np.uint8)
+    hi_hsv = np.array(hsv_cfg.get("copper_upper", DEFAULT_HSV["copper_upper"]), np.uint8)
+    hsv_mask = cv2.inRange(hsv, lo_hsv, hi_hsv)
+
+    # 3. LAB a*/b* mask (illumination-invariant)
+    lab = cv2.cvtColor(enhanced, cv2.COLOR_BGR2LAB)
+    l_ch, a_ch, b_ch = cv2.split(lab)
+
+    l_lo, l_hi = hsv_cfg.get("copper_lab_l", DEFAULT_LAB["copper_lab_l"])
+    a_lo, a_hi = hsv_cfg.get("copper_lab_a", DEFAULT_LAB["copper_lab_a"])
+    b_lo, b_hi = hsv_cfg.get("copper_lab_b", DEFAULT_LAB["copper_lab_b"])
+
+    lab_mask = (
+        (l_ch >= l_lo) & (l_ch <= l_hi) &
+        (a_ch >= a_lo) & (a_ch <= a_hi) &
+        (b_ch >= b_lo) & (b_ch <= b_hi)
+    ).astype(np.uint8) * 255
+
+    # 4. Union of both masks
+    mask = cv2.bitwise_or(hsv_mask, lab_mask)
+
+    # 5. Morphological cleanup
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  kernel, iterations=1)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     return mask
 
@@ -686,60 +768,159 @@ def process_board(
 
 
 
-
 # ---------------------------------------------------------------------------
-# CLI
+# Individual feature entry points (used by ScanLayerWorker for single-type scans)
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Extract PCB copper layer features from photographs."
-    )
-    parser.add_argument("--board", metavar="NAME", required=True,
-                        help="Board folder name under components/")
-    parser.add_argument("--layer", metavar="LABEL", default="top",
-                        help="Layer to process: top, bottom, or custom label "
-                             "(default: top; used to look up calibration data)")
-    parser.add_argument("--px-per-mm", type=float, default=0.0, metavar="FLOAT",
-                        help="Pixels per mm (overrides calibration.json)")
-    parser.add_argument("--debug", action="store_true",
-                        help="Save intermediate mask images to <board>/_layer_debug/")
-    parser.add_argument("--tune-hsv", action="store_true",
-                        help="Launch interactive HSV tuning window (requires display)")
-    parser.add_argument("--review", action="store_true",
-                        help="Pause after each extraction step to review results in the GUI; "
-                             "press [Y/Enter] to accept, [S] to skip, [T] to tune HSV (copper mask only)")
-    args = parser.parse_args()
+def make_copper_mask(bgr: np.ndarray, hsv_cfg: dict | None = None) -> np.ndarray:
+    """Return the copper binary mask for *bgr* using *hsv_cfg* (or defaults)."""
+    return extract_copper_mask(bgr, hsv_cfg or DEFAULT_HSV)
 
-    board_dir = COMPONENTS_DIR / args.board
-    if not board_dir.is_dir():
-        log.error("Board not found: %s", board_dir)
-        sys.exit(1)
 
-    cal = load_calibration(board_dir)
-    hsv_overrides = cal.get("hsv_overrides", {})
+def make_hole_mask(bgr: np.ndarray, hsv_cfg: dict | None = None) -> np.ndarray:
+    """Return a binary mask of the dark drill holes (for via preview in HsvTuner)."""
+    cfg = hsv_cfg or DEFAULT_HSV
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    lo = np.array(cfg.get("hole_lower", DEFAULT_HSV["hole_lower"]), np.uint8)
+    hi = np.array(cfg.get("hole_upper", DEFAULT_HSV["hole_upper"]), np.uint8)
+    mask = cv2.inRange(hsv, lo, hi)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    return mask
 
-    # Resolve px_per_mm: CLI flag → calibration layer → error
-    px_per_mm = args.px_per_mm
-    if px_per_mm <= 0:
-        layer_cal = get_layer_cal(cal, args.layer)
-        px_per_mm = layer_cal.get("px_per_mm", 0.0)
-    if px_per_mm <= 0:
-        log.error(
-            "px_per_mm not set. Run calibrate_board.py first, or pass --px-per-mm VALUE.\n"
-            "Tip: measure the pitch between two header pins (2.54 mm) in pixels in any\n"
-            "image editor and divide: px_per_mm = measured_px / 2.54"
-        )
-        sys.exit(1)
 
-    if args.tune_hsv:
-        _interactive_hsv_tune(board_dir, hsv_overrides, cal, args.layer)
-        return
+def process_vias(
+    bgr: np.ndarray,
+    px_per_mm: float,
+    hsv_cfg: dict | None = None,
+    progress_cb=None,
+) -> list[dict]:
+    """Scan a pre-warped BGR image for vias.
 
-    layout = process_board(board_dir, px_per_mm, args.debug, hsv_overrides, cal,
-                           review=args.review)
-    log.info("Extraction complete. Import results into r1mx.db via the Toolkit app "
-             "or with: python -m toolkit.r1mx_db.py --import-layout --board %s", args.board)
+    Returns list of {x_mm, y_mm, drill_mm, annular_mm} dicts — same format
+    as the 'vias' key in process_board() output.
+    """
+    cfg = {**DEFAULT_HSV, **(hsv_cfg or {})}
+    if progress_cb:
+        progress_cb("Extracting copper mask …")
+    copper_mask = extract_copper_mask(bgr, cfg)
+    if progress_cb:
+        progress_cb("Detecting vias …")
+    vias = detect_vias(bgr, copper_mask, px_per_mm, cfg)
+    if progress_cb:
+        progress_cb(f"  → {len(vias)} vias found")
+    return vias
+
+
+def process_pads(
+    bgr: np.ndarray,
+    px_per_mm: float,
+    hsv_cfg: dict | None = None,
+    kicad_layer: str = "F_Cu",
+    vias: list[dict] | None = None,
+    progress_cb=None,
+) -> list[dict]:
+    """Scan a pre-warped BGR image for pads.
+
+    Returns list of {x_mm, y_mm, w_mm, h_mm, rotation_deg, layer, ref} dicts.
+    Pass *vias* (already detected) to improve exclusion of annular rings.
+    """
+    cfg = {**DEFAULT_HSV, **(hsv_cfg or {})}
+    if progress_cb:
+        progress_cb("Extracting copper mask …")
+    copper_mask = extract_copper_mask(bgr, cfg)
+    if progress_cb:
+        progress_cb("Detecting pads …")
+    pads = detect_pads(copper_mask, px_per_mm, vias or [], layer=kicad_layer)
+    if progress_cb:
+        progress_cb(f"  → {len(pads)} pads found")
+    return pads
+
+
+def process_traces(
+    bgr: np.ndarray,
+    px_per_mm: float,
+    hsv_cfg: dict | None = None,
+    kicad_layer: str = "F_Cu",
+    vias: list[dict] | None = None,
+    progress_cb=None,
+) -> list[dict]:
+    """Scan a pre-warped BGR image for copper traces.
+
+    Returns list of {start, end, width_mm, layer} dicts — same format as
+    'tracks_front'/'tracks_back' in process_board() output.
+    """
+    cfg = {**DEFAULT_HSV, **(hsv_cfg or {})}
+    if progress_cb:
+        progress_cb("Extracting copper mask …")
+    copper_mask = extract_copper_mask(bgr, cfg)
+
+    # Build pad+via exclusion mask for cleaner trace skeleton
+    via_list = vias or []
+    if progress_cb:
+        progress_cb("Detecting pads for trace exclusion …")
+    pads_raw = detect_pads(copper_mask, px_per_mm, via_list, layer=kicad_layer)
+    h, w = copper_mask.shape[:2]
+    pad_mask = np.zeros((h, w), np.uint8)
+    for pad in pads_raw:
+        cx = int(pad["x_mm"] * px_per_mm)
+        cy = int(pad["y_mm"] * px_per_mm)
+        rw = int(pad["w_mm"] * px_per_mm / 2 + 2)
+        rh = int(pad["h_mm"] * px_per_mm / 2 + 2)
+        cv2.ellipse(pad_mask, (cx, cy), (rw, rh), pad["rotation_deg"], 0, 360, 255, -1)
+    for via in via_list:
+        cx = int(via["x_mm"] * px_per_mm)
+        cy = int(via["y_mm"] * px_per_mm)
+        r = int((via["drill_mm"] / 2 + via["annular_mm"]) * px_per_mm + 2)
+        cv2.circle(pad_mask, (cx, cy), r, 255, -1)
+
+    if progress_cb:
+        progress_cb("Vectorising traces (this may take a while) …")
+    tracks = vectorise_traces(copper_mask, pad_mask, px_per_mm, layer=kicad_layer)
+    if progress_cb:
+        progress_cb(f"  → {len(tracks)} trace segments found")
+    return tracks
+
+
+def process_outline(
+    bgr: np.ndarray,
+    px_per_mm: float,
+    canny_low: int = 30,
+    canny_high: int = 100,
+    progress_cb=None,
+) -> list[list[float]]:
+    """Scan a pre-warped BGR image for the board outline.
+
+    Returns list of [x_mm, y_mm] corner points, or [] if not found.
+    Accepts *canny_low* / *canny_high* so the caller can tune edge detection.
+    """
+    if progress_cb:
+        progress_cb("Detecting board outline …")
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    edges = cv2.Canny(blurred, canny_low, canny_high)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=2)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        if progress_cb:
+            progress_cb("  → No contours found")
+        return []
+
+    largest = max(contours, key=cv2.contourArea)
+    img_area = bgr.shape[0] * bgr.shape[1]
+    if cv2.contourArea(largest) < 0.1 * img_area:
+        if progress_cb:
+            progress_cb("  → Largest contour too small — no outline detected")
+        return []
+
+    peri = cv2.arcLength(largest, True)
+    approx = cv2.approxPolyDP(largest, 0.02 * peri, True)
+    pts = [[round(float(p[0][0]) / px_per_mm, 3), round(float(p[0][1]) / px_per_mm, 3)]
+           for p in approx]
+    if progress_cb:
+        progress_cb(f"  → Board outline: {len(pts)} points")
+    return pts
 
 
 # ---------------------------------------------------------------------------
@@ -1355,7 +1536,3 @@ def _interactive_hsv_tune(
     bgr = load_and_crop(img_path)
     bgr = apply_perspective_warp(bgr, layer_cal)
     _HsvTuneDialog.run_dialog(bgr, hsv_overrides, board_dir)
-
-
-if __name__ == "__main__":
-    main()

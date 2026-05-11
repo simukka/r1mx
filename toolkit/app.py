@@ -494,8 +494,12 @@ class MainWindow(QMainWindow):
 
         self._canvas_mode = mode
         self._add_target_object_id = target_object_id
-        capture = mode != CanvasMode.NORMAL
+        # ALIGN_FOOTPRINT uses item-level dragging, not viewer capture mode
+        capture = mode not in (CanvasMode.NORMAL, CanvasMode.ALIGN_FOOTPRINT)
         self._viewer.set_capture_mode(capture)
+        if mode == CanvasMode.ALIGN_FOOTPRINT:
+            from PyQt6.QtWidgets import QGraphicsView
+            self._viewer.setDragMode(QGraphicsView.DragMode.NoDrag)
         if mode == CanvasMode.ADD_VIA:
             self._status.showMessage("ADD VIA — click to place  |  Middle-mouse to pan  |  Esc to cancel")
         elif mode == CanvasMode.ADD_COMPONENT:
@@ -1464,7 +1468,7 @@ class MainWindow(QMainWindow):
 
         self._set_canvas_mode(CanvasMode.ALIGN_FOOTPRINT)
         self.statusBar().showMessage(
-            "Aligning footprint — R: rotate 90° · +/-: scale · Arrows: move · Enter: confirm · Esc: cancel"
+            "Aligning footprint — Drag to move · R: rotate 90° · +/-: scale · Arrows: fine-move · Enter: confirm · Esc: cancel"
         )
 
     def _handle_alignment_key(self, event) -> None:
@@ -1517,35 +1521,45 @@ class MainWindow(QMainWindow):
             self._cancel_footprint_alignment()
             return
 
-        coords = overlay.to_component_relative_coords()
+        board, layer = self._active_board, self._active_layer
+        cal = {}
+        if board and layer:
+            board_id = self._db.get_or_create_board(board)
+            layer_row = self._db.get_layer(board_id, layer)
+            cal = json.loads(layer_row["calibration"]) if (layer_row and layer_row["calibration"]) else {}
+        px_per_mm = cal.get("px_per_mm", 20.0)
 
-        # Update x_rel / y_rel on each pin row
+        obj = self._db.get_object(object_id)
+        if not obj:
+            self._cancel_footprint_alignment()
+            return
+        ox_mm  = obj["x_mm"]     or 0.0
+        oy_mm  = obj["y_mm"]     or 0.0
+        ow_mm  = obj["width_mm"] or 5.0
+        oh_mm  = obj["height_mm"] or 5.0
+
+        # Use scene-space positions so pads outside the component body are allowed
+        scene_coords = overlay.to_absolute_scene_coords()
+
+        # Update x_rel / y_rel on each pin row (values may be outside [0,1])
         pin_rows = self._db.get_component_pins(pinout_id)
-        for row, coord in zip(pin_rows, coords):
-            self._db.update_pin(
-                row["id"],
-                x_rel=coord["x_rel"],
-                y_rel=coord["y_rel"],
-            )
+        for row, coord in zip(pin_rows, scene_coords):
+            x_mm  = coord["scene_x"] / px_per_mm
+            y_mm  = coord["scene_y"] / px_per_mm
+            x_rel = (x_mm - ox_mm) / ow_mm
+            y_rel = (y_mm - oy_mm) / oh_mm
+            self._db.update_pin(row["id"], x_rel=x_rel, y_rel=y_rel)
         self._db.confirm_component_pinout(pinout_id)
 
-        # Create pad objects on the active layer
-        board, layer = self._active_board, self._active_layer
+        # Create pad objects on the active layer using absolute mm coordinates
         if board and layer:
             board_id  = self._db.get_or_create_board(board)
             layer_row = self._db.get_layer(board_id, layer)
-            cal       = json.loads(layer_row["calibration"]) if (layer_row and layer_row["calibration"]) else {}
-            px_per_mm = cal.get("px_per_mm", 20.0)
-            obj       = self._db.get_object(object_id)
-            if obj and layer_row:
-                ox_mm  = obj["x_mm"]     or 0.0
-                oy_mm  = obj["y_mm"]     or 0.0
-                ow_mm  = obj["width_mm"] or 5.0
-                oh_mm  = obj["height_mm"] or 5.0
+            if layer_row:
                 pad_sz = 0.5   # mm
-                for coord in coords:
-                    x_mm = ox_mm + coord["x_rel"] * ow_mm
-                    y_mm = oy_mm + coord["y_rel"] * oh_mm
+                for row, coord in zip(pin_rows, scene_coords):
+                    x_mm = coord["scene_x"] / px_per_mm
+                    y_mm = coord["scene_y"] / px_per_mm
                     lbl  = coord["pin_number"] or coord["label"] or ""
                     self._db.add_object(
                         layer_id=layer_row["id"],
@@ -1559,7 +1573,7 @@ class MainWindow(QMainWindow):
                         properties=json.dumps({"shape": coord.get("shape", "circle")}),
                     )
 
-        n = len(coords)
+        n = len(scene_coords)
         self._log.append(f"✓ Footprint confirmed: {n} pad(s) saved.")
         self._cancel_footprint_alignment()
 

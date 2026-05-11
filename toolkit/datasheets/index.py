@@ -24,6 +24,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -32,15 +33,14 @@ import chromadb
 import requests
 from fastembed import TextEmbedding
 
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-5s %(message)s",
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-COMPONENTS_DIR = REPO_ROOT / "components"
 
 # Service endpoints — override via env or .env file
 _env_file = REPO_ROOT / ".env"
@@ -73,7 +73,22 @@ def get_embed_model() -> TextEmbedding:
 # ── PDF text extraction ──────────────────────────────────────────────────────
 
 def pdf_to_text(pdf_path: Path) -> str:
-    """Extract text from a PDF using system pdftotext. Returns empty string on failure."""
+    """Extract text from a PDF.
+
+    Tries pdftotext first (fast, lossless for digital PDFs).
+    Falls back to OCR via pdftoppm + tesseract for image-only / scanned PDFs.
+    Returns empty string on complete failure.
+    """
+    text = _pdftotext(pdf_path)
+    if text.strip():
+        return text
+
+    log.info("No text layer in %s — attempting OCR fallback", pdf_path.name)
+    return _ocr_pdf(pdf_path)
+
+
+def _pdftotext(pdf_path: Path) -> str:
+    """Run pdftotext -layout. Returns raw stdout or empty string."""
     try:
         result = subprocess.run(
             ["pdftotext", "-layout", str(pdf_path), "-"],
@@ -87,6 +102,60 @@ def pdf_to_text(pdf_path: Path) -> str:
     except subprocess.TimeoutExpired:
         log.warning("pdftotext timed out for %s", pdf_path.name)
     return ""
+
+
+def _ocr_pdf(pdf_path: Path, dpi: int = 200) -> str:
+    """Rasterise each page with pdftoppm then OCR with tesseract.
+
+    Returns concatenated plain text from all pages, or empty string on failure.
+    """
+    try:
+        import pytesseract  # type: ignore
+        from PIL import Image  # type: ignore
+    except ImportError:
+        log.warning(
+            "pytesseract / Pillow not installed — cannot OCR %s. "
+            "Run: pip install pytesseract Pillow",
+            pdf_path.name,
+        )
+        return ""
+
+    pages: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="r1mx_ocr_") as tmp:
+        prefix = Path(tmp) / "page"
+        try:
+            r = subprocess.run(
+                ["pdftoppm", "-r", str(dpi), "-png", str(pdf_path), str(prefix)],
+                capture_output=True, timeout=120,
+            )
+            if r.returncode != 0:
+                log.warning("pdftoppm failed for %s: %s", pdf_path.name, r.stderr[:200])
+                return ""
+        except FileNotFoundError:
+            log.error("pdftoppm not found — install poppler-utils")
+            return ""
+        except subprocess.TimeoutExpired:
+            log.warning("pdftoppm timed out for %s", pdf_path.name)
+            return ""
+
+        image_files = sorted(Path(tmp).glob("page-*.png"))
+        if not image_files:
+            log.warning("pdftoppm produced no images for %s", pdf_path.name)
+            return ""
+
+        for img_path in image_files:
+            try:
+                text = pytesseract.image_to_string(Image.open(img_path))
+                if text.strip():
+                    pages.append(text)
+            except Exception as exc:
+                log.warning("OCR failed on page %s of %s: %s", img_path.name, pdf_path.name, exc)
+
+    if pages:
+        log.info("OCR extracted %d page(s) from %s", len(pages), pdf_path.name)
+    else:
+        log.warning("OCR produced no text from %s", pdf_path.name)
+    return "\n\n".join(pages)
 
 
 # ── Chunking ─────────────────────────────────────────────────────────────────
@@ -171,7 +240,7 @@ def index_pdf(
 
     text = pdf_to_text(pdf_path)
     if not text.strip():
-        log.warning("No text extracted from %s", pdf_path.name)
+        log.warning("Skipping %s — no text could be extracted (even after OCR)", pdf_path.name)
         return 0
 
     chunks = chunk_text(text)
@@ -316,7 +385,3 @@ def main() -> None:
         "Collection now has %d total chunks.",
         skipped, total_chunks, collection.count(),
     )
-
-
-if __name__ == "__main__":
-    main()

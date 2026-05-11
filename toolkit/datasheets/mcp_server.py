@@ -44,6 +44,8 @@ import requests
 from fastembed import TextEmbedding
 from mcp.server.fastmcp import FastMCP
 
+from toolkit.paths import REPO_ROOT
+
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s %(levelname)-5s %(message)s",
@@ -51,7 +53,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BOM_CSV = REPO_ROOT / "bom_master.csv"
 
 # Load .env
@@ -304,5 +305,6 @@ def list_datasheets() -> str:
         return f"Error listing datasheets: {e}"
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Start the MCP server over stdio. Call via ``python -m toolkit.datasheets``."""
     mcp.run(transport="stdio")

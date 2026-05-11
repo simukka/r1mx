@@ -53,6 +53,8 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -67,9 +69,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPONENTS_DIR = REPO_ROOT / "components"
 
 # ref_types worth searching for datasheets (skip plain passives)
 DEFAULT_REF_TYPES = {"IC", "PartNumber", "Component", "Diode", "Transistor", "Fuse"}
@@ -706,7 +705,3 @@ def main() -> int:
         stats.get("failed", 0),
     )
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

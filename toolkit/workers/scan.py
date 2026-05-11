@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -10,9 +9,8 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from toolkit.analysis.scan import process_warped_image
 from toolkit.db import DB
+from toolkit.paths import COMPONENTS_DIR
 from toolkit.workers.base import WorkerSignals
-
-_REPO = Path(__file__).resolve().parents[2]
 
 class ScanBoardWorker(QThread):
     """Run extract_bom.process_warped_image() in-process for the active layer.
@@ -51,7 +49,7 @@ class ScanBoardWorker(QThread):
             px_per_mm = cal.get("px_per_mm", 20.0)
             source_image = layer_row["source_image"] or ""
 
-            img_path = _REPO / "components" / self._board_name / source_image
+            img_path = COMPONENTS_DIR / self._board_name / source_image
             if not img_path.exists():
                 self.signals.finished.emit(False, f"Image not found: {img_path}")
                 return

@@ -26,7 +26,6 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import csv
 import logging
 import re
@@ -36,6 +35,8 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,9 +48,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPONENTS_DIR = REPO_ROOT / "components"
 
 # Image extensions to process (exclude .RW2 raw files)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".PNG"}
@@ -763,87 +761,3 @@ def process_warped_image(
           f"({sum(1 for e in entries if e.ref_type != 'PartNumber')} refs, "
           f"{sum(1 for e in entries if e.ref_type == 'PartNumber')} part numbers)")
     return entries
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Extract component BOM from PCB photographs."
-    )
-    parser.add_argument(
-        "--board",
-        metavar="NAME",
-        help="Process only this board (folder name under components/). "
-             "Omit to process all boards.",
-    )
-    parser.add_argument(
-        "--engine",
-        choices=["easyocr", "tesseract"],
-        default="easyocr",
-        help="OCR engine: 'easyocr' (default, best accuracy) or 'tesseract' (fast, no download)",
-    )
-    parser.add_argument(
-        "--min-confidence",
-        type=float,
-        default=0.35,
-        metavar="FLOAT",
-        help="Minimum EasyOCR confidence threshold 0–1 (default: 0.4)",
-    )
-    parser.add_argument(
-        "--gpu",
-        action="store_true",
-        help="Use GPU for EasyOCR inference (requires CUDA/ROCm PyTorch)",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Save preprocessed tile images to <board>/_debug/ for inspection.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        metavar="DIR",
-        default=str(REPO_ROOT),
-        help="Directory for bom_master.csv (default: repo root).",
-    )
-    args = parser.parse_args()
-
-    output_dir = Path(args.output_dir)
-
-    if args.board:
-        board_dirs = [COMPONENTS_DIR / args.board]
-        if not board_dirs[0].is_dir():
-            log.error("Board directory not found: %s", board_dirs[0])
-            sys.exit(1)
-    else:
-        board_dirs = sorted(
-            d for d in COMPONENTS_DIR.iterdir() if d.is_dir()
-        )
-
-    all_entries: list[BomEntry] = []
-
-    for board_dir in board_dirs:
-        entries = process_board(
-            board_dir, args.engine, args.debug,
-            min_confidence=args.min_confidence,
-            gpu=args.gpu,
-        )
-        if entries:
-            write_board_bom(board_dir, entries)
-            all_entries.extend(entries)
-
-    if all_entries:
-        if args.board:
-            # Single-board run: board CSV already written above; rebuild master from all boards
-            rebuild_master_bom(output_dir)
-        else:
-            write_master_bom(all_entries, output_dir)
-    else:
-        log.warning("No entries found — check image paths and OCR output.")
-
-
-if __name__ == "__main__":
-    main()

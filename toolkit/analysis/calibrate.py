@@ -47,13 +47,14 @@ Output (components/<board>/calibration.json):
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import math
 import sys
 from enum import Enum, auto
 from pathlib import Path
+
+from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,8 +63,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPONENTS_DIR = REPO_ROOT / "components"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
 # ---------------------------------------------------------------------------
@@ -794,127 +793,4 @@ def run_coord_calibration(img_w: int = 1600, img_h: int = 900) -> None:
         print("  No clicks recorded.  Click the cyan ⊕ targets to measure error.")
     print("════════════════════════════════════════════════════════════════════")
     print()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Interactive per-layer PCB photo calibration with perspective correction."
-    )
-    parser.add_argument("--board", default="", metavar="NAME",
-                        help="Board folder name under components/ (required unless --calibrate)")
-    parser.add_argument("--ref-mm", type=float, default=2.54, metavar="FLOAT",
-                        help="Known distance between the two reference points in mm "
-                             "(default: 2.54 — standard 0.1\" header pitch)")
-    parser.add_argument("--image", metavar="FILENAME",
-                        help="Process only this image file (default: all images in board dir)")
-    parser.add_argument("--headless", action="store_true",
-                        help="Non-interactive mode (requires --ref-px, --layer; "
-                             "optionally --corners for perspective correction)")
-    parser.add_argument("--ref-px", type=float, default=0.0, metavar="FLOAT",
-                        help="Measured pixel distance between reference points (--headless only)")
-    parser.add_argument("--layer", default="", metavar="LABEL",
-                        help="Layer label, e.g. top or bottom (--headless required; "
-                             "interactive mode prompts in GUI)")
-    parser.add_argument("--corners", default="", metavar="x1,y1,...,x4,y4",
-                        help="8 comma-separated corner coords TL TR BR BL (--headless only)")
-    parser.add_argument("--calibrate", action="store_true",
-                        help="Coordinate calibration diagnostic: show a synthetic test image "
-                             "with targets at known pixel positions; click each target and "
-                             "read the stdout coordinate report to verify/fix the math.")
-    parser.add_argument("--calibrate-size", default="1600x900", metavar="WxH",
-                        help="Size of synthetic test image for --calibrate (default: 1600x900)")
-    args = parser.parse_args()
-
-    # --calibrate runs standalone, no --board required
-    if args.calibrate:
-        try:
-            cw, ch = (int(v) for v in args.calibrate_size.lower().split("x"))
-        except ValueError:
-            print("--calibrate-size must be WxH, e.g. 1600x900")
-            sys.exit(1)
-        run_coord_calibration(cw, ch)
-        return
-
-    board_dir = COMPONENTS_DIR / args.board
-    if not args.board:
-        log.error("--board is required (or use --calibrate for the coordinate diagnostic)")
-        sys.exit(1)
-    if not board_dir.is_dir():
-        log.error("Board directory not found: %s", board_dir)
-        sys.exit(1)
-
-    # ------------------------------------------------------------------
-    # Headless path
-    # ------------------------------------------------------------------
-    if args.headless:
-        if args.ref_px <= 0:
-            log.error("--headless requires --ref-px VALUE")
-            sys.exit(1)
-        if not args.layer:
-            log.error("--headless requires --layer VALUE (e.g. --layer top)")
-            sys.exit(1)
-
-        if args.image:
-            image_path = board_dir / args.image
-        else:
-            images = find_all_images(board_dir)
-            if not images:
-                log.error("No images found in %s", board_dir)
-                sys.exit(1)
-            image_path = images[0]
-
-        if not image_path.exists():
-            log.error("Image not found: %s", image_path)
-            sys.exit(1)
-
-        cal = headless_calibrate(
-            board_dir, image_path, args.layer,
-            args.ref_px, args.ref_mm, args.corners,
-        )
-        save_calibration(args.board, args.layer, cal, board_dir)
-        print(f"Headless calibration: {cal['px_per_mm']:.2f} px/mm  (layer: {args.layer})")
-        print(f"Now run: python -m toolkit.extract_pcb_layers.py --board {args.board} --layer {args.layer}")
-        return
-
-    # ------------------------------------------------------------------
-    # Interactive GUI path
-    # ------------------------------------------------------------------
-    images = [board_dir / args.image] if args.image else find_all_images(board_dir)
-    if not images:
-        log.error("No images found in %s. Use --image to specify one.", board_dir)
-        sys.exit(1)
-
-    saved = 0
-    for i, image_path in enumerate(images):
-        if not image_path.exists():
-            log.warning("Image not found, skipping: %s", image_path)
-            continue
-
-        try:
-            gui = CalibrationGUI(image_path, args.ref_mm, i, len(images))
-        except ValueError as exc:
-            log.warning("Skipping %s: %s", image_path.name, exc)
-            continue
-
-        layer, layer_cal = gui.run()
-
-        if gui.quit_all:
-            print("Quit.")
-            break
-
-        if layer is not None and layer_cal is not None:
-            save_calibration(args.board, layer, layer_cal, board_dir)
-            saved += 1
-            log.info("Saved: layer '%s' from %s  (%.2f px/mm)",
-                     layer, image_path.name, layer_cal["px_per_mm"])
-
-    if saved:
-        print(f"\n{saved} layer(s) calibrated.")
-        print(f"Now run: python -m toolkit.extract_pcb_layers.py --board {args.board}")
-    else:
-        print("No layers calibrated.")
-
-
-if __name__ == "__main__":
-    main()
 

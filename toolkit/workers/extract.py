@@ -1,14 +1,11 @@
 """PCB layer extraction worker."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import QThread
 
 from toolkit.analysis.layers import load_calibration, process_board
+from toolkit.paths import COMPONENTS_DIR
 from toolkit.workers.base import WorkerSignals
-
-_REPO = Path(__file__).resolve().parents[2]
 
 class ExtractLayerWorker(QThread):
     """Run extract_pcb_layers.process_board() in-process for a single layer.
@@ -28,7 +25,7 @@ class ExtractLayerWorker(QThread):
     def run(self):
         """Extract copper-layer geometry for the active board layer."""
         try:
-            board_dir = _REPO / "components" / self._board_name
+            board_dir = COMPONENTS_DIR / self._board_name
             self.signals.line.emit(f"Extracting {self._board_name} / {self._layer_name} …")
             cal = load_calibration(board_dir)
             layer_cal = cal.get("layers", {}).get(self._layer_name, {})

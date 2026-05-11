@@ -89,12 +89,12 @@ def test_fit_image_works_via_set_image(qapp):
 
 def test_scene_repo_root_is_correct():
     """
-    Regression: _REPO in toolkit/gui/scene.py must point to the repo root,
-    not to toolkit/.  Wrong depth (parents[1] instead of parents[2]) caused
-    load_photo() to look for images in toolkit/components/ which doesn't exist.
+    Regression: COMPONENTS_DIR in toolkit/paths.py must point to the correct
+    repo components/ directory (previously a wrong parents[] depth caused
+    load_photo() to look in toolkit/components/ which doesn't exist).
     """
     from pathlib import Path
-    import toolkit.gui.scene as scene_mod
+    import toolkit.paths as paths_mod
 
     # test file is at toolkit/tests/test_image_display.py
     # parents[0]=tests/, parents[1]=toolkit/, parents[2]=repo root
@@ -103,9 +103,9 @@ def test_scene_repo_root_is_correct():
     assert (repo_root / "components").exists(), (
         f"Sanity: repo root should contain components/, got {repo_root}"
     )
-    assert scene_mod._REPO == repo_root, (
-        f"scene._REPO={scene_mod._REPO!r} != repo root {repo_root!r}. "
-        "Wrong parents[] depth — images will never be found."
+    assert paths_mod.COMPONENTS_DIR == repo_root / "components", (
+        f"COMPONENTS_DIR={paths_mod.COMPONENTS_DIR!r} != {repo_root / 'components'!r}. "
+        "Wrong parents[] depth in toolkit/paths.py — images will never be found."
     )
 
 
@@ -116,7 +116,6 @@ def test_load_photo_without_calibration(qapp, tmp_path):
     """
     import cv2
     import numpy as np
-    from pathlib import Path
     import toolkit.gui.scene as scene_mod
 
     # Write a small test image into a temp board dir
@@ -125,9 +124,10 @@ def test_load_photo_without_calibration(qapp, tmp_path):
     img = np.full((100, 200, 3), 128, dtype="uint8")
     cv2.imwrite(str(board_dir / "test.jpg"), img)
 
-    # Patch _REPO to point at tmp_path so load_photo can find the image
-    original_repo = scene_mod._REPO
-    scene_mod._REPO = tmp_path
+    # Patch COMPONENTS_DIR in scene module to point at tmp_path/components
+    import toolkit.gui.scene as scene_mod
+    original_components_dir = scene_mod.COMPONENTS_DIR
+    scene_mod.COMPONENTS_DIR = tmp_path / "components"
     try:
         from PyQt6.QtWidgets import QGraphicsScene
         from toolkit.gui.scene import LayerScene
@@ -145,4 +145,4 @@ def test_load_photo_without_calibration(qapp, tmp_path):
             "Raw image should be shown even without calibration."
         )
     finally:
-        scene_mod._REPO = original_repo
+        scene_mod.COMPONENTS_DIR = original_components_dir

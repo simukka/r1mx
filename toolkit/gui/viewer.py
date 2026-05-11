@@ -28,14 +28,14 @@ from typing import Sequence
 import numpy as np
 
 from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, pyqtSignal,
+    Qt, QPoint, QPointF, QRectF, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QColor, QFont, QImage, QPainter, QPen, QPixmap, QBrush,
+    QColor, QCursor, QFont, QImage, QPainter, QPen, QPixmap, QBrush,
 )
 from PyQt6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
-    QGraphicsPixmapItem, QGraphicsScene, QGraphicsTextItem,
+    QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
     QGraphicsView,
 )
 
@@ -99,8 +99,13 @@ class ImageViewer(QGraphicsView):
         viewer.set_crosshair_visible(True)
     """
 
-    imageClicked = pyqtSignal(QPointF)   # image-pixel coords
-    imageMoved   = pyqtSignal(QPointF)   # image-pixel coords
+    imageClicked  = pyqtSignal(QPointF)   # image-pixel coords (press)
+    imageReleased = pyqtSignal(QPointF)   # image-pixel coords (release)
+    imageMoved    = pyqtSignal(QPointF)   # image-pixel coords (move)
+
+    # Fires on every left press regardless of bounds — carries full diagnostic state:
+    # (scene_pos, in_bounds, img_w, img_h, capture_mode, rb_anchor_set, zoom_level)
+    debugClicked  = pyqtSignal(QPointF, bool, int, int, bool, bool, float)
 
     _XHAIR_ARM   = 20    # crosshair arm length in image pixels
     _XHAIR_GAP   = 4     # gap radius around the centre
@@ -127,11 +132,12 @@ class ImageViewer(QGraphicsView):
         self._img_h = 0
         self._zoom_level: float = 1.0   # current cumulative scale factor
 
-        # Crosshair overlay (four line segments)
+        # Crosshair overlay (four line segments) — cosmetic pens so they're
+        # always readable at any zoom level.
         pen = QPen(QColor(0, 255, 255), 1.5)
-        pen.setCosmetic(False)
+        pen.setCosmetic(True)
         outline_pen = QPen(QColor(0, 0, 0), 3.5)
-        outline_pen.setCosmetic(False)
+        outline_pen.setCosmetic(True)
 
         self._xhair_lines: list[QGraphicsLineItem] = []
         self._xhair_outlines: list[QGraphicsLineItem] = []
@@ -151,6 +157,111 @@ class ImageViewer(QGraphicsView):
             self._xhair_lines.append(li)
 
         self._xhair_visible = False
+
+        # Capture mode: when True, left-button is used for entity placement
+        # (NoDrag forced), crosshair always shown, middle-button pans.
+        self._capture_mode: bool = False
+
+        # Middle-mouse pan state
+        self._mid_pan_active: bool = False
+        self._mid_pan_last: QPoint = QPoint()
+
+        # Rubber-band ghost rectangle for ADD_COMPONENT mode
+        self._rb_anchor: QPointF | None = None
+        self._rb_item: QGraphicsRectItem | None = None
+        self._rb_shadow: QGraphicsRectItem | None = None
+
+    # ------------------------------------------------------------------
+    # Capture mode — used by ADD_VIA / ADD_COMPONENT / ADD_TEXT modes
+    # ------------------------------------------------------------------
+
+    def set_capture_mode(self, on: bool) -> None:
+        """Enable or disable entity-placement capture mode.
+
+        When *on*:
+          - Left-button drag no longer pans (NoDrag forced)
+          - Crosshair cursor is shown
+          - Crosshair overlay is always visible
+          - Middle-button still pans
+
+        When *off*:
+          - Returns to normal scroll/pan behaviour
+          - Crosshair overlay hidden unless explicitly re-enabled
+          - Restores default arrow cursor
+        """
+        self._capture_mode = on
+        self.set_crosshair_visible(on)
+        if on:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        else:
+            self.cancel_rubber_band()
+            self.unsetCursor()
+            self._update_drag_mode()
+
+    # ------------------------------------------------------------------
+    # Rubber-band rect API (used by canvas ADD_COMPONENT mode)
+    # ------------------------------------------------------------------
+
+    def start_rubber_band(self, scene_pt: QPointF) -> None:
+        """Begin a rubber-band rect anchored at *scene_pt* (scene coords)."""
+        self._rb_anchor = scene_pt
+        # Remove any previous rubber-band items
+        if self._rb_item is not None:
+            self._scene.removeItem(self._rb_item)
+            self._rb_item = None
+        if self._rb_shadow is not None:
+            self._scene.removeItem(self._rb_shadow)
+            self._rb_shadow = None
+        # Two-layer rubber-band: hot-pink dashes on a black shadow for contrast
+        shadow_pen = QPen(QColor(0, 0, 0), 3.5)
+        shadow_pen.setCosmetic(True)
+        shadow_pen.setStyle(Qt.PenStyle.DashLine)
+        self._rb_shadow = self._scene.addRect(
+            scene_pt.x(), scene_pt.y(), 0, 0, shadow_pen
+        )
+        self._rb_shadow.setZValue(19)
+        pen = QPen(QColor(255, 20, 147), 1.5)   # hot pink / deep pink
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        self._rb_item = self._scene.addRect(
+            scene_pt.x(), scene_pt.y(), 0, 0, pen
+        )
+        self._rb_item.setZValue(20)
+
+    def update_rubber_band(self, scene_pt: QPointF) -> None:
+        """Stretch the rubber-band to *scene_pt* while the mouse moves."""
+        if self._rb_anchor is None or self._rb_item is None:
+            return
+        ax, ay = self._rb_anchor.x(), self._rb_anchor.y()
+        bx, by = scene_pt.x(), scene_pt.y()
+        rect = QRectF(min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay))
+        self._rb_item.setRect(rect)
+        if self._rb_shadow is not None:
+            self._rb_shadow.setRect(rect)
+
+    def finish_rubber_band(self) -> QRectF | None:
+        """Complete the rubber-band; remove the ghost rect and return the scene rect."""
+        if self._rb_item is None:
+            return None
+        rect = self._rb_item.rect()
+        self._scene.removeItem(self._rb_item)
+        self._rb_item = None
+        if self._rb_shadow is not None:
+            self._scene.removeItem(self._rb_shadow)
+            self._rb_shadow = None
+        self._rb_anchor = None
+        return rect if rect.width() > 1 and rect.height() > 1 else None
+
+    def cancel_rubber_band(self) -> None:
+        """Discard any in-progress rubber-band without returning a rect."""
+        if self._rb_item is not None:
+            self._scene.removeItem(self._rb_item)
+            self._rb_item = None
+        if self._rb_shadow is not None:
+            self._scene.removeItem(self._rb_shadow)
+            self._rb_shadow = None
+        self._rb_anchor = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -205,7 +316,10 @@ class ImageViewer(QGraphicsView):
         self._update_drag_mode()
 
     def _update_drag_mode(self) -> None:
-        """Enable ScrollHandDrag when zoomed in so the user can pan."""
+        """Enable ScrollHandDrag when zoomed in — but never in capture mode."""
+        if self._capture_mode:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            return
         scene_rect = self._scene.sceneRect()
         if scene_rect.isEmpty():
             return
@@ -222,12 +336,13 @@ class ImageViewer(QGraphicsView):
 
     def set_crosshair_visible(self, visible: bool) -> None:
         self._xhair_visible = visible
-        for item in self._xhair_lines + self._xhair_outlines:
-            item.setVisible(False)   # hidden until first mouse move
+        if not visible:
+            for item in self._xhair_lines + self._xhair_outlines:
+                item.setVisible(False)
 
     def set_crosshair_color(self, color: QColor) -> None:
         pen = QPen(color, 1.5)
-        pen.setCosmetic(False)
+        pen.setCosmetic(True)
         for li in self._xhair_lines:
             li.setPen(pen)
 
@@ -265,16 +380,81 @@ class ImageViewer(QGraphicsView):
     def mouseMoveEvent(self, event) -> None:
         sp = self._scene_pos(event)
         self._update_crosshair(sp)
-        if 0 <= sp.x() < self._img_w and 0 <= sp.y() < self._img_h:
+        if self._rb_anchor is not None:
+            self.update_rubber_band(sp)
+        # Middle-mouse pan
+        if self._mid_pan_active:
+            delta = event.pos() - self._mid_pan_last
+            self._mid_pan_last = event.pos()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - delta.x()
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - delta.y()
+            )
+            event.accept()
+            return
+        eff_w, eff_h = self._effective_bounds()
+        if 0 <= sp.x() < eff_w and 0 <= sp.y() < eff_h:
             self.imageMoved.emit(sp)
         super().mouseMoveEvent(event)
 
+    def _effective_bounds(self) -> tuple[int, int]:
+        """Return (img_w, img_h) for bounds checks.
+
+        Falls back to the scene rect when set_image() was never called
+        (e.g. layer loaded via LayerScene.load_photo()).
+        """
+        if self._img_w > 0 and self._img_h > 0:
+            return self._img_w, self._img_h
+        sr = self._scene.sceneRect()
+        return int(sr.width()), int(sr.height())
+
     def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            # Middle mouse always pans, regardless of capture mode
+            self._mid_pan_active = True
+            self._mid_pan_last = event.pos()
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             sp = self._scene_pos(event)
-            if 0 <= sp.x() < self._img_w and 0 <= sp.y() < self._img_h:
+            eff_w, eff_h = self._effective_bounds()
+            in_bounds = 0 <= sp.x() < eff_w and 0 <= sp.y() < eff_h
+            self.debugClicked.emit(
+                sp, in_bounds,
+                eff_w, eff_h,
+                self._capture_mode,
+                self._rb_anchor is not None,
+                self._zoom_level,
+            )
+            if in_bounds:
                 self.imageClicked.emit(sp)
+            if self._capture_mode:
+                # Don't pass to super — prevents ScrollHandDrag from activating
+                event.accept()
+                return
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._mid_pan_active = False
+            if self._capture_mode:
+                self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+            else:
+                self.unsetCursor()
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            sp = self._scene_pos(event)
+            eff_w, eff_h = self._effective_bounds()
+            if 0 <= sp.x() < eff_w and 0 <= sp.y() < eff_h:
+                self.imageReleased.emit(sp)
+            if self._capture_mode:
+                event.accept()
+                return
+        super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
