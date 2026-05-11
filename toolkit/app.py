@@ -1373,22 +1373,25 @@ class MainWindow(QMainWindow):
         # Pre-fill the search query: prefer package (e.g. "SOIC-8"), then part_number
         initial_query = (comp_row["package"] or comp_row["part_number"] or "").strip()
 
-        # Extract package hints from linked datasheets
+        # Extract package hints from linked datasheets; keep first valid PDF for match scoring
         hints = []
+        best_pdf: Path | None = None
         ds_rows = self._db.get_object_datasheets(object_id)
         for ds in ds_rows:
             pdf_path = Path(ds["file_path"])
             if pdf_path.suffix.lower() == ".pdf" and pdf_path.exists():
-                try:
-                    hints = extract_package_hints(pdf_path)
-                except Exception:
-                    pass
-                if hints:
-                    break  # use first PDF that yields results
+                if best_pdf is None:
+                    best_pdf = pdf_path
+                if not hints:
+                    try:
+                        hints = extract_package_hints(pdf_path)
+                    except Exception:
+                        pass
 
         dlg = FootprintPickerDialog(
             initial_query=initial_query,
             hints=hints or None,
+            datasheet_pdf=best_pdf,
             parent=self,
         )
         if dlg.exec() != FootprintPickerDialog.DialogCode.Accepted:

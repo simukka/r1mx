@@ -41,6 +41,12 @@ from toolkit.analysis.kicad_footprint import (
     search_index,
 )
 from toolkit.analysis.datasheet_package import PackageHint
+from toolkit.analysis.footprint_match import (
+    DatasheetDimensions,
+    extract_datasheet_dimensions,
+    extract_kicad_dimensions,
+    score_match,
+)
 
 
 # ─── Preview canvas ───────────────────────────────────────────────────────────
@@ -150,6 +156,7 @@ class FootprintPickerDialog(QDialog):
         initial_query: str = "",
         initial_pin_count: int = 0,
         hints: list[PackageHint] | None = None,
+        datasheet_pdf: Optional["Path"] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -164,6 +171,11 @@ class FootprintPickerDialog(QDialog):
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
+
+        # Pre-extract datasheet dimensions once (if a PDF is available)
+        self._ds_dims: Optional[DatasheetDimensions] = None
+        if datasheet_pdf is not None:
+            self._ds_dims = self._load_datasheet_dims(datasheet_pdf)
 
         # If no query is pre-filled, auto-apply the top hint
         if not initial_query.strip() and hints:
@@ -270,7 +282,14 @@ class FootprintPickerDialog(QDialog):
 
         root.addWidget(splitter, stretch=1)
 
-        # ── Buttons ──────────────────────────────────────────────────────────
+        # ── Match score bar (shown when datasheet PDF provided) ───────────────
+        self._match_label = QLabel("")
+        self._match_label.setWordWrap(True)
+        self._match_label.setStyleSheet("font-size: 11px; padding: 2px 0;")
+        self._match_label.setVisible(self._ds_dims is not None)
+        root.addWidget(self._match_label)
+
+        # ── Buttons ────────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._use_btn = QPushButton("📦 Use this footprint")
@@ -296,6 +315,21 @@ class FootprintPickerDialog(QDialog):
 
     def _unique_library_count(self) -> int:
         return len({fp.library for fp in self._index})
+
+    @staticmethod
+    def _load_datasheet_dims(pdf_path) -> Optional[DatasheetDimensions]:
+        """Extract DatasheetDimensions from *pdf_path* (up to 30 pages).
+
+        Returns ``None`` on any error so the dialog still opens.
+        """
+        try:
+            from toolkit.analysis.datasheet_package import _pdf_to_text
+            text = _pdf_to_text(pdf_path, max_pages=30)
+            if text.strip():
+                return extract_datasheet_dimensions(text)
+        except Exception:
+            pass
+        return None
 
     # ── Hint chips ────────────────────────────────────────────────────────────
 
@@ -344,6 +378,7 @@ class FootprintPickerDialog(QDialog):
         if current is None:
             self._preview.set_footprint(None)
             self._use_btn.setEnabled(False)
+            self._update_match_label(None)
             return
 
         stub: KicadFootprint = current.data(Qt.ItemDataRole.UserRole)
@@ -353,6 +388,42 @@ class FootprintPickerDialog(QDialog):
         current.setData(Qt.ItemDataRole.UserRole, fp)
         self._preview.set_footprint(fp)
         self._use_btn.setEnabled(True)
+        self._update_match_label(fp)
+
+    def _update_match_label(self, fp: Optional[KicadFootprint]) -> None:
+        """Compute and display the datasheet cross-reference score."""
+        if self._ds_dims is None or fp is None:
+            if self._ds_dims is None:
+                self._match_label.setVisible(False)
+            return
+
+        fp_dims = extract_kicad_dimensions(fp)
+        result  = score_match(fp_dims, self._ds_dims)
+
+        if not result.has_data:
+            self._match_label.setText("📐 Datasheet match: no dimension data found in PDF")
+            self._match_label.setStyleSheet("font-size: 11px; color: #888; padding: 2px 0;")
+            self._match_label.setVisible(True)
+            return
+
+        pct = int(result.total * 100)
+        if pct >= 80:
+            colour = "#4caf50"
+            icon   = "✅"
+        elif pct >= 50:
+            colour = "#ff9800"
+            icon   = "⚠️"
+        else:
+            colour = "#f44336"
+            icon   = "❌"
+
+        summary = f"{icon} Datasheet match: {pct}%"
+        breakdown = "  |  ".join(result.details)
+        self._match_label.setText(f"{summary}  —  {breakdown}")
+        self._match_label.setStyleSheet(
+            f"font-size: 11px; color: {colour}; padding: 2px 0;"
+        )
+        self._match_label.setVisible(True)
 
     # ── Accept ────────────────────────────────────────────────────────────────
 
