@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -21,8 +20,7 @@ from PyQt6.QtWidgets import (
 
 from toolkit.db import DB
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
-
-_REPO = Path(__file__).resolve().parents[3]
+from toolkit.paths import COMPONENTS_DIR
 
 class EditLayerDialog(QDialog):
     """
@@ -42,13 +40,14 @@ class EditLayerDialog(QDialog):
 
         self.setWindowTitle(f"Edit layer — {board_name} / {layer_name}")
         self.setMinimumWidth(500)
+        self.setSizeGripEnabled(True)
 
         board_id  = db.get_or_create_board(board_name)
         layer_row = db.get_layer(board_id, layer_name)
 
         self._board_id  = board_id
         self._layer_id  = layer_row["id"] if layer_row else None
-        self._board_dir = _REPO / "components" / board_name
+        self._board_dir = COMPONENTS_DIR / board_name
 
         cal_data = {}
         if layer_row and layer_row["calibration"]:

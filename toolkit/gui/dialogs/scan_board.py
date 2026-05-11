@@ -36,6 +36,7 @@ class ScanBoardDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Scan Board — Options")
         self.setMinimumWidth(380)
+        self.setSizeGripEnabled(True)
 
         root = QVBoxLayout(self)
         root.setSpacing(10)

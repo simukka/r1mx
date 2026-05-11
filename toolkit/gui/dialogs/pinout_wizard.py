@@ -500,6 +500,7 @@ class DatasheetPinoutWizard(QDialog):
         self.setWindowTitle(f"Select pinout — {pdf_path.name}")
         self.resize(1100, 700)
         self.setModal(True)
+        self.setSizeGripEnabled(True)
 
         self._pdf_path     = pdf_path
         self.datasheet_id  = datasheet_id

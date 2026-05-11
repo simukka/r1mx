@@ -41,6 +41,7 @@ class ImagePickerDialog(QDialog):
 
         self.setWindowTitle(f"Select image — {board_dir.name}")
         self.resize(900, 600)
+        self.setSizeGripEnabled(True)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)

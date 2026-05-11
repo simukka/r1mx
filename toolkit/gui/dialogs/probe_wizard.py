@@ -165,6 +165,7 @@ class ProbeWizardDialog(QDialog):
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle("Probe Wizard — Identify Components")
         self.resize(900, 620)
+        self.setSizeGripEnabled(True)
 
         self._db          = db
         self._board_id    = board_id

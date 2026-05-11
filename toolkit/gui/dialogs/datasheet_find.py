@@ -237,6 +237,7 @@ class DatasheetFindDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"Find datasheet: {part_number}")
         self.resize(1000, 640)
+        self.setSizeGripEnabled(True)
 
         self._part_number  = part_number
         self._board_dir    = board_dir
