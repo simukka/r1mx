@@ -763,9 +763,9 @@ Disassembly:
 
 Applied in addition to the Phase 1 patches above. All offsets are also runtime addresses (firmware loads at 0x0).
 
-Run `cd firmware && python3 scripts/patch_firmware.py` to apply all patches and produce `software.patched.bin`.
+Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches and produce `software.patched.r1mx.bin`. Omit `--r1mx` for the bamboo-machine binary.
 
-### Complete Patch Table (44 patches — current as of session 8)
+### Complete Patch Table (46 patches — current as of session 10)
 
 | # | Phase | Offset | Description |
 |---|-------|--------|-------------|
@@ -785,16 +785,23 @@ Run `cd firmware && python3 scripts/patch_firmware.py` to apply all patches and 
 | 21–33 | 2 | BSS data | Null 13 sentinel `0xFFFFFFFF` values used as fn-ptrs (BSS memset skipped by Patch #5) |
 | 34–35 | 3 | `0x5D58B8`, `0x5D58E8` | SSD whitelist bypass: IsCompatible always returns 1 |
 | 36 | 2 | `0x62CC` | NOP null bctrl in fn_6288 — CTR=0 after fn_2748 clears ptr; bctrl→0x0 resets |
-| 37 | 2 | `0x1B9EC` | NOP XUartLite TX-FIFO write (0xe0600004 unmapped → MCE per char) |
-| 38 | 2 | `0x1B9D8` | NOP XUartLite status read (0xe0600008 unmapped; result unused after #37) |
-| 39 | 2 | `0x9B78` region | NOP fn_9B78 early path: MMIO write to 0xe0be00 → MCE |
-| 40 | 2 | `0x9B9C` | NOP fn_9B78 normal path: same unmapped MMIO (0xe0be00) |
-| 41 | 2 | `0x9BC0` | NOP fn_9B78 second MMIO write in normal path |
+| 37 | 2 | `0x1B9EC` | NOP XUartLite TX-FIFO write (bamboo only — r1mx-virtex4 handles natively) |
+| 38 | 2 | `0x1B9D8` | NOP XUartLite status read (bamboo only) |
+| 39 | 2 | `0x9B78` region | NOP fn_9B78 early path: MMIO write to 0xe0be00 (bamboo only) |
+| 40 | 2 | `0x9B9C` | NOP fn_9B78 normal path: same unmapped MMIO (bamboo only) |
+| 41 | 2 | `0x9BC0` | NOP fn_9B78 second MMIO write in normal path (bamboo only) |
 | 42 | 2 | `0x548d80` | NOP `bl fn_4a6438` in fn_548d78 (dead code — fn_548d78 never called at runtime) |
 | 43 | 2 | `0x548d88` | blr at fn_548d78+0x10 (dead code safety — fn_548d78 never called at runtime) |
 | **44** | **2** | **`0x458a40`** | **KEY FIX: bctrl → `li r3,0` in fn_458a14 — bypasses dispatch to fn_37cd4c (stack frame mismatch crash)** |
+| 45 | 2 | `0x44c720` | NOP self-referential `bctrl` at fn_44c720 (CTR points to itself → infinite loop) |
+| 46 | 2 | `0x44c6a8` | NOP `stw r11, 0x7c(r12=0)` — null-deref corrupting exception vector at 0x7c |
 
-**sha256 of current patched binary:** `b2a63a78d7606a0cb75486cbc03038e08f0f0470b43e8a270c4c325611bc8d8c`
+**sha256 of current r1mx patched binary (41/46 patches, `--r1mx`):**
+`d6bd531325652aae94d0690b8922fb5bd6134e7ee57712c596f387d17534c359`
+
+> Patches #37–41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
+> because `r1mx-virtex4` maps those peripherals with real device models.
+> Patches #45–46 are required for both machines.
 
 ### fn_458a14 dispatch table — static vs runtime
 
@@ -811,14 +818,27 @@ patches; Patch #44 is the actual fix.
 a bad LR → crash. Patch #44 replaces `bctrl` with `li r3, 0`, bypassing the call entirely.
 usrInit ignores the return value of both fn_458a14 calls.
 
-### Current Boot State (session 8 — 44 patches)
+### Current Boot State (session 10 — 46 patches, r1mx-virtex4 machine)
 
-With all 44 patches applied, confirmed via single-step tracing:
+With `--r1mx` (41/46 patches) and the `r1mx-virtex4` QEMU machine:
 - **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc.
-- **fn_DCB0** completes — hardware sequencer runs to completion
+- **fn_DCB0** completes — hardware sequencer runs, outputs `^^^123456789` on XUartLite
 - **fn_458a14(r3=0)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e0, r3=0)
 - **fn_458a14(r3=1)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e8, r3=0)
-- **fn_36860c** entered at 0x36860c — not yet confirmed to complete
+- **CURRENT BLOCKER:** HV_EMU exception flood after `^^^123456789`
+
+**HV_EMU blocker:** After `^^^123456789`, firmware executes from address `0x7c` (exception
+vector area) which contains `mtspr <spr895>, r4`. QEMU's PPC405 model doesn't recognize
+SPR 895 (0x37F) and raises `HV_EMU (96) error=21` instead of silently ignoring the write.
+This triggers VxWorks error handler → cascade → garbage PC → more exceptions → infinite loop.
+
+Root cause: code at `fn_44c660` reads `[0x00eac3e0]` into r12. If BSS is zero (early boot),
+r12=0 → `lwz r11, 0x7c(r12=0)` reads from addr 0x7c (exception vector area), increments the
+instruction word (adding Rc=1 bit = illegal form), and writes it back. Patch #46 NOPs this
+write. However, the HV_EMU cascade suggests something else is also executing from 0x7c.
+
+**Planned fix:** Either (a) add SPR 895 as a no-op to QEMU's PPC405 SPR table in
+`target/ppc/spr_tcg.c`, or (b) trace what jumps to 0x7c and add a redirect patch.
 
 **fn_36860c analysis (static):** No direct MMIO access. All 7 sub-calls are VxWorks
 task-spawn/messaging functions with guard checks (`[0xFCA3C0] != 0` etc.) that skip
@@ -1335,106 +1355,151 @@ The firmware searches these paths at boot (in order):
 
 ## 15. QEMU Setup & Usage
 
-### ⚠ Critical: QEMU Machine Selection
+### Custom QEMU Fork: `qemu-r1mx`
 
-**`-machine bamboo` is WRONG for this firmware.** Bamboo is a PowerPC 440 evaluation board
-(`ppc440ep` CPU, PVR = `0x422218XX`). The RED firmware runs on a **PowerPC 405F6**
-(PVR = `0x20011000`). Using bamboo causes a PVR family mismatch and the VxWorks BSP will
-fail its CPU version check at boot.
+This project uses a **patched fork of QEMU 8.2.2** called `qemu-r1mx`. The fork adds the
+`r1mx-virtex4` machine that correctly emulates the RED ONE MX hardware.
 
-| Machine | CPU | PVR | Status |
-|---------|-----|-----|--------|
-| `bamboo` | ppc440ep | `0x422218xx` | ❌ Wrong CPU family |
-| `ref405ep` | ppc405ep | `0x40120483` | ⚠ Best available in QEMU ≤ 8.2.0 (removed in 8.3+) |
-| `virtex4-ml410` | ppc405f6 | `0x20011000` | ✅ Correct — **does not exist yet, must be written** |
+> ⚠️ **Do NOT use system QEMU or `-machine bamboo`.** Bamboo uses PPC440 (wrong CPU family).
+> `ref405ep` was removed in QEMU 8.3+. The only correct machine is `r1mx-virtex4`.
 
-> ⚠️ **QEMU 10.x (current environment)**: `ref405ep` is REMOVED. Available machines are
-> `bamboo` (PPC440) and `virtex-ml507` (Virtex-5/PPC440) — both use wrong CPU family.
-> To use QEMU for this firmware, either: (a) build QEMU 8.2.0 from source, or
-> (b) write `hw/ppc/virtex4_ml410.c` custom machine for any QEMU version.
+**Machine summary:**
 
-**Short-term (pin to QEMU 8.2.0 — build from source):**
-```bash
-# Build QEMU 8.2.0 from source (ref405ep present):
-git clone https://gitlab.com/qemu-project/qemu.git qemu-8.2
-cd qemu-8.2 && git checkout v8.2.0
-./configure --target-list=ppc-softmmu --prefix=/opt/qemu-8.2
-make -j$(nproc) && make install
-# Use ref405ep — PVR 0x20010820 (Xilinx family prefix matches, close enough)
-/opt/qemu-8.2/bin/qemu-system-ppc -machine ref405ep -cpu x2vp4 ...
+| Machine | CPU | PVR | Notes |
+|---------|-----|-----|-------|
+| `bamboo` | ppc440ep | `0x422218xx` | ❌ Wrong CPU family (440, not 405) |
+| `ref405ep` | ppc405ep | `0x40120483` | ❌ Removed in QEMU 8.3+; wrong variant anyway |
+| **`r1mx-virtex4`** | **x2vp4 (ppc405f6)** | **`0x20011000`** | ✅ Correct — custom machine in this fork |
+
+**What `r1mx-virtex4` emulates:**
+
+| Address | Device | Details |
+|---------|--------|---------|
+| `0x00000000` | 256 MB SDRAM | — |
+| `0xe0600000` | XUartLite | Connected to stdio; 115200 baud |
+| `0xe0800000` | XIntc | Xilinx interrupt controller |
+| `0xe1020000` | XEmacLite | Connected to host TAP for WDB UDP |
+| `0xe0be0000`–`0xe0200000` | Silent stubs | Histogram IPs, PCI windows |
+| Reset vector | `0x00000000` | Matches firmware load address |
+
+### Fork Source + Build
+
+The fork source is tracked inside this repo at `firmware/patches/qemu/`:
+
+```
+firmware/patches/qemu/
+  README.md                        — patch descriptions and upstream notes
+  0001-r1mx-virtex4-machine.patch  — hw/ppc/meson.build: register r1mx_virtex4.c
+  0002-ppc32-tlb-vaddr-truncation.patch  — upstream bug fix: mmu_helper.c
+  0003-ppc32-crosspage-addr-truncation.patch — upstream bug fix: cputlb.c
+  src/hw/ppc/r1mx_virtex4.c        — custom machine source (249 lines)
 ```
 
-**Long-term:** Write `hw/ppc/virtex4_ml410.c` (~300 lines) based on the existing
-`virtex_ml507.c` (which is PPC440, Virtex-5) but substituting ppc405f6 CPU + correct DCR map.
-Key fields to set: `PVR = 0x20011000`, memory at 0x0, MMIO at 0xe0000000+, no PCIe.
+**Build from scratch:**
+```bash
+# Downloads QEMU 8.2.2, applies 3 patches + new machine file, builds:
+cd ~/src/r1mx
+./firmware/scripts/build_qemu.sh
+
+# Output: ~/src/qemu-r1mx/build/qemu-system-ppc
+~/src/qemu-r1mx/build/qemu-system-ppc -M help | grep r1mx
+# → r1mx-virtex4             RED ONE MX (Xilinx Virtex-4, PPC405F6)
+```
+
+**If `~/src/qemu-r1mx` already exists:**
+```bash
+# Rebuild without re-downloading:
+cd ~/src/qemu-r1mx/build && make -j$(nproc)
+
+# Full clean rebuild:
+./firmware/scripts/build_qemu.sh --clean
+```
+
+### Bug Fixes in This Fork
+
+Two upstream QEMU 8.2.2 bugs that cause **SIGSEGV** on PPC32 boot are fixed:
+
+**Bug #1 — PPC32 vaddr truncation** (`target/ppc/mmu_helper.c`):
+
+`ppc_cpu_tlb_fill` receives `eaddr` as `vaddr` (uint64_t). When the PPC32
+PC wraps from `0xFFFFFFFC` → `0x00000000`, the intermediate value is
+`0x100000000`. Masking with `TARGET_PAGE_MASK` (sign-extended from int32_t)
+does not strip the overflow bit, so the TLB is set with a bogus 4 GB key.
+
+Fix: `(target_ulong)eaddr & TARGET_PAGE_MASK` — truncate before masking.
+
+**Bug #2 — PPC32 cross-page address truncation** (`accel/tcg/cputlb.c`):
+
+For a 4-byte store at VA=`0xFFFFFFFF`, `mmu_lookup` computes:
+
+    page[1].addr = (0xFFFFFFFF + 3) & PAGE_MASK = 0x100000000
+
+`mmu_lookup1` then computes `haddr = 0x100000000 + host_ram_base`, which is
+256 GB past guest RAM → SIGSEGV.
+
+Fix: `l->page[1].addr = (target_ulong)l->page[1].addr` after `size0` is
+computed (size0 must use the pre-truncation overflow value).
 
 ### Prerequisites
 
 ```bash
-# Install QEMU 8.2.0 (last version with ref405ep):
-# Build from source or use distro package; verify:
-qemu-system-ppc --version    # must be <= 8.2.0 for ref405ep
+# Build qemu-r1mx (first time):
+./firmware/scripts/build_qemu.sh
 
 # Install radare2:
 apt install radare2
 
-qemu-system-ppc --machine ref405ep,help   # confirm machine is available
+# Verify:
+~/src/qemu-r1mx/build/qemu-system-ppc -M r1mx-virtex4,help
 ```
 
-### Launch (Build 32 — normal mode)
+### Firmware Patching
+
+Before booting, generate the patched binary:
 
 ```bash
-cd firmware/
-qemu-system-ppc \
-    -machine ref405ep \
-    -m 256M \
-    -nographic \
-    -device "loader,file=reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on" \
-    -device "loader,cpu-num=0,data=0x0,data-len=4,data-be=on"
+cd ~/src/r1mx/firmware
+python3 scripts/patch_firmware.py --r1mx
+# Applies 41 of 46 patches (5 bamboo-only patches skipped)
+# Output: reverse/build_32/extracted/software.patched.r1mx.bin
+# SHA-256: d6bd531325652aae94d0690b8922fb5bd6134e7ee57712c596f387d17534c359
 ```
 
-### Launch (Debug mode — r2 GDB stub)
+For the full patch table see §9a. The `--r1mx` flag skips patches that
+are only needed for the bamboo machine.
+
+### Launch Commands (use `qemu_boot.sh`)
+
+The `firmware/scripts/qemu_boot.sh` script wraps all launch flags:
 
 ```bash
-# Terminal 1: start QEMU paused
-qemu-system-ppc \
-    -machine ref405ep \
-    -m 256M \
-    -nographic \
-    -S -gdb tcp::1234 \
-    -device "loader,file=reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on" \
-    -device "loader,cpu-num=0,data=0x0,data-len=4,data-be=on"
+cd ~/src/r1mx/firmware
 
-# Terminal 2: attach radare2
-r2 -a ppc -b 32 -e cfg.bigendian=true \
-   -D gdb gdb://localhost:1234 \
-   -i scripts/r2_debug.r2
+# Normal boot (patched binary, stdout serial):
+./scripts/qemu_boot.sh --patched
+
+# Debug mode (QEMU halted, GDB stub on tcp:1234):
+./scripts/qemu_boot.sh --patched --debug
+
+# With TAP networking for WDB (requires tap0 to exist):
+./scripts/qemu_boot.sh --patched --net
+
+# Debug + networking:
+./scripts/qemu_boot.sh --patched --debug --net
 ```
 
-### Launch (with Ethernet for WDB)
-
+Set up TAP once (as root):
 ```bash
-# Create TAP interface first (once, as root):
 ip tuntap add dev tap0 mode tap
 ip addr add 192.168.0.1/24 dev tap0
 ip link set tap0 up
-
-# Launch QEMU with networking:
-qemu-system-ppc \
-    -machine ref405ep \
-    -m 256M \
-    -nographic \
-    -netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
-    -device xemaclite,netdev=net0,mac=00:0a:35:00:00:01 \
-    -device "loader,file=reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on" \
-    -device "loader,cpu-num=0,data=0x0,data-len=4,data-be=on"
 ```
 
 ### Crash Diagnosis Workflow
 
 ```bash
 # Enable crash logging:
-qemu-system-ppc ... -d int,cpu_reset 2>crash.log
+./scripts/qemu_boot.sh --patched -- -d int,cpu_reset 2>crash.log
 
 # Find crash address in log:
 grep "PC=" crash.log | head -5

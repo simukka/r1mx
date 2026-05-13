@@ -52,6 +52,7 @@ class Patch:
     replacement: bytes
     description: str
     phase: int = 1      # which boot phase this patch is for
+    bamboo_only: bool = False  # True = only needed for bamboo/unmapped MMIO machine
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +685,7 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP XUartLite TX-FULL poll loop in fn_1b9b0 (0xe0600008 unmapped in QEMU bamboo → reads 0xFFFFFFFF → bit3=TX_FULL=1 → infinite spin)",
         phase=2,
+        bamboo_only=True,
     ),
     # Patch #38 — NOP XUartLite TX-FIFO write in fn_1b9b0
     #
@@ -711,6 +713,7 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP XUartLite TX-FIFO write in fn_1b9b0 (0xe0600004 unmapped in QEMU bamboo → write triggers Machine Check at 0x10 → romInit re-runs → infinite boot loop)",
         phase=2,
+        bamboo_only=True,
     ),
     # Patch #39 — NOP XUartLite status read in fn_1b9b0
     #
@@ -744,6 +747,7 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP XUartLite status read in fn_1b9b0 (0xe0600008 unmapped → Machine Check per character through VxWorks MChk handler; result unused after Patch #37 killed the TX-FULL poll loop)",
         phase=2,
+        bamboo_only=True,
     ),
 
     # Patch #40 — NOP error-counter MMIO write in fn_9b78 (early-return path)
@@ -777,6 +781,7 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP error-counter write to 0xe0be00 in fn_9b78 early-return path (0x9b9c): unmapped MMIO write triggers Machine Check → VxWorks restart loop; counter is optional telemetry",
         phase=2,
+        bamboo_only=True,
     ),
 
     # Patch #41 — NOP error-counter MMIO write in fn_9b78 (normal path)
@@ -797,6 +802,7 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP error-counter write to 0xe0be00 in fn_9b78 normal path (0x9bc0): same unmapped MMIO address as Patch #40; RAM log stores above remain intact",
         phase=2,
+        bamboo_only=True,
     ),
 
     # Patches #42–43 — fix fn_548d78 driver-init dispatch (crashes via bad call chain)
@@ -879,6 +885,63 @@ BUILD32_PATCHES: list[Patch] = [
         original=b'\x4e\x80\x04\x21',   # bctrl (4e800421)
         replacement=b'\x38\x60\x00\x00', # li r3, 0 (38600000) — return success
         description="fn_458a14 bctrl→li r3,0: dispatch table *(0xe29310)=0x37cd4c at runtime (epilogue of 40-byte-frame fn_37cc94). Calling it from fn_458a14's 16-byte frame corrupts stack and crashes. usrInit ignores return value so returning 0 is safe.",
+        phase=2,
+    ),
+    # Patch #45 — NOP self-referential bctrl in fn_44c660
+    #
+    # fn_44c660 is an interface-connect dispatch function. Its code at 0x44c6e0
+    # checks guard flags in BSS (0xe9bffc) and, if set, loads a function pointer
+    # from BSS (0xe9bf80) into CTR and calls it via bctrl at 0x44c720 with
+    # r3=57 (interrupt vector 57) and r4-r10=0.
+    #
+    # At runtime the guard at 0xe9bffc has 0x10000001 set (set by driver init),
+    # AND the function pointer at 0xe9bf80 = 0x0044c70c — the address of the
+    # `li r6, 0` instruction INSIDE fn_44c660 itself (not a valid function
+    # start). Calling CTR=0x0044c70c jumps back into the middle of fn_44c660,
+    # which re-executes the argument-setup block and hits bctrl again with
+    # CTR=0x44c70c → infinite loop.
+    #
+    # The function pointer was written to 0xe9bf80 by driver registration code
+    # that computed the wrong address (off by the prologue offset). The callback
+    # itself is optional — the code has two branches (`bne 0x44c728`) that skip
+    # to the post-call section when the guards are unset.
+    #
+    # Fix: NOP the bctrl at 0x44c720. Execution falls through to `b 0x44c728`
+    # at 0x44c724 and continues normally. The interrupt-vector registration the
+    # callback was intended to perform is skipped; this is safe since the same
+    # result (no callback installed) would occur on hardware where the driver
+    # was not loaded.
+    Patch(
+        offset=0x44c720,
+        original=b'\x4e\x80\x04\x21',   # bctrl (4e800421)
+        replacement=PPC_NOP,
+        description="NOP self-referential bctrl in fn_44c660: *(0xe9bf80)=0x44c70c at runtime points mid-function → infinite loop. Guard bne at 0x44c6f0 should skip this call but guard value 0xe9bffc is set by driver init. NOP skips the bad call; fn falls through to b 0x44c728.",
+        phase=2,
+    ),
+    # -------------------------------------------------------------------------
+    # Patch #46 — NOP null-dereference counter increment that corrupts 0x7c
+    #
+    # At 0x44c698, fn_44c660 loads a struct pointer from BSS (addr 0xeac3e0).
+    # If the pointer is NULL (as it always is early in boot — BSS is zeroed),
+    # the subsequent `lwz r11, 0x7c(r12=0)` / `addi` / `stw r11, 0x7c(r12=0)`
+    # reads and writes to virtual address 0x7c — the PPC405 Machine Check
+    # exception vector.
+    #
+    # Original: reads 0x7c9bfba6 (mticcr r4), adds 1 → 0x7c9bfba7 (Rc=1,
+    # illegal instruction form), writes back.  On the next execution of the
+    # vector at 0x7c a Program Check exception fires, jumping to the VxWorks
+    # error handler at 0x36fd24 which loops forever, continuously triggering
+    # TLB fills for page 0 and overflowing QEMU's dirty-page tracking.
+    #
+    # Fix: NOP the stw so address 0x7c is never overwritten.  The counter
+    # increment is lost but the struct pointer is NULL so there is no valid
+    # counter to increment anyway.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x44c6a8,
+        original=b'\x91\x6c\x00\x7c',   # stw r11, 0x7c(r12)
+        replacement=PPC_NOP,
+        description="NOP null-deref stw at fn_44c660+0x48: r12=*(0xeac3e0)=NULL → stw r11,0x7c(r12=0) corrupts PPC405 Machine Check vector at 0x7c, causing infinite Program Check exception storm. NOP prevents the corrupt write.",
         phase=2,
     ),
 ]
@@ -976,15 +1039,21 @@ def sha256_of(data: bytes) -> str:
 
 
 def apply_patches(data: bytearray, patches: list[Patch],
-                  phase: Optional[int] = None) -> tuple[int, list[str]]:
+                  phase: Optional[int] = None,
+                  skip_bamboo_only: bool = False) -> tuple[int, list[str]]:
     """
     Apply patches to a mutable bytearray.
     Returns (count_applied, list_of_warnings).
+    skip_bamboo_only: when True, skip patches that are only needed for the
+                      bamboo (unmapped-MMIO) machine; used with --r1mx.
     """
     applied = 0
     warnings = []
     for p in patches:
         if phase is not None and p.phase != phase:
+            continue
+        if skip_bamboo_only and p.bamboo_only:
+            print(f"  [-] {hex(p.offset)}: SKIP (bamboo-only) {p.description[:60]}")
             continue
         end = p.offset + len(p.original)
         if end > len(data):
@@ -1056,6 +1125,13 @@ def main() -> None:
         "--phase", type=int, default=None,
         help="Only apply patches for this phase number",
     )
+    parser.add_argument(
+        "--r1mx", action="store_true",
+        help="Target r1mx-virtex4 QEMU machine: skip bamboo-only MMIO patches "
+             "(patches #37-41) since XUartLite and error-counter devices are "
+             "now modelled by the real machine. Output defaults to "
+             "software.patched.r1mx.bin",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).parent.parent
@@ -1069,7 +1145,7 @@ def main() -> None:
     else:
         patches = BUILD32_PATCHES
         default_input = repo_root / "reverse/build_32/extracted/software.bin"
-        default_output_name = "software.patched.bin"
+        default_output_name = "software.patched.r1mx.bin" if args.r1mx else "software.patched.bin"
         build_label = "Build 32"
 
     # Resolve input path
@@ -1087,7 +1163,8 @@ def main() -> None:
     if args.list:
         print(f"Patches for {build_label} ({len(patches)} total):")
         for p in patches:
-            print(f"  Phase {p.phase}  {hex(p.offset):<12}  {p.description}")
+            tag = " [bamboo-only]" if p.bamboo_only else ""
+            print(f"  Phase {p.phase}  {hex(p.offset):<12}  {p.description}{tag}")
         return
 
     if args.probe is not None:
@@ -1123,8 +1200,10 @@ def main() -> None:
         print( "    On crash: python3 scripts/patch_firmware.py --probe 0x<PC>")
         print()
 
-    print(f"[*] Applying {len(active)} patch(es) (phase={args.phase or 'all'})…")
-    count, warnings = apply_patches(data, active, phase=args.phase)
+    print(f"[*] Applying {len(active)} patch(es) (phase={args.phase or 'all'}"
+          f"{', skip-bamboo-only' if args.r1mx else ''})…")
+    count, warnings = apply_patches(data, active, phase=args.phase,
+                                    skip_bamboo_only=args.r1mx)
 
     for w in warnings:
         print(f"  [!] {w}", file=sys.stderr)
