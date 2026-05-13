@@ -4,7 +4,7 @@
 Load this document at the start of any RE session. No need to hunt through PDFs or separate analysis files.
 
 **Firmware binary:** `firmware/reverse/build_32/extracted/software.bin`
-**CPU:** PowerPC 405GP, 32-bit, big-endian
+**CPU:** PowerPC 405F6 (Xilinx Virtex-4 FX hard-macro core), 32-bit, big-endian
 **OS:** VxWorks WIND kernel 2.10 (Wind River Platform ~6.x)
 **Build date:** September 7, 2013
 **SHA-256:** `416e148c9eb4b818bef004ebe6294dcbb1e74026604fdb964178fe9e2b65d9cd`
@@ -13,7 +13,7 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 
 ## Table of Contents
 
-1. [PPC405GP Architecture Reference](#1-ppc405gp-architecture-reference)
+1. [PPC405F6 Architecture Reference](#1-ppc405f6-architecture-reference)
 2. [Ha/Lo Addressing — The Pointer Offset Problem](#2-halo-addressing--the-pointer-offset-problem)
 3. [PPC405 Calling Convention](#3-ppc405-calling-convention)
 4. [Binary Memory Layout](#4-binary-memory-layout)
@@ -33,10 +33,12 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 18. [Firmware Modification Workflow](#18-firmware-modification-workflow)
 19. [Physical Camera Debug Interfaces](#19-physical-camera-debug-interfaces)
 20. [Embedded Resources Map](#20-embedded-resources-map)
+21. [FPGA Bitstream Analysis](#21-fpga-bitstream-analysis-fpgabin)
+22. [Recommended Toolchain](#22-recommended-toolchain)
 
 ---
 
-## 1. PPC405GP Architecture Reference
+## 1. PPC405F6 Architecture Reference
 
 ### General Purpose Registers
 
@@ -63,15 +65,34 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 | SRR0 | 26 | Save/Restore Register 0 — PC at exception |
 | SRR1 | 27 | Save/Restore Register 1 — MSR at exception |
 | SPRG0–3 | 272–275 | Software-use SPRs (VxWorks uses for per-CPU data) |
-| PVR | 287 | Processor Version Register (read-only); 405GP = `0x40110000` |
+| PVR | 287 | Processor Version Register (read-only); **PPC405F6 = `0x20011000`** (⚠ not 0x40110000 which is 405GP) |
 | MSR | — | Machine State Register (via `mfmsr`/`mtmsr`) |
-| DBCR0 | 1010 | Debug Control Register 0 |
-| DBCR1 | 1011 | Debug Control Register 1 |
-| DBSR | 1008 | Debug Status Register |
-| EVPR | 982 | Exception Vector Prefix Register |
-| CCR0 | 947 | Core Configuration Register 0 |
-| ICCR | 1011 | Instruction Cache Cacheable Regions |
-| DCCR | 1018 | Data Cache Cacheable Regions |
+| DBCR0 | 1010 (0x3F2) | Debug Control Register 0 |
+| DBCR1 | 957 (0x3BD) | Debug Control Register 1 |
+| DBSR | 1008 (0x3F0) | Debug Status Register |
+| EVPR | 982 (0x3D6) | Exception Vector Prefix Register |
+| ESR | 980 (0x3D4) | Exception Syndrome Register |
+| DEAR | 981 (0x3D5) | Data Exception Address Register |
+| SRR2 | 990 (0x3DE) | Critical Save/Restore Register 0 (40x only) |
+| SRR3 | 991 (0x3DF) | Critical Save/Restore Register 1 (40x only) |
+| TSR | 984 (0x3D8) | Timer Status Register |
+| TCR | 986 (0x3DA) | Timer Control Register |
+| CCR0 | 947 (0x3B3) | Core Configuration Register 0 |
+| ZPR | 944 (0x3B0) | Zone Protection Register |
+| MMUCR | 946 (0x3B2) | MMU Control Register |
+| DAC1 | 1014 (0x3F6) | Data Address Compare 1 |
+| DAC2 | 1015 (0x3F7) | Data Address Compare 2 |
+| ICCR | 1019 (0x3FB) | Instruction Cache Cacheable Regions |
+| DCCR | 1018 (0x3FA) | Data Cache Cacheable Regions |
+
+**⚠ 40x vs Book E (PPC440) SPR differences:** The PPC405F6 uses **40x family** SPR numbers, which differ significantly from Book E (PPC440). If you see tooling, scripts, or notes referencing `IVPR` (Book E), `CSRR0/CSRR1` (Book E critical save), or DBSR=0x130 — those are **PPC440 values, not valid here**. Key 40x-specific differences:
+
+| 40x (PPC405F6) ✅ | Book E (PPC440) ❌ | Notes |
+|---|---|---|
+| `EVPR` SPR 982 | `IVPR` SPR 63 | Exception vector base |
+| `DBSR` SPR 1008 | `DBSR` SPR 0x130 | Debug status |
+| `DBCR0` SPR 1010 | `DBCR0` SPR 0x134 | Debug control |
+| `SRR2`/`SRR3` SPR 990/991 | `CSRR0`/`CSRR1` SPR 58/59 | Critical interrupt save |
 
 ### Machine State Register (MSR) — key bits
 
@@ -101,7 +122,7 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 | `0x0500` | External interrupt | VxWorks IRQ dispatcher |
 | `0x0600` | Alignment | VxWorks alignment handler |
 | `0x0700` | Program (illegal instr, priv viol, trap) | VxWorks program exception |
-| `0x0800` | FP unavailable | stub (no FPU on 405GP) |
+| `0x0800` | FP unavailable | stub (no FPU on PPC405F6) |
 | `0x0900` | Decrementer | VxWorks tick handler |
 | `0x0C00` | System call | VxWorks syscall |
 | `0x0D00` | Trace | Debug trace handler |
@@ -196,12 +217,16 @@ HA  = 0x00D3
 ```
 Assembly: `lis r3, 0xD3` then `addi r3, r3, 0x44` → `r3 = 0x00D30044` ✓
 
-**Address `0x40600000` (UART Lite MMIO):**
+**Address `0xe0600000` (UART Lite MMIO — XUartLite base, confirmed):**
 ```
 LO  = 0x0000
-HA  = 0x4060
+HA  = 0xe060
 ```
-Assembly: `lis r3, 0x4060` then no `addi` needed (or `addi r3, r3, 0`)
+Assembly: `lis r3, 0xe060` then no `addi` needed (or `addi r3, r3, 0`)
+
+> ⚠️ WARNING: `lis rX, 0x40xx` is **NOT** an MMIO access — it loads the high word of an
+> IEEE 754 floating-point constant. E.g. `0x40600000` = float32 **3.5**; `0x40240000` =
+> float64 **10.0**; `0x40590000` = float64 **100.0**. All MMIO is at `0xE0000000+`.
 
 ### Quick Reference Table for Common High Bytes
 
@@ -214,7 +239,10 @@ Assembly: `lis r3, 0x4060` then no `addi` needed (or `addi r3, r3, 0`)
 | `0xD4xxxx` (≥ 0x8000) | `0xD5` | FLUT data |
 | `0xDCxxxx` (≥ 0x8000) | `0xDD` | C++ vtable symbol strings |
 | `0xDFxxxx` (< 0x8000) | `0xDF` | driver config table names |
+| `0xE0xxxx` (< 0x8000) | `0xE0` | MMIO peripherals (UartLite 0xe0600000, etc.) |
+| `0xE0xxxx` (≥ 0x8000) | `0xE1` | MMIO peripherals (XIntc 0xe0800000 → HA=0xE081) |
 | `0xE9xxxx` (≥ 0x8000) | `0xEA` | BSS-adjacent variables |
+| `0x40xxxx` **⚠️ FLOAT** | — | **IEEE 754 constant, NEVER MMIO** — 0x40240000=10.0, 0x40590000=100.0 |
 
 ### Python Helper
 
@@ -352,8 +380,12 @@ VxWorks on this BSP runs with the MMU disabled (MSR.IR=0, MSR.DR=0). All address
 0x00E9BF20 – 0x01153480   BSS segment (runtime zero-init)
 0x01153480 – 0x0FFFFFFF   Heap / task stacks / dynamic allocations
 
-[MMIO — above 0x40000000]
-0x40000000 – 0x5FFFFFFF   FPGA peripheral registers (via OPB/PLB bus)
+[MMIO — above 0xE0000000]
+0xE0000000 – 0xE1FFFFFF   FPGA peripheral registers (via PLB bus, 64KB per slot)
+0xE2000000 – 0xE203FFFF   PCI config aperture (256KB window)
+0xA0000000 – 0xBFFFFFFF   PCI memory space (512MB window includes 64MB usable)
+0xF0000000 – 0xF7FFFFFF   NOR Flash (128MB)
+0xFFFF0000 – 0xFFFFFFFF   Boot ROM / VxWorks reset vector (64KB)
 ```
 
 ### Key VxWorks Data Structures
@@ -384,25 +416,147 @@ VxWorks on this BSP runs with the MMU disabled (MSR.IR=0, MSR.DR=0). All address
 
 ## 6. MMIO Peripheral Map
 
-All peripherals are in the FPGA fabric at `0x4000_0000+`. The PPC405GP internal peripherals (SDRAM, EBC, clocks) use the DCR bus (see Section 7).
+> ⚠️ **CRITICAL: 0x40xxxxxx values are IEEE 754 floats, NOT MMIO addresses.**
+> The firmware's RED camera math library stores float64/float32 constants in the 0x40xxxxxx
+> range: `0x40240000` = float64 **10.0**, `0x40340000` = **20.0**, `0x40590000` = **100.0**,
+> `0x40600000` = float32 **3.5**, `0x40C00000` = float32 **6.0**. Any pattern matching
+> `lis rX, 0x40??` in the code is loading a float constant, never an MMIO base address.
+> The actual MMIO range is **0xE0000000+**.
+>
+> Evidence: PLB memory-map table at file offset 0xdfbbc8 lists all peripheral base
+> addresses using the 0xC7 entry marker. Every entry uses 0xE0xxxxxx (or 0xE1/0xE2/0xA0/0xF0
+> for PCI/flash). No 0x40xxxxxx entry exists in that table.
 
-### Confirmed Peripherals
+All FPGA peripherals are mapped at `0xE000_0000+` on the PLB bus. PPC405F6 internal
+peripherals (SDRAM, EBC, clocks, UIC interrupt controller) use the DCR bus (see Section 7).
 
-| MMIO Base | Peripheral | Reference count | Notes |
-|-----------|------------|----------------|-------|
-| `0x40000000` | FPGA primary register block | 223 | Master FPGA control interface |
-| `0x40600000` | Xilinx UART Lite | 107 | First MMIO accessed in boot; `sysSerialInit` at `0x1C18DC` |
-| `0x408F0000` | Unknown | 67 | High ref-count — likely interrupt or timer |
-| `0x40590000` | Unknown | 35 | |
-| `0x40340000` | Unknown | 47 | |
-| `0x40240000` | Unknown | 36 | |
-| `0x40100000` | Unknown | 35 | |
-| `0x40040000` | Unknown | 31 | |
-| `0x40400000` | Unknown | 16 | |
-| `0x40080000` | Unknown | 15 | |
-| `0x40C00000` | XEmacLite (Ethernet MAC) | — | From boot config string; WDB transport |
+### Confirmed IP Core Inventory (from BSP source filenames in firmware symtab)
 
-### XEmacLite Register Layout (at 0x40C00000)
+The firmware symbol table (`0xD00000–0xDFFFFF`) contains the full BSP source paths
+`C:/sundance/SW/32_0_3/Sundance/bsp_ppc405_0_revB/ppc405_0_drv_csp/xsrc/<file>`.
+These files identify **exactly** which Xilinx EDK IP cores are instantiated in the FPGA:
+
+| Driver source file | Xilinx IP Core | Category |
+|--------------------|----------------|----------|
+| `xuartlite.c` + `_intr/sinit/stats/selftest/sio_adapter` | xps_uartlite | UART |
+| `xuartns550.c` + `_adapter/format/intr/options/selftest/sinit/stats` | xps_uartns550 | UART (16550) |
+| `xemaclite.c` + `_end_adapter/intr/selftest` | xps_emaclite | Ethernet MAC |
+| `xintc.c` + `_intr/options/selftest` | xps_intc | Interrupt controller |
+| `xiic.c` + `_intr/options/selftest/sinit/stats` | xps_iic | I²C controller |
+| `xpci.c` + `xpci_config/intr/selftest/v3` | xps_pci_v3 | PCI bridge |
+| `xdma_channel.c` + `_sg` | xps_central_dma | DMA engine |
+| `xdma_multi.c` + `_sg` | xps_central_dma (multi) | DMA engine |
+| `xopbarb.c` + `_selftest` | xps_opbarb | OPB arbiter |
+| `xplbarb.c` + `_selftest` | xps_plbarb | PLB arbiter |
+| `xipif_v1_23_b.c` | IPIF v1.23b | Common IP interface layer |
+| `xio_dcr.c` | — | DCR bus access driver |
+| `xversion.c` | — | BSP version strings |
+
+**Absent:** `xtmrctr.c` — timer uses PPC405 internal PIT/FIT/WDT (SPRs), not xps_tmrctr.
+**Absent:** `xgpio.c` — GPIO expansion uses PCA9698 I²C expanders accessed via XIic driver.
+
+### PLB Memory Map Table (file offset 0xdfbbc8)
+
+The BSP initialises the PLB address decoder from a table at file offset **0xdfbbc8**.
+Entry format (32 bytes each): `[0xc7][0x00][base][0x00][0x00][base][0x10000][0x0fff]`
+— 0xc7 marker, base address repeated, size 0x10000 (64KB) for most peripherals.
+
+Found entries (in order, from PLB table at 0xdfbbc8 — 20 entries total):
+```
+0x0ff9c000  Heap/RAM end marker (size 0x64000 = 400KB, heap boundary sentinel)
+0x80000000  PCI memory window (size 0x20000000 = 512MB, secondary PCI aperture)
+0xe0600000  XUartLite (UART Lite, 115200 baud)       ← confirmed: config at 0xe005dc
+0xe0640000  XUartNs550 #1 (NS16550 UART, 100MHz)     ← confirmed: config at 0xe00600
+0xe0650000  XUartNs550 #2 (NS16550 UART, 100MHz)     ← confirmed: config at 0xe00614
+0xe0800000  XIntc (Interrupt Controller)              ← confirmed: config table at 0xe003f4
+0xe1200000  XPci_v3 register space (64KB, large register window)
+0xe1020000  XEmacLite (Ethernet MAC)                 ← confirmed: config at 0xe00390
+0xb2600000  XIic (I²C controller)                   ← confirmed: code at 0xdd24-0xdd30 accesses
+                                                        RX_FIFO (+0x10C) and ADR (+0x110)
+0x64010000  XDmaChannel (DMA engine) — candidate; no code refs found yet
+0xe00a0000  Custom RED histogram IP
+0xe0200000  Custom RED histogram IP
+0xe0100000  Custom RED histogram IP
+0xe0120000  Custom RED histogram IP
+0xe2000000  PCI config aperture (size 0x40000 = 256KB, exception to 64KB norm)
+0xe0080000  Custom RED histogram IP
+0xa0000000  PCI memory space (64MB, primary aperture for SiI3512 + ISP1562 BARs)
+0xf0000000  NOR Flash (128MB)
+0xffff0000  Boot ROM / reset vector (64KB)
+[end sentinel: 0x00000000]
+```
+
+Device names from interrupt registration table (0xdfbe00) and string area (0xd31fc4+):
+- "Luma Histogram", "RGB Histogram", "RGB Comp Histo", "Mono Histogram",
+  "Raw Histogram", "RGBRaw Histo", "Luma Waveform" — all custom RED FPGA IP blocks.
+
+### MMIO Base → IP Core Map
+
+Entries marked ✅ confirmed from data-section config tables or QEMU runtime crashes.
+Entries marked 🔵 are from PLB map but specific IP core assignment not yet confirmed.
+Entries marked ❓ are estimated pending XFoo_Initialize call site analysis.
+
+| MMIO Base | IP Core | Confidence | Evidence |
+|-----------|---------|------------|----------|
+| `0xe0600000` | **xps_uartlite** | ✅ Confirmed | Config struct at 0xe005dc: baud=115200; QEMU crash at 0xe0600004 (TX FIFO) |
+| `0xe0640000` | **xps_uartns550 #1** | ✅ Confirmed | Config struct at 0xe00600: base + 100MHz clock |
+| `0xe0650000` | **xps_uartns550 #2** | ✅ Confirmed | Config struct at 0xe00614: base + 100MHz clock |
+| `0xe0800000` | **xps_intc** | ✅ Confirmed | Config table at 0xe003f4: DeviceId=0, Base=0xe0800000, 32×default_handler entries |
+| `0xe1020000` | **xps_emaclite** | ✅ Confirmed | Config at 0xe00390: [0x00][0xe1020000][TxPP=1][RxPP=1] + 7 VxWorks END adapter fn ptrs |
+| `0xb2600000` | **xps_iic** | ✅ Confirmed | Code at 0xdd24-0xdd30: `lis r4, 0xb260; ori r4,r4,0x010c` (RX_FIFO) and `ori r5,r5,0x0110` (ADR) |
+| `0xe00a0000` | Custom RED histogram IP | 🔵 PLB table | Device name strings at 0xd31fc4 |
+| `0xe0080000` | Custom RED histogram IP | 🔵 PLB table | Device name strings |
+| `0xe0100000` | Custom RED histogram IP | 🔵 PLB table | Device name strings |
+| `0xe0120000` | Custom RED histogram IP | 🔵 PLB table | Device name strings |
+| `0xe0200000` | Custom RED histogram / waveform IP | 🔵 PLB table | "Luma Waveform" string |
+| `0xe1200000` | **xps_pci_v3** (register space) | 🔵 PLB table | Large window; PCI bridge for SiI3512 + ISP1562 |
+| `0x64010000` | **xps_central_dma** | ❓ Candidate | PLB table; no code references found; XDmaChannel symbols present in binary |
+| `0xe2000000` | PCI config aperture | 🔵 PLB table | 256KB window; standard XPci_v3 config access |
+| `0xa0000000` | PCI memory window (primary) | 🔵 PLB table | 64MB; PCI device BARs (SiI3512 SATA, ISP1562 USB) |
+| `0x80000000` | PCI memory window (secondary) | 🔵 PLB table | 512MB; additional PCI aperture |
+| `0xf0000000` | NOR Flash | 🔵 PLB table | 128MB EBC/flash window |
+| `0xffff0000` | Boot ROM | 🔵 PLB table | VxWorks reset vector (64KB) |
+
+### xps_intc Register Layout (at 0xe0800000 — confirmed)
+
+Standard Xilinx `XIntc` register map (IPIF v1.23b, EDK 10.1):
+
+| Offset | Register | Description |
+|--------|----------|-------------|
+| `+0x00` | ISR | Interrupt Status Register (pending and unmasked) |
+| `+0x04` | IPR | Interrupt Pending Register |
+| `+0x08` | IER | Interrupt Enable Register |
+| `+0x0C` | IAR | Interrupt Acknowledge Register (write 1 to clear) |
+| `+0x10` | SIE | Set Interrupt Enable |
+| `+0x14` | CIE | Clear Interrupt Enable |
+| `+0x18` | IVR | Interrupt Vector Register (index of highest-priority active IRQ) |
+| `+0x1C` | MER | Master Enable Register (bit0=ME, bit1=HIE hardware enable) |
+
+### xps_iic Register Layout (at 0xb2600000 — confirmed)
+
+Standard Xilinx `XIic` register map:
+
+| Offset | Register | Description |
+|--------|----------|-------------|
+| `+0x1C` | GIE | Global Interrupt Enable (bit 31 = global enable) |
+| `+0x20` | ISR | Interrupt Status Register |
+| `+0x28` | IER | Interrupt Enable Register |
+| `+0x40` | SOFTR | Software Reset (write 0xA to reset) |
+| `+0x100` | CR | Control Register (bit5=TX, bit4=RSTA, bit3=TXAK, bit2=TXRX, bit1=MSMS, bit0=EN) |
+| `+0x104` | SR | Status Register (bit6=BB bus-busy, bit5=AAS, bit2=TXFIFO_Empty) |
+| `+0x108` | TX_FIFO | Write byte to transmit |
+| `+0x10C` | RX_FIFO | Read received byte |
+| `+0x110` | ADR | Slave address (7-bit in bits 7:1) |
+| `+0x124` | GPO | General Purpose Output (for AuxGpio signals) |
+
+### XEmacLite Register Layout (at 0xe1020000 — confirmed)
+
+Config struct at firmware offset 0xe00390: DeviceId=0, Base=0xe1020000, TxPingPong=1,
+RxPingPong=1, IncludeMdio=0. Followed by 7 VxWorks MUX END adapter function pointers
+(init, ioctl, send, recv, pollSend, pollRecv, mcastAddrAdd).
+
+**This is the WDB/gdbserver network transport.** To connect WDB agent: set target IP and
+connect via wdbserial or wdbnetwork on the XEmacLite MAC.
 
 | Offset | Register | Description |
 |--------|----------|-------------|
@@ -414,7 +568,7 @@ All peripherals are in the FPGA fabric at `0x4000_0000+`. The PPC405GP internal 
 | `+0x87E` | RX status/ctrl | Bit 0: RxEmpty (0 = data ready) |
 | `+0xFFC` | MAC address | First 4 bytes of MAC |
 
-### Xilinx UART Lite Register Layout (at 0x40600000)
+### Xilinx UART Lite Register Layout (at 0xe0600000 — confirmed)
 
 | Offset | Register | Description |
 |--------|----------|-------------|
@@ -423,22 +577,27 @@ All peripherals are in the FPGA fabric at `0x4000_0000+`. The PPC405GP internal 
 | `+0x08` | Status | Bit 0: RX valid; Bit 2: TX full; Bit 3: TX empty |
 | `+0x0C` | Control | Bit 0: Reset TX FIFO; Bit 1: Reset RX FIFO; Bit 4: Enable interrupts |
 
-**Baud rate:** Fixed at FPGA compile time (not software-configurable). Likely 115200 based on standard Xilinx EDK reference design defaults. Confirm from FPGA bitstream analysis or physical testing.
+**Baud rate:** Fixed at 115200 (confirmed from XUartLite SIO config struct at 0xe005dc,
+field `baud_rate = 0x0001C200`). FIFO depth: 2048 bytes (0x800).
 
 ### First MMIO Accesses in Boot (crash candidates in QEMU)
 
+> Note: `lis r0, 0x4010` and similar 0x40xx patterns are **float constant loads**,
+> not MMIO accesses. Do NOT stub addresses in the 0x40000000–0x5FFFFFFF range.
+
 ```
-0x000012DB4  lis r0, 0x4010  → MMIO addr 0x4010E507  (unknown)
-0x000012DD4  lis r0, 0x4004  → MMIO addr 0x4004E505  (unknown)
 0x0000DCB0   sysHwInit_seq   → calls sub at 0x1C8BC repeatedly (device enable codes)
-0x001C18DC   sysSerialInit   → accesses UART Lite at 0x40600000
+0x001C18DC   sysSerialInit   → accesses UART Lite at 0xe0600000
+0xe0600004   TX FIFO         → QEMU MCE patch #37 (NOP TX write)
+0xe0600008   Status reg      → QEMU MCE patch #38 (NOP status read)
+0xe0be00xx   Unknown custom  → QEMU MCE patches #39–41 (fn_9B78 MMIO write)
 ```
 
 ---
 
 ## 7. DCR (On-Chip Peripheral) Map
 
-The PPC405GP has on-chip peripherals accessible via the Device Control Register (DCR) bus. QEMU's `bamboo` machine silently ignores unknown `mtdcr`/`mfdcr` accesses — these should not cause crashes.
+The PPC405F6 (Xilinx Virtex-4 hard-macro) has on-chip peripherals accessible via the Device Control Register (DCR) bus. ⚠ **`bamboo` machine uses PPC440 with wrong PVR family — see Section 15 for correct QEMU setup.** DCR `mtdcr`/`mfdcr` for unknown registers silently returns 0 on most QEMU PPC405 targets — these should not cause crashes.
 
 | DCR Range | Peripheral | Key registers |
 |-----------|------------|---------------|
@@ -452,6 +611,25 @@ The PPC405GP has on-chip peripherals accessible via the Device Control Register 
 | `0x108–0x10F` | DMA channel 1 | |
 | `0x200–0x20F` | MAL (Memory Access Layer) | Ethernet DMA engine |
 | `0x400–0x4FF` | OPB arbiter | On-chip peripheral bus |
+
+### PPC405F6 (Virtex-4) On-Chip Memory (OCM) DCR Block (ug018)
+
+The Virtex-4 PPC405F6 has an OCM (On-Chip Memory) controller accessed via DCR bus.
+The DCR base is set by FPGA input port `TIEDCRADDR[0:5]`. **Offsets from that base:**
+
+| DCR offset | Register | Function |
+|------------|----------|----------|
+| +0 | ISINIT | ISOCM init data (write-only) |
+| +1 | ISFILL | ISOCM fill (write-only) |
+| +2 | ISARC | ISOCM address — upper 8 CPU address bits compared against BRAM |
+| +3 | ISCNTL | ISOCM control: bit0=enable, bit2=DCR readback, bit3=auto-ratio, bits4:7=MCM ratio |
+| +4 | UDICFG | APU UDI config |
+| +5 | APUCFG | APU config |
+| +6 | DSARC | DSOCM address — upper 8 CPU address bits |
+| +7 | DSCNTL | DSOCM control: bit0=enable, bit3=auto-ratio, bits4:7=MCM ratio |
+
+**QEMU note:** OCM is likely disabled in the RED BSP (no `xtmrctr.c`, no OCM driver in
+source list). On `ref405ep` or custom PPC405 QEMU target, unknown `mtdcr`/`mfdcr` returns 0 (disabled), which is the correct state.
 
 ### Important: EVPR Register
 
@@ -482,9 +660,9 @@ EVPR (SPR 982) sets the upper 16 bits of the exception vector base address. Defa
 
 ### Phase 1: Hardware Init Sequence (`0x36C350`)
 
-1. **Stack canary wait** (`0x36C380–0x36C394`):  
-   Waits for RAM at `0xE269A0/A4` to equal magic values `0x5A5AC3C3` / `0x12348765`.  
-   Set by a secondary init path on real hardware. **Must be patched for QEMU** (NOP the `bne` branches).
+1. **DRAM ready spin-poll** (`0x36C380–0x36C394`):  
+   Waits for RAM at `0xE269A0/A4` to equal DRAM test markers `0x5A5AC3C3` / `0x12348765`.  
+   Written by secondary DRAM init path on real hardware. **Must be patched for QEMU** (NOP the `bne` branches).
 
 2. **BSS zero-init** (`0x36C398–0x36C3AC`):  
    `memset(0xE9BF20, 0, 0x2B7560)` — zeroes 2.8MB BSS segment.
@@ -494,36 +672,52 @@ EVPR (SPR 982) sets the upper 16 bits of the exception vector base address. Defa
    First MMIO accesses — likely crash point for QEMU.
 
 4. **UART init** (`0x1C18DC`):  
-   `sysSerialInit` — configures XUartLite at `0x40600000`.  
+   `sysSerialInit` — configures XUartLite at `0xe0600000`.  
    After this, VxWorks console output starts (boot messages).
 
-5. **VxWorks kernel start**:  
-   Jumps to `kernelInit()` → spawns root task → calls `usrRoot()`.
+5. **fn_36860c** (`0x36860c`): Task creation preflight — spawns conditional tasks  
+   (only if certain globals are non-zero; skipped at cold boot → passes quickly in QEMU).
 
-6. **`usrRoot()` / `usrAppInit()`**:  
+6. **Memory boundary setup** (`0xD8A0`): Computes `heap_end = 0x0FF9C000`  
+   (`256MB - 0x64000`), stores to `[0xE0C380]`.
+
+7. **`kernelInit()`** (`0x5A7F30`) called from `0x36C424` with:
+   ```
+   r3 = 0x37C440       ; rootTask function pointer
+   r4 = 0x5DC0         ; root task stack = 23,936 bytes
+   r5 = pMemPoolStart  ; computed from BSS end (0x01153480 area)
+   r6 = 0x0FF9C000     ; pMemPoolEnd = heap_end
+   r7 = 0x1388         ; interrupt stack = 5,000 bytes
+   r8 = 0              ; lockOutLevel
+   ```
+
+8. **rootTask** at `0x37C440`: spawned by kernelInit as the first task.  
+   Calls `usrRoot()` → spawns all application tasks.
+
+9. **`usrRoot()` / `usrAppInit()`**:  
    Spawns all application tasks:
    - File system init (TFFS, ATA CF, USB mass storage)
    - Network init (XEmacLite driver, DHCP/static IP)
    - WDB agent (`usrWdbInit` at `0x36B3DC`) — **always spawned**
    - Camera subsystem tasks (sensor, FPGA, video pipeline, UI/OSD)
 
-7. **Upgrade check** (`SmartUpgrade`):  
-   Searches these paths in order:
-   ```
-   /tffs0/upgrade/redone.su
-   /ata00:1/upgrade/redone.su
-   /ata10:1/upgrade/redone.su
-   /sdmc/upgrade/redone.su
-   /usbd0/upgrade/redone.su
-   ```
+10. **Upgrade check** (`SmartUpgrade`):  
+    Searches these paths in order:
+    ```
+    /tffs0/upgrade/redone.su
+    /ata00:1/upgrade/redone.su
+    /ata10:1/upgrade/redone.su
+    /sdmc/upgrade/redone.su
+    /usbd0/upgrade/redone.su
+    ```
 
 ---
 
-## 9. Stack Canary — QEMU Patch
+## 9. DRAM Ready Spin-Poll — QEMU Patch
 
 ### The Problem
 
-At boot offset `0x36C380`, the firmware spins in an infinite loop waiting for two magic values to appear in RAM. On real hardware, these are written by a secondary initialization path (likely the FPGA or a secondary CPU core). In QEMU, RAM is zero-initialized and nothing writes these values → **boot hangs forever**.
+At boot offset `0x36C380`, the firmware spins waiting for two DRAM test marker values to appear in RAM. On real hardware, these are written by the DRAM controller initialization sequence after memory is validated. In QEMU, RAM is zero-initialized and nothing writes these values → **boot hangs forever**.
 
 ### Canary Details
 
@@ -559,7 +753,9 @@ Disassembly:
 
 ### Additional Patches (MMIO stubs — find at runtime)
 
-First MMIO crash expected at `0x12DB4` (accesses `0x4010E507`). Use `--debug` mode to find subsequent crash points. Document each in `patch_firmware.py`.
+> First MMIO crashes will be in the 0xe0xxxxxx range (confirmed: 0xe0600004 TX FIFO = patch #37).
+> `lis r0, 0x4010` patterns are float constant loads — ignore them.
+> Use QEMU `--debug` mode to find crash points at unmapped 0xe0xxxxxx addresses. Document each in `patch_firmware.py`.
 
 ---
 
@@ -624,8 +820,16 @@ With all 44 patches applied, confirmed via single-step tracing:
 - **fn_458a14(r3=1)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e8, r3=0)
 - **fn_36860c** entered at 0x36860c — not yet confirmed to complete
 
-**Next milestone:** Run with BP at 0x36c3f0 (fn_36860c return) and 0x36c424 (kernelInit).
-If fn_36860c stalls, single-step through its 8 sub-calls to find the blocker.
+**fn_36860c analysis (static):** No direct MMIO access. All 7 sub-calls are VxWorks
+task-spawn/messaging functions with guard checks (`[0xFCA3C0] != 0` etc.) that skip
+the spawns at cold boot. fn_36860c should pass quickly in QEMU.
+
+**After fn_36860c → fn_D8A0 (x2) → kernelInit at 0x36C424:**
+- fn_D8A0 computes `heap_end = 0x0FF9C000` (256MB − 0x64000); no MMIO.
+- No MMIO blockers found between fn_36860c return and kernelInit.
+
+**Next milestone:** BP at `0x36C424` (kernelInit). If it fires, next BP at `0x37C440` (rootTask).
+If fn_36860c stalls, single-step its 7 sub-calls: 0x445434, 0x5ACC58, 0x43C4FC, 0x448520, 0x5B0A84, 0x498CD8, 0x5B75E8.
 
 ### Session 8 — Critical GDB RSP Operational Notes
 
@@ -771,11 +975,12 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 |---------|----------|-------------|
 | `0x00000000` | `romInit` / reset vector | Hardware init, exception table |
 | `0x00000124` | halt loop | `b 0x124` — infinite loop |
+| `0x00371F30` | `sysPvrGet` (candidate) | `mfspr r3, PVR(287)` → returns `0x20011000`; raw instr `0x7C7F42A6` |
 | `0x0000DCB0` | `sysHwInit_seq` / `fn_DCB0` | Hardware sequencer — completes with patches 1–41 |
 | `0x0000D8A0` | timer/clock helper | Called from `0x36C3F0/F8` |
 | `0x00012D90` | MMIO dispatch table | Large switch on peripheral base |
-| `0x001C18DC` | `sysSerialInit` | XUartLite init at 0x40600000 |
-| `0x001C1A0C` | first UART Lite access | `lis rX, 0x4060` in serial init |
+| `0x001C18DC` | `sysSerialInit` | XUartLite init at 0xe0600000 |
+| `0x001C1A0C` | first UART Lite access | `lis rX, 0xe060` in serial init |
 | `0x0036B3DC` | `usrWdbInit` | WDB agent init — always called |
 | `0x0036B7EC` | BSP init caller | Calls `usrWdbInit`, spawns WDB task |
 | `0x0036C350` | `usrInit` | Main boot init |
@@ -788,8 +993,9 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 | `0x0037CC94` | `fn_37cc94` | 40-byte frame function; fn_37cd4c is its epilogue |
 | `0x0037CD4C` | `fn_37cd4c` | Epilogue of fn_37cc94 — RUNTIME dispatch table entry 0 (would crash fn_458a14; bypassed by Patch #44) |
 | `0x0037CE78` | `fn_37ce78` | RUNTIME dispatch table entry 1 (mid-function of fn_37cc94) |
-| `0x0036860C` | `fn_36860c` | Called after both fn_458a14 calls (usrInit:0x36c3ec) — 8 sub-calls, likely VxWorks memory pool init |
+| `0x0036860C` | `fn_36860c` | Called after both fn_458a14 calls (usrInit:0x36c3ec) — 7 sub-calls, conditional task spawning (guards prevent execution at cold boot) |
 | `0x005A7F30` | `kernelInit` | VxWorks kernel init — MILESTONE (usrInit:0x36c424) |
+| `0x0037C440` | `rootTask` | First VxWorks task spawned by kernelInit; calls usrRoot() |
 
 **usrInit layout (0x36c350):**
 ```
@@ -801,10 +1007,17 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 0x36c3e0: li r3, 1
 0x36c3e4: bl fn_458a14 r3=1   <- PATCHED: Patch #44 → returns 0 ✓
 0x36c3e8: addis r29,r0,0xea   <- overwrites r3; return value ignored
-0x36c3ec: bl fn_36860c        <- CURRENT TARGET (entered; may or may not complete)
-0x36c3f0: bl fn_0000d8a0      <- timer/clock helper
-...
-0x36c424: bl 0x5a7f30         <- kernelInit MILESTONE
+0x36c3ec: bl fn_36860c        <- conditional task spawns (guard-checked; passes in QEMU)
+0x36c3f0: bl fn_0000d8a0      <- heap_end = 0x0FF9C000
+0x36c3f4: stw r3, [0xE9C630]  <- store heap_end
+0x36c3f8: bl fn_0000d8a0      <- early return (already set)
+... arithmetic: compute pMemPoolStart from heap_end and BSS end ...
+0x36c40c: lis r3, 0x38        <- r3 = rootTask fn ptr (becomes 0x37C440)
+0x36c414: addi r3, r3, -0x3bc0
+0x36c418: addi r4, r0, 0x5dc0  <- rootTask stack = 0x5DC0 bytes
+0x36c41c: addi r7, r0, 0x1388  <- int stack = 5000 bytes
+0x36c420: addi r8, r0, 0x0
+0x36c424: bl 0x5a7f30         <- kernelInit(rootTask, stackSz, poolStart, poolEnd, intSz, 0)
 0x36c43c: blr                 <- usrInit end
 ```
 
@@ -852,6 +1065,16 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 | WDB port var | `0x00E9C4BC` | Stores value `17185` (0x4321) |
 | Canary addr 1 | `0x00E269A4` | Expected: `0x12348765` (in BSS region) |
 | Canary addr 2 | `0x00E269A0` | Expected: `0x5A5AC3C3` |
+
+### PVR Value Locations in Binary
+
+| Address | Value | Context |
+|---------|-------|---------|
+| `0xD177A4` | `0x20011000` | PVR lookup table — entry for Virtex-4 FX PPC405F6 |
+| `0xD17961` | `0x20011000` | Comparison table — alongside Virtex-2 Pro entry (`0x20010000`) |
+
+These confirm the firmware targets PPC405F6 (`0x20011000`), **not** PPC405GP (`0x40110000`).
+The constant `0x40110000` does not appear anywhere in the binary.
 
 ### Key Static Data Addresses (dispatch table / fn_458a14)
 
@@ -945,9 +1168,9 @@ wdbrpc 192.168.0.2 17185
 
 ### Option C: UART Serial
 
-**XUartLite** (FPGA, at `0x40600000`):
-- Fixed baud rate (baked into FPGA bitstream — likely 115200)
-- Likely connected to an internal path (lens control?)
+**XUartLite** (FPGA, at `0xe0600000` — confirmed):
+- Fixed baud rate 115200 (confirmed from config struct at 0xe005dc)
+- FIFO depth 2048 bytes; likely connected to debug/serial console
 
 **XUartNs550** (16550-compatible):
 - Programmable baud rate
@@ -965,6 +1188,44 @@ Compiled in but requires a shell to be installed first. Once USB shell or altshe
 ### Option E: altshell (`/tffs0/altshell`)
 
 If a binary named `altshell` exists at `/tffs0/altshell` on the camera's NOR flash, it's loaded at boot instead of the normal shell. Write via WDB: create file via TFFS API calls.
+
+### Option F: Hardware JTAG (PPC405 + FPGA TAP chain)
+
+Both the PPC405 processor TAP and the Virtex-4 FPGA TAP are in the **same JTAG chain** on
+the camera PCB (accessed via the JTAG header pins). Wind River Probe/ICE or a
+Xilinx Platform Cable can be used. A `.brd` board file specifying the chain order is required.
+
+**Virtex-4 FPGA JTAG instruction codes** (10-bit IR, ug071):
+
+| IR (10-bit) | Instruction | Purpose |
+|-------------|-------------|---------|
+| `1111000100` | CFG_OUT | Readback FPGA config via JTAG |
+| `1111000101` | CFG_IN | Configure FPGA via JTAG |
+| `1111001001` | IDCODE | Read device IDCODE (returns `0x01EE4093` for XC4VFX100) |
+| `1111001011` | JPROGRAM | Reset/clear config memory (same as PROG_B pulse) |
+| `1111001100` | JSTART | Clock startup sequence after config |
+| `1111001101` | JSHUTDOWN | Clock shutdown sequence before reconfig |
+| `1111001000` | USERCODE | Read user-defined code |
+| `1111001010` | HIGHZ | Tri-state all I/Os |
+
+**PPC405F6 JTAG instruction codes** (4-bit IR, ug018):
+
+| IR (4-bit) | Instruction |
+|------------|-------------|
+| `1111` | PPC_BYPASS |
+| `0101` | PPC_DEBUG_1 |
+| `0111` | DEBUG_2 |
+| `1001` | DEBUG_3 |
+| `1010` | DEBUG_4 |
+| `1011` | DEBUG_5 |
+| `1100` | DEBUG_6 |
+| `1101` | DEBUG_7 |
+| `1110` | DEBUG_8 |
+
+**Notes (ug018):**
+- `TRST` is **not implemented** in the Virtex-4 FPGA device — leave floating or tie high
+- `TCK` max rate = **½ CPU clock** (if CPU = 400 MHz → max TCK = 200 MHz; use ≤33 MHz in practice)
+- Hardware debug signals: `DBGC405DEBUGHALT`, `DBGC405UNCONDDEBUGEVENT`, `C405DBGWBFULL`, `C405DBGWBIAR[0:29]`
 
 ---
 
@@ -1074,18 +1335,50 @@ The firmware searches these paths at boot (in order):
 
 ## 15. QEMU Setup & Usage
 
+### ⚠ Critical: QEMU Machine Selection
+
+**`-machine bamboo` is WRONG for this firmware.** Bamboo is a PowerPC 440 evaluation board
+(`ppc440ep` CPU, PVR = `0x422218XX`). The RED firmware runs on a **PowerPC 405F6**
+(PVR = `0x20011000`). Using bamboo causes a PVR family mismatch and the VxWorks BSP will
+fail its CPU version check at boot.
+
+| Machine | CPU | PVR | Status |
+|---------|-----|-----|--------|
+| `bamboo` | ppc440ep | `0x422218xx` | ❌ Wrong CPU family |
+| `ref405ep` | ppc405ep | `0x40120483` | ⚠ Best available in QEMU ≤ 8.2.0 (removed in 8.3+) |
+| `virtex4-ml410` | ppc405f6 | `0x20011000` | ✅ Correct — **does not exist yet, must be written** |
+
+> ⚠️ **QEMU 10.x (current environment)**: `ref405ep` is REMOVED. Available machines are
+> `bamboo` (PPC440) and `virtex-ml507` (Virtex-5/PPC440) — both use wrong CPU family.
+> To use QEMU for this firmware, either: (a) build QEMU 8.2.0 from source, or
+> (b) write `hw/ppc/virtex4_ml410.c` custom machine for any QEMU version.
+
+**Short-term (pin to QEMU 8.2.0 — build from source):**
+```bash
+# Build QEMU 8.2.0 from source (ref405ep present):
+git clone https://gitlab.com/qemu-project/qemu.git qemu-8.2
+cd qemu-8.2 && git checkout v8.2.0
+./configure --target-list=ppc-softmmu --prefix=/opt/qemu-8.2
+make -j$(nproc) && make install
+# Use ref405ep — PVR 0x20010820 (Xilinx family prefix matches, close enough)
+/opt/qemu-8.2/bin/qemu-system-ppc -machine ref405ep -cpu x2vp4 ...
+```
+
+**Long-term:** Write `hw/ppc/virtex4_ml410.c` (~300 lines) based on the existing
+`virtex_ml507.c` (which is PPC440, Virtex-5) but substituting ppc405f6 CPU + correct DCR map.
+Key fields to set: `PVR = 0x20011000`, memory at 0x0, MMIO at 0xe0000000+, no PCIe.
+
 ### Prerequisites
 
 ```bash
-# Install QEMU (if not present):
-apt install qemu-system-ppc
+# Install QEMU 8.2.0 (last version with ref405ep):
+# Build from source or use distro package; verify:
+qemu-system-ppc --version    # must be <= 8.2.0 for ref405ep
 
 # Install radare2:
 apt install radare2
 
-# Verify:
-qemu-system-ppc --version
-r2 --version
+qemu-system-ppc --machine ref405ep,help   # confirm machine is available
 ```
 
 ### Launch (Build 32 — normal mode)
@@ -1093,7 +1386,7 @@ r2 --version
 ```bash
 cd firmware/
 qemu-system-ppc \
-    -machine bamboo \
+    -machine ref405ep \
     -m 256M \
     -nographic \
     -device "loader,file=reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on" \
@@ -1105,7 +1398,7 @@ qemu-system-ppc \
 ```bash
 # Terminal 1: start QEMU paused
 qemu-system-ppc \
-    -machine bamboo \
+    -machine ref405ep \
     -m 256M \
     -nographic \
     -S -gdb tcp::1234 \
@@ -1128,7 +1421,7 @@ ip link set tap0 up
 
 # Launch QEMU with networking:
 qemu-system-ppc \
-    -machine bamboo \
+    -machine ref405ep \
     -m 256M \
     -nographic \
     -netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
@@ -1389,7 +1682,9 @@ print(f'Result: {addr:#010x}')
 
 1. **File** → Import `reverse/build_32/extracted/software.bin`
 2. **Format:** Raw Binary
-3. **Language:** `PowerPC:BE:32:default`
+3. **Language:** `PowerPC:BE:32:4xx`  ← **CRITICAL: must use `4xx`, NOT `default`**
+   - The `4xx` variant adds PPC405-specific opcodes: `dcread`, `icread`, `dlmzb`, `mfdcr`, `mtdcr`
+   - Using `default` misses these instructions and produces incorrect decompilation
 4. **Base address:** `0x00000000`
 5. **Entry point:** `0x00000000`
 
@@ -1589,6 +1884,238 @@ The XML at `0xC6E1A4` defines all camera parameters. Each entry has the form:
 ```
 
 These parameter definitions map directly to BSS variables. Parsing this XML gives us the complete list of writable camera parameters, which is the primary attack surface for firmware modification via WDB.
+
+---
+
+## 21. FPGA Bitstream Analysis (fpga.bin)
+
+### Header Verification
+
+`fpga.bin` (4,133,176 bytes, SHA-256: `497d8f37613b235469666557edc0eadf0d96f8a6f784817284ec0dfdd2827f10`):
+
+```
+$ file fpga.bin
+fpga.bin: Xilinx RAW bitstream (.BIN)
+
+Offset 0x00: FF FF FF FF          — sync pad
+Offset 0x04: AA 99 55 66          — SYNC WORD ✓ (big-endian, SelectMAP/JTAG format)
+Offset 0x08: 20 00 00 00          — NOP
+Offset 0x0C: 30 00 80 01 (header) — Type1 WRITE CRC wc=1
+Offset 0x10: 00 00 00 07          — CRC=7 (RCRC command follows)
+...
+Offset 0x24: 30 01 80 01 (header) — Type1 WRITE KEY wc=1
+Offset 0x28: 01 EE 40 93          — KEY register = 0x01EE4093 (DES auth key or ignored)
+```
+
+> ⚠️ **Correction**: Offset 0x28 is the **KEY register value**, NOT the IDCODE.
+> No WRITE_IDCODE packet was found in the bitstream — the bitstream skips device checking.
+
+**Key:** The bitstream is **unencrypted** — AES-256 encryption was NOT used.
+The sync word is readable in plaintext, confirming full readback and analysis is possible.
+
+### Actual Packet Sequence
+
+Parsed from fpga.bin (full output):
+```
+0x0000000c  Type1 WRITE CMD = RCRC      (reset CRC)
+0x0000001c  Type1 WRITE COR = 0x000435E5 (Configuration Options Register)
+0x00000024  Type1 WRITE KEY = 0x01EE4093 (DES key; bitstream is NOT encrypted)
+0x0000002c  Type1 WRITE CMD = SWITCH
+0x00000038  Type1 WRITE MASK = 0x00000600
+0x00000040  Type1 WRITE CTL  = 0x00000600  ← PERSIST bit set (JTAG stays active)
+  ...
+0x00001240  Type1 WRITE MASK = 0x00000600
+0x00001248  Type1 WRITE CTL  = 0x00000000
+0x00001250  Type1 WRITE CMD  = NULL
+0x0000125c  Type1 WRITE FAR  = 0x00000000  (start at frame 0)
+0x00001264  Type1 WRITE CMD  = WCFG
+0x00001270  Type1 WRITE FDRI wc=0          (Type 2 header follows)
+0x00001274  Type2 WRITE wc=1031970         (4,127,880 bytes = 4,031 KB of frame data)
+0x003f0f00  Type1 WRITE CRC  = 0xFEDCC5DD  (end CRC)
+0x003f0f08  Type1 WRITE CMD  = GRESTORE
+0x003f0f14  Type1 WRITE CMD  = LFRM
+0x003f10ac  Type1 WRITE CMD  = GRESTORE
+0x003f10b8  Type1 WRITE CMD  = NULL
+0x003f10c4  Type1 WRITE FAR  = 0x00015300  (final FAR reference)
+0x003f10cc  Type1 WRITE CMD  = START
+0x003f10e8  Type1 WRITE CRC  = 0x0C011D96
+0x003f10f0  Type1 WRITE CMD  = DESYNC
+```
+
+**CTL = 0x600**: Bit 9 (PERSIST) + Bit 10 (security) set → JTAG interface STAYS ACTIVE
+after configuration. This means the JTAG TAP chain is accessible while the camera runs!
+
+**No IDCODE check**: Bitstream will load on any Xilinx device without checking device ID.
+
+### Frame Structure (ug071)
+
+All Virtex-4 frames are fixed at **41 × 32-bit words = 1312 bits**.
+
+**Frame Address Register (FAR) bit layout:**
+
+| Bits | Field | Description |
+|------|-------|-------------|
+| 22 | Top/Bottom | 0 = top half of device, 1 = bottom half |
+| 21:19 | Block type | `000`=CLB/IO/CLK  `001`=BRAM interconnect  `010`=BRAM data  `011`=CFG_CLB |
+| 18:14 | Row address | |
+| 13:9 | Column address | |
+| 5:0 | Minor address | |
+
+To extract BRAM content (calibration tables, sensor LUTs):
+filter for FAR block type = `010` frames.
+
+### Configuration Commands (CMD register codes, ug071)
+
+| Hex | Name | Purpose |
+|-----|------|---------|
+| `0001` | WCFG | Write configuration data |
+| `0011` | LFRM | Last frame (end of config data) |
+| `0100` | RCFG | Read configuration (start readback) |
+| `0101` | START | Begin startup sequence |
+| `0110` | RCAP | Reset capture |
+| `0111` | RCRC | Reset CRC |
+| `1000` | AGHIGH | Assert GHIGH |
+| `1001` | SWITCH | Switch to new configuration |
+| `1010` | GRESTORE | Restore global state |
+| `1011` | SHUTDOWN | Shutdown — required before reconfiguration |
+
+### JTAG Readback Sequence (ug071)
+
+```
+1. JSHUTDOWN (IR=1111001101)     → clock shutdown via TCK
+2. CFG_IN    (IR=1111000101)     → send RCFG + FDRO packets
+3. CFG_OUT   (IR=1111000100)     → drain frame data
+4. JSTART    (IR=1111001100)     → complete startup
+```
+
+Readback data: one pad frame (all zeros) precedes actual frame data. No CRC performed.
+Mask file (`.msk`): bit `0` = compare, bit `1` = ignore (mask out routing/config registers
+that change every run).
+
+### ICAP — Runtime Reconfiguration Status
+
+> **Result: NO ICAP driver present in firmware.**
+>
+> Searched for: XHwIcap strings, ICAP sync words (0xAA995566 / 0x665599AA), ICAP DCR
+> access patterns, `hwicap`/`ICAP` symbol table entries — ALL returned zero results.
+>
+> Conclusion: The PPC405 firmware does NOT runtime-reconfigure the FPGA via ICAP.
+> The FPGA is configured at power-on from dedicated NOR flash or via JTAG. FPGA
+> "firmware updates" likely use a separate mechanism (SPI flash reprogramming via JTAG,
+> not PPC405 runtime access).
+
+**Two FPGAs in the RED ONE MX** (discovered from firmware strings):
+
+| Internal name | Role | Update mechanism |
+|---------------|------|-----------------|
+| `iofpga` | I/O FPGA (Xilinx Virtex-4 FX) — PPC405 host, histograms, connectivity | `DrvInitIofpga`, `ColorMatrixToIofpga` — via JTAG/SPI flash |
+| `vpfpga` | Video Processing FPGA — sensor pipeline, encoding | `DrvInitVpfpga`, `ColorMatrixToVpfpga` — via JTAG/SPI flash |
+
+Key firmware symbols: `IoFPGAVersionGet`, `_sundance_targeted_iofpga`, `_sundance_targeted_vpfpga`,
+`_ZN10ExecModule22EXEC_RAMDISK_FPGA_SIZEE` (FPGA bitstream stored in RAMDISK).
+
+**CTL PERSIST bit = enabled** → JTAG access to both FPGAs is possible while camera runs.
+
+---
+
+## 22. Recommended Toolchain
+
+### vxhunter — VxWorks Symbol Extraction
+
+`vxhunter` (PAGalaxyLab/vxhunter, at `/tmp/vxhunter/`) can annotate Ghidra/radare2 scripts.
+However, **our firmware uses a non-standard symbol table format** that vxhunter's auto-detection
+fails to recognize. Use the custom extractor instead:
+
+```bash
+# Custom extractor (already run — 18,044 symbols at /tmp/r1mx_symbols.txt):
+python3 - <<'EOF'
+import struct
+with open("firmware/reverse/build_32/extracted/software.bin","rb") as f:
+    data = f.read()
+SYM_START, SYM_END, SYM_ENTRY, STR_START = 0xE2BC5C, 0xE85C48, 20, 0xD85508
+symbols = []
+for i in range(SYM_START, SYM_END, SYM_ENTRY):
+    nameoff = struct.unpack_from(">I", data, i+4)[0]
+    val = struct.unpack_from(">I", data, i+8)[0]
+    if STR_START <= nameoff < SYM_START:
+        ne = data.find(b'\x00', nameoff)
+        symbols.append((val, data[nameoff:ne].decode('ascii','replace')))
+for val, name in sorted(symbols):
+    print(f"0x{val:08x}\t{name}")
+EOF
+```
+
+Symbol table: 18,044 entries at file offsets 0xE2BC5C–0xE85C48 (20 bytes each).
+Format: [flags:2B][pad:2B][name_addr:4B][dest_addr:4B][group:4B][type:4B]
+
+vxhunter Ghidra scripts (at `/tmp/vxhunter/firmware_tools/ghidra/`) can still be used to
+apply the extracted symbol list as function names in Ghidra.
+
+### Ghidra Language — MUST USE 4xx
+
+When importing `software.bin` into Ghidra:
+- **Language must be `PowerPC:BE:32:4xx`** (not `default`, not `VLE`)
+- The `4xx` variant adds: `dcread`, `icread`, `dlmzb`, `mfdcr`/`mtdcr` for DCR bus instructions
+- Without `4xx`, many boot-sequence instructions disassemble as `?? ILLEGAL`
+
+### TORC — Virtex-4 Bitstream Parser
+
+TORC (torc-isi/torc on GitHub) is the **only open-source tool that can parse Virtex-4
+bitstreams**. Use it to extract BRAM content from `fpga.bin`, which may contain:
+- Sensor calibration tables loaded at FPGA init
+- LUT data for color science pipeline
+- Boot code embedded in BRAM (uncommon but worth checking)
+
+```bash
+# Clone and build TORC (C++, requires Boost):
+git clone https://github.com/torc-isi/torc
+cd torc && cmake . && make
+
+# Parse Virtex-4 bitstream:
+./bin/torc_bitstream fpga.bin --device xc4vfx100 --extract-bram
+```
+
+### ISE 14.7 — Last Virtex-4 Toolchain
+
+Xilinx ISE 14.7 (last version, 2013) is the final toolchain with Virtex-4 support.
+Available as a free download from the Xilinx/AMD archive.
+
+Key capabilities:
+- **EDK** (Embedded Development Kit): contains `xparameters.h` templates — cross-reference
+  against the 13 confirmed IP core drivers to derive the MMIO base addresses
+- **iMPACT**: JTAG configuration and readback tool for the Virtex-4 FPGA
+- **ChipScope**: on-chip logic analyzer; can read back state from a live camera
+
+To derive the MMIO map from ISE/EDK:
+1. Create a new Virtex-4 FX100 project in Platform Studio (EDK)
+2. Add the 13 confirmed IP cores (xps_uartlite, xps_intc, xps_emaclite, xps_iic, xps_pci_v3, etc.)
+3. Look at the generated `xparameters.h` — the addresses assigned by the tools will match
+   what the firmware was compiled against (the linker script embeds them)
+
+### QEMU virtex4_ml410.c — Custom Machine (Long-Term)
+
+To properly emulate this firmware, write `hw/ppc/virtex4_ml410.c` based on the existing
+`hw/ppc/virtex_ml507.c` (Virtex-5/PPC440 reference) with these key changes:
+
+```c
+// Key parameters for virtex4_ml410.c:
+#define PPC_CPU_TYPE "ppc405f6"       // or "ppc405ep" as closest match
+#define RAM_BASE     0x00000000UL
+#define RAM_SIZE     (256 * MiB)
+#define MMIO_BASE    0xE0000000UL     // FPGA fabric PLB peripherals
+#define FLASH_BASE   0xFE000000UL     // NOR flash (romInit source)
+
+// PVR to patch/spoof: 0x20011000 (PPC405F6)
+// DCR map: UIC0 at 0x0C0, SDRAM at 0x010 (same as 405GP)
+// UART Lite: MMIO at 0xe0600000 (confirmed; baud=115200)
+// UART NS550 #1: MMIO at 0xe0640000 (confirmed; 100MHz clock)
+// UART NS550 #2: MMIO at 0xe0650000 (confirmed; 100MHz clock)
+// XIntc: MMIO at 0xe0800000 (confirmed from config table)
+// XPci_v3: MMIO at 0xe1200000 (PLB table; PCI bridge for SiI3512+ISP1562)
+// PCI config window: 0xe2000000 (256KB)
+// PCI memory: 0xa0000000 (64MB)
+// Flash: 0xf0000000 (128MB)
+```
 
 ---
 
