@@ -118,7 +118,7 @@ This single connector carries:
     <li>No XLR audio input</li>
     <li>Unable to detect CF card, SSD, or RED DRIVE</li>
   </ul>
-  See the <a href="{{ '/troubleshooting' | relative_url }}">Troubleshooting</a> page for
+  See the <a href="{{ '/guides' | relative_url }}">Repair Guides</a> page for
   diagnostic steps.
 </div>
 

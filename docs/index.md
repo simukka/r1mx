@@ -92,6 +92,23 @@ base that RED never published.
   appropriate care when performing any maintenance or repair.
 </div>
 
+## What We Are Building
+
+<div class="future-teaser">
+  <div class="future-teaser-label">Road Forward</div>
+  <div class="future-teaser-title">Build 32.1 + Replacement Hardware</div>
+  <p>
+    The r1mx project is developing new firmware that removes SSD restrictions, FreeCAD
+    models for a printable replacement REDMAG module, and a replacement SSD side module.
+    All files, BOMs, and instructions will be free and public. Kits and pre-assembled
+    options will be available for those who want them.
+  </p>
+  <div class="btn-row" style="justify-content:flex-start; margin-bottom:0.5rem;">
+    <a class="btn btn--red" href="{{ '/roadmap' | relative_url }}">See the Roadmap</a>
+    <a class="btn btn--outline" href="https://github.com/sponsors/simook" target="_blank" rel="noopener">Sponsor the Project</a>
+  </div>
+</div>
+
 ## Navigate
 
 <div class="nav-cards">
@@ -115,10 +132,10 @@ base that RED never published.
     <div class="nav-card-title">Firmware History</div>
     <div class="nav-card-desc">Complete build history from Build 3 (v1.0.4) through Build 32 (v32.0.3).</div>
   </a>
-  <a class="nav-card" href="{{ '/troubleshooting' | relative_url }}">
+  <a class="nav-card" href="{{ '/guides' | relative_url }}">
     <div class="nav-card-icon">🛠</div>
-    <div class="nav-card-title">Troubleshooting</div>
-    <div class="nav-card-desc">Known failure modes and diagnostic procedures based on reverse engineering findings.</div>
+    <div class="nav-card-title">Repair Guides</div>
+    <div class="nav-card-desc">iFixit-style guides from tightening bolts to repairing broken traces. Contribute a guide.</div>
   </a>
   <a class="nav-card" href="{{ '/resources' | relative_url }}">
     <div class="nav-card-icon">📚</div>
@@ -130,23 +147,6 @@ base that RED never published.
     <div class="nav-card-title">Roadmap</div>
     <div class="nav-card-desc">Build 32.1 firmware, replacement REDMAG module, and the path to a community marketplace.</div>
   </a>
-</div>
-
-## What We Are Building
-
-<div class="future-teaser">
-  <div class="future-teaser-label">Road Forward</div>
-  <div class="future-teaser-title">Build 32.1 + Replacement Hardware</div>
-  <p>
-    The r1mx project is developing new firmware that removes SSD restrictions, FreeCAD
-    models for a printable replacement REDMAG module, and a replacement SSD side module.
-    All files, BOMs, and instructions will be free and public. Kits and pre-assembled
-    options will be available for those who want them.
-  </p>
-  <div class="btn-row" style="justify-content:flex-start; margin-bottom:0.5rem;">
-    <a class="btn btn--red" href="{{ '/roadmap' | relative_url }}">See the Roadmap</a>
-    <a class="btn btn--outline" href="https://github.com/sponsors/simook" target="_blank" rel="noopener">Sponsor the Project</a>
-  </div>
 </div>
 
 ## What People Said

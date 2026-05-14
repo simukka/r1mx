@@ -1,0 +1,76 @@
+---
+layout: default
+---
+<article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      {% if page.category %}
+      <span class="guide-category">{{ page.category | upcase }}</span>
+      {% endif %}
+      {% if page.status == "planned" %}
+      <span class="guide-status guide-status--planned">Planned</span>
+      {% elsif page.status == "draft" %}
+      <span class="guide-status guide-status--draft">Draft</span>
+      {% elsif page.status == "available" %}
+      <span class="guide-status guide-status--available">Available</span>
+      {% endif %}
+    </div>
+
+    <h1 class="page-title">{{ page.title }}</h1>
+    {% if page.subtitle %}<p class="page-subtitle">{{ page.subtitle }}</p>{% endif %}
+
+    <div class="guide-stats">
+      {% if page.difficulty %}
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-{{ page.difficulty | downcase }}">{{ page.difficulty }}</span>
+      </div>
+      {% endif %}
+      {% if page.time %}
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">{{ page.time }}</span>
+      </div>
+      {% endif %}
+      {% if page.tools %}
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          {% for tool in page.tools %}
+          <li>{{ tool }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if page.parts %}
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        {% if page.parts.size == 0 %}
+        <span class="guide-stat-value">None required</span>
+        {% else %}
+        <ul class="guide-tools-list">
+          {% for part in page.parts %}
+          <li>{{ part }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="page-body">
+    {{ content }}
+  </div>
+
+  <footer class="guide-footer">
+    <a href="{{ '/guides' | relative_url }}" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
