@@ -574,11 +574,52 @@ connect via wdbserial or wdbnetwork on the XEmacLite MAC.
 |--------|----------|-------------|
 | `+0x00` | RX FIFO | Read received byte |
 | `+0x04` | TX FIFO | Write byte to transmit |
-| `+0x08` | Status | Bit 0: RX valid; Bit 2: TX full; Bit 3: TX empty |
+| `+0x08` | Status | Bit 0: RX valid; Bit 2: TX full; Bit 3: TX empty (`XUL_SR_TX_FIFO_EMPTY = 0x04`) |
 | `+0x0C` | Control | Bit 0: Reset TX FIFO; Bit 1: Reset RX FIFO; Bit 4: Enable interrupts |
 
 **Baud rate:** Fixed at 115200 (confirmed from XUartLite SIO config struct at 0xe005dc,
-field `baud_rate = 0x0001C200`). FIFO depth: 2048 bytes (0x800).
+field `baud_rate = 0x0001C200`). FIFO depth: 16 bytes (`XUL_FIFO_SIZE = 16` per driver).
+
+**SelfTest behavior (`xuartlite_selftest.c`):** Reads Status register at `base+0x08`;
+expects `XUL_SR_TX_FIFO_EMPTY (0x04)` immediately after reset. **QEMU stub must return
+`0x04` for reads of `0xe0600008`** (TX FIFO empty, no RX data). If it returns 0, selftest
+returns `XST_FAILURE` (non-fatal, firmware continues) but may affect subsequent init.
+
+---
+
+### XUartNs550 Register Layout (at 0xe0640000 and 0xe0650000 — confirmed)
+
+> **Critical:** The `xps_uart16550` IP maps all registers at `base + 0x1000` with each
+> register at a 4-byte stride, byte at big-endian position +3. `XUN_REG_OFFSET = 0x1000`.
+
+| Byte address (from base) | Register | Description |
+|--------------------------|----------|-------------|
+| `base + 0x1003` | RBR/THR | Receive Buffer / Transmit Holding |
+| `base + 0x1007` | IER | Interrupt Enable |
+| `base + 0x100B` | IIR/FCR | Interrupt ID (read) / FIFO Control (write) |
+| `base + 0x100F` | LCR | Line Control (bit 7 = DLAB for baud divisor access) |
+| `base + 0x1013` | MCR | Modem Control (bit 4 = LOOP = local loopback) |
+| `base + 0x1017` | LSR | Line Status (bit 0 = data ready; bit 5 = TX empty) |
+| `base + 0x101B` | MSR | Modem Status |
+| `base + 0x101F` | SCR | Scratch register |
+
+When DLAB=1 (LCR bit 7), addresses `base+0x1003` / `base+0x1007` read/write DLL/DLM.
+
+**Baud rate divisor formula:** `Divisor = InputClockHz / (BaudRate × 16)`
+
+**Clock:** Firmware data section (config struct at 0xe00600) stores **100 MHz** — this
+is the authoritative value. The xparameters.h fallback of 66 MHz is a tool default.
+At 115200 baud with 100 MHz clock: `Divisor = 100000000 / (115200 × 16) = 54.25 → 54`
+
+**SelfTest behavior (`xuartns550_selftest.c`):** Enables **MCR LOOP mode** (bit 4 of MCR)
+then sends 32 bytes ("abcdefghABCDEFGH0123456776543210") and polls LSR bit 0 waiting for
+loopback. **If QEMU NS16550 does not implement MCR LOOP bit, the firmware will hang** in
+the polling loop at this point. Verify QEMU's xps_uart16550 model implements loopback.
+
+**MMIO addresses that will be accessed during selftest:**
+- `0xe0641013` — MCR: written `0x10` (enable loop)
+- `0xe0641017` — LSR: polled for `0x01` (data ready)
+- `0xe0641003` — RBR/THR: 32 bytes written then read
 
 ---
 
@@ -592,7 +633,7 @@ Generated from a Platform Studio project matching the RED ONE MX FPGA config. Ke
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `XPAR_CPU_PPC405_CORE_CLOCK_FREQ_HZ` | **400,000,000** | PPC405 core = 400 MHz |
-| `XPAR_XUARTNS550_CLOCK_HZ` | 66,000,000 | **Default fallback** — clock not propagated in our project; real frequency TBD from baud divisors in firmware |
+| `XPAR_XUARTNS550_CLOCK_HZ` | 66,000,000 | **Tool default fallback** (clock not propagated); firmware data section at 0xe00600 stores **100 MHz** — use 100 MHz for QEMU |
 | PLB data bus width | 64-bit | `C_SPLB_DWIDTH = 64` across all peripherals |
 
 ### Confirmed MMIO Addresses (all match firmware analysis)
