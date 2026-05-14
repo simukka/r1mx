@@ -8,9 +8,10 @@ These files modify **QEMU 8.2.2** to emulate the RED ONE MX hardware
 ```
 src/
   hw/ppc/r1mx_virtex4.c     — new: custom r1mx-virtex4 machine (249 lines)
-0001-r1mx-virtex4-machine.patch  — hw/ppc/meson.build: register r1mx_virtex4.c
-0002-ppc32-tlb-vaddr-truncation.patch   — upstream bug fix: ppc_cpu_tlb_fill
+0001-r1mx-virtex4-machine.patch          — hw/ppc/meson.build: register r1mx_virtex4.c
+0002-ppc32-tlb-vaddr-truncation.patch    — upstream bug fix: ppc_cpu_tlb_fill
 0003-ppc32-crosspage-addr-truncation.patch — upstream bug fix: mmu_lookup
+0004-ppc405-fsl-instructions.patch       — PPC405 FSL (Fast Simplex Link) instruction support
 ```
 
 ## Quick start
@@ -90,5 +91,35 @@ to `target_ulong` (`0x00000000` for PPC32) before TLB lookup.
 
 Both bug fixes (`0002`, `0003`) affect all 32-bit QEMU targets that make
 cross-page accesses near the top of their address space. They should be
-submitted upstream. The machine file (`r1mx_virtex4.c`) is too niche for
-upstream but is a natural addition for any PPC405/Virtex-4 emulation project.
+submitted upstream.
+
+The FSL patch (`0004`) applies to all PPC405 emulation targets — any design
+using Xilinx EDK with FSL/FCM IP would hit the same gen_invalid() crash.
+It is a reasonable upstream candidate for `target/ppc/translate.c`.
+
+The machine file (`r1mx_virtex4.c`) is too niche for upstream but is a
+natural addition for any PPC405/Virtex-4 emulation project.
+
+### `0004-ppc405-fsl-instructions.patch`
+
+**PPC405 FSL (Fast Simplex Link / FCM) instruction support** (`target/ppc/translate.c`).
+
+The RED ONE MX firmware uses the PPC405F6 APU/FCM interface for FPGA communication
+via FSL channel instructions. All 16 FSL opcode variants are exercised 3,145 times
+during VxWorks boot. Without this patch all FSL instructions hit `gen_invalid()`,
+generating a 0x700 Program Check exception storm that prevents VxWorks from booting.
+
+FSL instruction encoding:
+- Primary opcode 31 (0x1F), XO = 0x130–0x13F
+- opc1=0x1F, opc2=0x09, opc3=0x10–0x1F
+- 8 "get" variants (read from FCM channel): `tget nget tnget cget ncget tcget tncget get`
+- 8 "put" variants (write to FCM channel): `tput nput tnput cput ncput tcput tncput put`
+
+With no FPGA fabric in the emulator:
+- `gen_fsl_get`: sets `rD = 0` (empty channel). VxWorks BSP uses `fsl_isinvalid(x)` =
+  `addic. rD, x, 0`; with rD=0, CR0.EQ=1, so the firmware takes the "unavailable" path.
+- `gen_fsl_put`: NOP (silently discards the write).
+
+Registered under `PPC_405_MAC` flag so handlers only activate on PPC405 CPUs and
+do not conflict with ISA300/ISA206 handlers at the same opcode table slots.
+

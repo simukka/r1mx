@@ -34,8 +34,10 @@ r1mx/
 ├── firmware/
 │   ├── README.md                # Decryption script and build inventory
 │   ├── builds/                  # Encrypted firmware zip archives (builds 13–32)
-│   ├── scripts/                 # Shell scripts: download.sh, fuzz.sh
-│   ├── reference/               # VxWorks 6.x and Xilinx documentation PDFs
+│   ├── scripts/                 # Shell scripts: download.sh, fuzz.sh, patch_firmware.py
+│   ├── patches/
+│   │   └── qemu/                # Numbered patches for QEMU 8.2.2 + machine source
+│   ├── reference/               # VxWorks 6.x and Xilinx documentation PDFs + ise10_xparameters.h
 │   └── reverse/                 # Extracted and reversed firmware artifacts
 ├── schematics/                  # Top-level KiCad project
 ```
@@ -150,7 +152,85 @@ Mesh.export([FreeCAD.ActiveDocument.getObject('Body')], 'ssd_drive/models/drive.
 "
 ```
 
-### 5. Firmware Reverse Engineering
+### 5. QEMU Emulator Patches
+
+The firmware runs in a custom QEMU 8.2.2 build (`r1mx-virtex4` machine) at
+`~/src/qemu-r1mx/`. All modifications to QEMU are tracked as numbered patch files in
+`firmware/patches/qemu/` so they can be reproduced on a clean QEMU 8.2.2 checkout.
+
+#### Patch inventory
+
+| File | Target | Purpose |
+|---|---|---|
+| `src/hw/ppc/r1mx_virtex4.c` | new file | Custom `r1mx-virtex4` machine definition |
+| `0001-r1mx-virtex4-machine.patch` | `hw/ppc/meson.build` | Register `r1mx_virtex4.c` in build |
+| `0002-ppc32-tlb-vaddr-truncation.patch` | `target/ppc/mmu_helper.c` | Upstream bug fix: 32-bit TLB vaddr truncation |
+| `0003-ppc32-crosspage-addr-truncation.patch` | `accel/tcg/cputlb.c` | Upstream bug fix: cross-page address overflow |
+| `0004-ppc405-fsl-instructions.patch` | `target/ppc/translate.c` | PPC405 FSL Fast Simplex Link instruction support |
+
+See `firmware/patches/qemu/README.md` for full descriptions of each patch.
+
+#### Applying patches to a clean QEMU checkout
+
+```bash
+cd ~/src/qemu-r1mx
+
+# Copy the new machine source file
+cp ~/src/RED/r1mx/firmware/patches/qemu/src/hw/ppc/r1mx_virtex4.c hw/ppc/
+
+# Apply numbered patches in order
+for p in ~/src/RED/r1mx/firmware/patches/qemu/0*.patch; do
+    patch -p1 < "$p"
+done
+
+# Build
+mkdir -p build && cd build
+../configure --target-list=ppc-softmmu --disable-werror
+ninja -j$(nproc)
+```
+
+#### Creating a new QEMU patch
+
+When you make a change to `~/src/qemu-r1mx/` that should be preserved:
+
+1. **Identify the changed files** with `git diff --stat` or `grep` for your additions.
+
+2. **Write the patch file** as a unified diff against the unmodified QEMU 8.2.2 source.
+   The patch header must follow the existing format (From/Subject lines, explanation,
+   `---` separator, `diff --git` block):
+
+   ```bash
+   # If qemu-r1mx has git history, generate with:
+   git diff HEAD path/to/changed/file > 000N-short-description.patch
+
+   # Without git history, generate manually:
+   diff -u original/path/file.c modified/path/file.c > 000N-short-description.patch
+   ```
+
+3. **Number the patch** as the next in sequence (`0005-...`, `0006-...`, etc.).
+
+4. **Save to** `firmware/patches/qemu/000N-short-description.patch`.
+
+5. **Update** `firmware/patches/qemu/README.md`:
+   - Add a row to the Files table
+   - Add a `### 000N-...` section explaining what the patch does and why
+
+6. **For new source files** (like `r1mx_virtex4.c`): save the file under
+   `firmware/patches/qemu/src/<path>/<filename>` mirroring the QEMU tree layout,
+   and reference it from the README.
+
+7. **Commit both** the patch file and the README update together.
+
+#### Patch content guidelines
+
+- The patch subject line should be `[PATCH 000N] subsystem: short description`
+- The commit message body must explain: what the change does, why it is needed for
+  this project, and any encoding or protocol details a future maintainer would need
+- If the change fixes an upstream QEMU bug (not just r1mx-specific), note that it
+  should be submitted upstream
+- Keep each patch focused on one logical change — do not bundle unrelated fixes
+
+### 6. Firmware Reverse Engineering
 
 #### Decryption (key is public — already in `firmware/README.md`)
 
