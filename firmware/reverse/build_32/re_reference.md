@@ -765,7 +765,7 @@ Applied in addition to the Phase 1 patches above. All offsets are also runtime a
 
 Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches and produce `software.patched.r1mx.bin`. Omit `--r1mx` for the bamboo-machine binary.
 
-### Complete Patch Table (46 patches — current as of session 10)
+### Complete Patch Table (47 patches — current as of session 11)
 
 | # | Phase | Offset | Description |
 |---|-------|--------|-------------|
@@ -795,13 +795,14 @@ Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches a
 | **44** | **2** | **`0x458a40`** | **KEY FIX: bctrl → `li r3,0` in fn_458a14 — bypasses dispatch to fn_37cd4c (stack frame mismatch crash)** |
 | 45 | 2 | `0x44c720` | NOP self-referential `bctrl` at fn_44c720 (CTR points to itself → infinite loop) |
 | 46 | 2 | `0x44c6a8` | NOP `stw r11, 0x7c(r12=0)` — null-deref corrupting exception vector at 0x7c |
+| **47** | **2** | **`0xE2942C` (data)** | **Zero pre-seeded `intCnt` — snapshot value `0x00552F30` causes taskInit to fail (`intCnt>0` guard), preventing root task creation → 0x124 spin loop** |
 
-**sha256 of current r1mx patched binary (41/46 patches, `--r1mx`):**
-`d6bd531325652aae94d0690b8922fb5bd6134e7ee57712c596f387d17534c359`
+**sha256 of current r1mx patched binary (42/47 patches, `--r1mx`):**
+_Recompute with: `.venv/bin/python firmware/scripts/patch_firmware.py --r1mx && sha256sum firmware/reverse/build_32/extracted/software.patched.r1mx.bin`_
 
 > Patches #37–41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
 > because `r1mx-virtex4` maps those peripherals with real device models.
-> Patches #45–46 are required for both machines.
+> Patches #45–47 are required for both machines.
 
 ### fn_458a14 dispatch table — static vs runtime
 
@@ -818,27 +819,52 @@ patches; Patch #44 is the actual fix.
 a bad LR → crash. Patch #44 replaces `bctrl` with `li r3, 0`, bypassing the call entirely.
 usrInit ignores the return value of both fn_458a14 calls.
 
-### Current Boot State (session 10 — 46 patches, r1mx-virtex4 machine)
+### Current Boot State (session 11 — 46 patches, r1mx-virtex4 machine)
 
 With `--r1mx` (41/46 patches) and the `r1mx-virtex4` QEMU machine:
-- **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc.
-- **fn_DCB0** completes — hardware sequencer runs, outputs `^^^123456789` on XUartLite
-- **fn_458a14(r3=0)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e0, r3=0)
-- **fn_458a14(r3=1)** → Patch #44: returns 0 cleanly ✓ (confirmed: NIP=0x36c3e8, r3=0)
-- **CURRENT BLOCKER:** HV_EMU exception flood after `^^^123456789`
+- **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc. ✓
+- **fn_DCB0** completes — hardware sequencer runs ✓
+- **fn_458a14(r3=0/1)** → Patch #44: both return 0 cleanly ✓
+- **fn_36860c** completes — conditional task spawns, all guards false at cold boot ✓
+- **usrInit** fully completes — UART output `^^^123456789\r\n` confirmed ✓
+- **kernelInit (0x5a7f30)** called — never returns; starts VxWorks multitasking ✓
+- **usrInit called TWICE** — first from 0x36c3d4 (pre-kernel), second from 0xdde0 (root task) ✓
+- UART output `^^^123456789\r\n` appears TWICE — both usrInit runs complete ✓
+- VxWorks task stack confirmed: r1=0x4cce6df0 (task stack at ~1.28 GB, above kernel pool) ✓
+- **CURRENT BLOCKER:** workQ spin at `0x5ab0dc` — waiting for `*(0x010D0584) != 0`
 
-**HV_EMU blocker:** After `^^^123456789`, firmware executes from address `0x7c` (exception
-vector area) which contains `mtspr <spr895>, r4`. QEMU's PPC405 model doesn't recognize
-SPR 895 (0x37F) and raises `HV_EMU (96) error=21` instead of silently ignoring the write.
-This triggers VxWorks error handler → cascade → garbage PC → more exceptions → infinite loop.
+**workQ spin blocker (session 11 analysis):**
 
-Root cause: code at `fn_44c660` reads `[0x00eac3e0]` into r12. If BSS is zero (early boot),
-r12=0 → `lwz r11, 0x7c(r12=0)` reads from addr 0x7c (exception vector area), increments the
-instruction word (adding Rc=1 bit = illegal form), and writes it back. Patch #46 NOPs this
-write. However, the HV_EMU cascade suggests something else is also executing from 0x7c.
+VxWorks kernel work queue dispatcher (`windWorker`) spins at `0x5ab0dc`:
+```asm
+0x5ab0dc:  lwz  r3, 0(r24)       ; r24 = 0x010D0584 (workQ flag in BSS)
+0x5ab0e0:  cmpwi r3, 0
+0x5ab0e4:  beq  0x5ab0dc         ; spin while flag == 0
+```
+The flag is set by the timer ISR (`workQAdd()`), which requires:
+1. A hardware timer interrupt to fire
+2. MSR.EE=1 (external interrupt enable)
 
-**Planned fix:** Either (a) add SPR 895 as a no-op to QEMU's PPC405 SPR table in
-`target/ppc/spr_tcg.c`, or (b) trace what jumps to 0x7c and add a redirect patch.
+**MSR=0 confirmed:**
+- `mfmsr` read via GDB shows MSR=0x00000000 at the spin (EE=0, CE=0 — all interrupts disabled)
+- GDB `P21=00008000` (write MSR) was **rejected** by QEMU — MSR is read-only in the GDB stub
+- Firmware has **NO `mtspr DEC` instructions** — VxWorks BSP does NOT use the PPC decrementer
+  as the tick clock; it uses an external timer IP connected via XIntc
+
+**Why MSR=0:** The function at 0xddb8 (the rootTask wrapper / second usrInit caller) calls
+`fn_371ed0(0)` at 0xdde8, which executes `mtmsr 0; isync` — explicitly clearing all MSR bits.
+This is called FROM the root task context AFTER the second usrInit returns.  The workQ spin
+runs in the kernel scheduler context (before/during multitasking), where interrupts have not
+yet been re-enabled by the BSP timer init.
+
+**Root cause:** The QEMU `r1mx-virtex4` machine has `XIntc` modelled but no XIntc-connected
+timer IP. Without a real hardware timer firing an interrupt, the workQ flag is never set, and
+the kernel scheduler never context-switches to run the root task.
+
+**Next actions (to unblock the workQ spin):**
+1. Find the XIntc timer IP base address from the firmware (search for timer init code)
+2. Add `xilinx_timer` model to `r1mx_virtex4.c` connected to XIntc IRQ line
+3. OR: add a firmware patch that directly enables MSR.EE and pre-sets the workQ flag
 
 **fn_36860c analysis (static):** No direct MMIO access. All 7 sub-calls are VxWorks
 task-spawn/messaging functions with guard checks (`[0xFCA3C0] != 0` etc.) that skip
@@ -1014,14 +1040,18 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 | `0x0037CD4C` | `fn_37cd4c` | Epilogue of fn_37cc94 — RUNTIME dispatch table entry 0 (would crash fn_458a14; bypassed by Patch #44) |
 | `0x0037CE78` | `fn_37ce78` | RUNTIME dispatch table entry 1 (mid-function of fn_37cc94) |
 | `0x0036860C` | `fn_36860c` | Called after both fn_458a14 calls (usrInit:0x36c3ec) — 7 sub-calls, conditional task spawning (guards prevent execution at cold boot) |
-| `0x005A7F30` | `kernelInit` | VxWorks kernel init — MILESTONE (usrInit:0x36c424) |
+| `0x005A7F30` | `kernelInit` | VxWorks kernel init — called from usrInit:0x36c424; **never returns**; starts multitasking |
 | `0x0037C440` | `rootTask` | First VxWorks task spawned by kernelInit; calls usrRoot() |
+| `0x0000DDB8` | `fn_ddb8` (root task wrapper) | Called as root task entry; calls 2nd usrInit at 0xdde0, then sets MSR=0 at 0xdde8 |
+| `0x00371EC8` | `fn_371ec8` (`mfmsr` wrapper) | `mfmsr r3; blr` — returns current MSR value in r3 |
+| `0x00371ED0` | `fn_371ed0` (`mtmsr` wrapper) | `mtmsr r3; isync; blr` — writes r3 to MSR; ⚠️ called with r3=0 from fn_ddb8 → clears all interrupt enables |
+| `0x005AB0DC` | workQ spin loop | `windWorker` — VxWorks work queue dispatcher; spins on `*(0x010D0584) == 0` |
 
 **usrInit layout (0x36c350):**
 ```
 0x36c3cc: bl fn_36e3dc        <- pre-init (sets dispatch table via 0x36cc64)
 0x36c3d0: bl fn_36e168        <- VxWorks exc handler install
-0x36c3d4: bl fn_DCB0          <- hardware sequencer
+0x36c3d4: bl fn_DCB0          <- hardware sequencer  ← FIRST usrInit call site
 0x36c3d8: li r3, 0
 0x36c3dc: bl fn_458a14 r3=0   <- PATCHED: Patch #44 → returns 0 ✓
 0x36c3e0: li r3, 1
@@ -1038,8 +1068,23 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 0x36c41c: addi r7, r0, 0x1388  <- int stack = 5000 bytes
 0x36c420: addi r8, r0, 0x0
 0x36c424: bl 0x5a7f30         <- kernelInit(rootTask, stackSz, poolStart, poolEnd, intSz, 0)
-0x36c43c: blr                 <- usrInit end
+                              <- kernelInit NEVER RETURNS — starts multitasking
+0x36c43c: blr                 <- dead code; never reached
 ```
+
+**Root task wrapper (fn_ddb8 = 0x0000ddb8) — second usrInit caller:**
+```
+0xddb8:  ... function prologue ...
+0xdde0:  bl  0x36c350          <- 2nd usrInit call (r1=task stack ~1.28 GB)
+0xdde4:  addi r3, r0, 0        <- r3 = GPR[r0] = 0 (from context)
+0xdde8:  bl  0x371ed0          <- fn_371ed0(0) → mtmsr 0 → MSR = 0x00000000 !!
+0xddec:  addis r0, r0, 0x3000  <- r0 += 0x30000000 (DBSR clear value)
+0xddf0:  mtspr SPR1010, r0     <- mtspr DBSR, r0 (clear debug status)
+0xddf4:  isync
+... compute return address, blr ...
+```
+⚠️ This fn explicitly sets MSR=0 after usrInit, disabling all interrupts!
+
 
 ### WDB Agent
 
@@ -1085,6 +1130,8 @@ Once identified, disassemble that function to find the hardware poll loop and ad
 | WDB port var | `0x00E9C4BC` | Stores value `17185` (0x4321) |
 | Canary addr 1 | `0x00E269A4` | Expected: `0x12348765` (in BSS region) |
 | Canary addr 2 | `0x00E269A0` | Expected: `0x5A5AC3C3` |
+| **workQ flag** | **`0x010D0584`** | **`windWorker` spin flag — set by timer ISR; 0 until first tick interrupt; BSS (zero-init)** |
+| workQ struct base | `~0x010CEFF8` | workQ config structure base (computed in kernelInit at 0x5a7f3c-5a7f5c) |
 
 ### PVR Value Locations in Binary
 

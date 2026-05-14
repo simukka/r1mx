@@ -104,7 +104,7 @@ fi
 
 QEMU_ARGS=(
     -machine r1mx-virtex4
-    -m 256M
+    -m 2G
     -nographic
 
     # Load firmware flat binary at physical 0x00000000.

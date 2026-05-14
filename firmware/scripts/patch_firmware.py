@@ -944,6 +944,33 @@ BUILD32_PATCHES: list[Patch] = [
         description="NOP null-deref stw at fn_44c660+0x48: r12=*(0xeac3e0)=NULL → stw r11,0x7c(r12=0) corrupts PPC405 Machine Check vector at 0x7c, causing infinite Program Check exception storm. NOP prevents the corrupt write.",
         phase=2,
     ),
+
+    # -------------------------------------------------------------------------
+    # Patch #47 — Zero pre-seeded intCnt (exception nesting counter) at 0xE2942C
+    # -------------------------------------------------------------------------
+    # Root cause: The firmware binary's DATA segment (0x0–0xE9BF20) is extracted
+    # from a live-running RED ONE MX camera, not a cold-boot ROM image.  The
+    # interrupt/exception nesting counter `intCnt` at 0x00E2942C was snapshotted
+    # in mid-operation and has value 0x00552F30 (5,582,640) in the binary.
+    #
+    # VxWorks' taskInit (fn_5b231c) checks: if (intCnt > 0) return -1
+    # This prevents task creation from interrupt context.  With intCnt pre-seeded
+    # to 5.5 million, kernelInit's taskInit call for the root task always fails,
+    # kernelInit returns, and usrInit jumps to the 0x124 spin-loop.
+    #
+    # GDB confirmed (write watchpoint): nothing resets 0xE2942C to 0 during boot.
+    #
+    # Fix: zero it in the binary so the cold-boot value is 0 (correct behaviour).
+    # The increment/decrement code at 0x36eb38 / 0x36eea8 (exception entry/exit)
+    # will manage it correctly from that point forward.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0xE2942C,
+        original=b'\x00\x55\x2f\x30',   # 0x00552F30 — snapshotted intCnt value
+        replacement=b'\x00\x00\x00\x00',
+        description="Zero pre-seeded intCnt at 0xE2942C: live-camera snapshot value 0x00552F30 causes taskInit (fn_5b231c) to return -1 for every task, making kernelInit fail → 0x124 spin-loop. VxWorks exception entry/exit (0x36eb38/0x36eea8) correctly maintains this counter once it starts at 0.",
+        phase=2,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
