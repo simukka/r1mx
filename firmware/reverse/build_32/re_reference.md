@@ -663,16 +663,41 @@ APU_CONTROL bits (from PPC405 APU spec):
 - Bits 2-3 = `01` → UDI mode active
 - Remaining bits enable specific APU instruction decode features
 
-UDI instructions are issued by the PPC405 CPU as `udi0fcm`–`udi7fcm` opcodes (PPC
-APU extension). The FPGA fabric receives the instruction operands via the FCM interface
-and returns results. These are almost certainly **video pipeline acceleration** instructions
-(RAW demosaic, color transform, compression assist, or histogram operations).
+**Correction (confirmed by binary analysis):** The APU/FCM instructions in this firmware are
+**FSL (Fast Simplex Link) channel get/put instructions**, NOT the `udi0fcm`-`udi7fcm` UDI opcodes.
+FSL instructions use PPC opcode 31 with XO field 0x130–0x13F:
 
-**For QEMU:** APU/UDI instructions will generate an illegal instruction exception unless
-emulated. The firmware may use these in the hot path (sensor data processing); they may
-also be used only in the `vpfpga` domain and not executed during early boot.
-Search the firmware binary for `udi` opcode encodings (PPC opcode 0x1F with XO 0x200–0x27F
-range) to identify which UDIs are actually called and from what context.
+| XO (hex) | Mnemonic | Direction | Blocking |
+|----------|----------|-----------|---------|
+| 0x138 | `get` | FCM → GPR | blocking |
+| 0x139 | `put` | GPR → FCM | blocking |
+| 0x13a | `nget` | FCM → GPR | non-blocking |
+| 0x13b | `nput` | GPR → FCM | non-blocking |
+| 0x13c | `cget` | FCM → GPR | conditional |
+| 0x13d | `cput` | GPR → FCM | conditional |
+| 0x13e | `ncget` | FCM → GPR | non-blocking cond. |
+| 0x13f | `ncput` | GPR → FCM | non-blocking cond. |
+| 0x130–0x137 | `t{n}{c}get/put` | timed variants | various |
+
+**Firmware search result: 3,145 FSL instructions total** (dominated by `cget rD, N` =
+conditional reads from FPGA FCM channels 0–11). These appear throughout the firmware in
+sensor data handling, histogram, and pipeline control code paths.
+
+**Encoding example:** `cget r26, 0` = `0x7f400278` (opcode=31, XO=0x13c, rD=26, N=0).
+The APU_UDI_N parameters in xparameters.h encode the specific instruction patterns that
+the APU hardware intercepts before they reach the main PPC core execute stage.
+
+**QEMU fix (implemented session 9):** Added `gen_fsl_get()` (sets rD=0, simulating empty
+channel) and `gen_fsl_put()` (NOP, discards write) handlers registered for all 16 FSL
+opcodes under the `PPC_405_MAC` feature flag in `target/ppc/translate.c`. This eliminates
+the ~3,145 Program Check exceptions per boot pass that were previously all routing to the
+0x700 handler. With FSL instructions returning 0, the firmware's `fsl_isinvalid()` check
+(implemented as `addic. rD, rS, 0` after each `cget`) detects channel unavailability and
+takes the "no FPGA data" branch - correct behaviour in QEMU with no FPGA fabric.
+
+**Validity check:** `fsl_isinvalid(x)` in firmware = `addic. rD, rX, 0`. If rX=0 (our
+return value), the `addic.` sets CR0.EQ=1 → firmware's `beq` takes the "channel empty"
+path. This is correct: no FCM hardware is connected in QEMU.
 
 ### NS550 Clock — Determination Method
 
@@ -941,6 +966,7 @@ With `--r1mx` (41/46 patches) and the `r1mx-virtex4` QEMU machine:
 - UART output `^^^123456789\r\n` appears TWICE — both usrInit runs complete ✓
 - VxWorks task stack confirmed: r1=0x4cce6df0 (task stack at ~1.28 GB, above kernel pool) ✓
 - **CURRENT BLOCKER:** workQ spin at `0x5ab0dc` — waiting for `*(0x010D0584) != 0`
+- **POST-WORKQ BLOCKER (session 9):** task jumps to null-instruction heap region at `0x4ccec940`
 
 **workQ spin blocker (session 11 analysis):**
 
@@ -986,7 +1012,101 @@ the spawns at cold boot. fn_36860c should pass quickly in QEMU.
 **Next milestone:** BP at `0x36C424` (kernelInit). If it fires, next BP at `0x37C440` (rootTask).
 If fn_36860c stalls, single-step its 7 sub-calls: 0x445434, 0x5ACC58, 0x43C4FC, 0x448520, 0x5B0A84, 0x498CD8, 0x5B75E8.
 
-### Session 8 — Critical GDB RSP Operational Notes
+### Session 9 — FSL Instruction Fix and 0x4ccec940 Crash Analysis
+
+**FSL instructions identified as root cause of 0x700 exception storm (RESOLVED):**
+
+The APU/UDI instructions in this firmware are **FSL (Fast Simplex Link) `get`/`put`**
+instructions - NOT generic `udi0fcm`-`udi7fcm` UDI opcodes as previously assumed. These
+use PPC opcode 31 with XO 0x130–0x13F. **3,145 occurrences** found in the firmware binary
+(dominated by `cget rD, N` - conditional reads from FPGA FCM channels 0–11).
+
+QEMU had no implementation for these XO values - all hit `gen_invalid()` → 0x700.
+The prior APU skip patch (#47b) advanced SRR0 by 4 but left the destination register
+unchanged (garbage value), causing function pointer corruption.
+
+**Fix applied to QEMU `target/ppc/translate.c`:**
+- `gen_fsl_get()`: sets `rD = 0` (simulates empty FCM channel)
+- `gen_fsl_put()`: NOP (discards write to FCM)
+- 16 GEN_HANDLER2 entries registered at opc1=0x1F, opc2=0x09, opc3=0x10–0x1F
+- Feature flag: `PPC_405_MAC` (only active on PPC405 CPUs, no conflict with 64-bit/ISA300 handlers at same slots)
+
+**Validity:** `fsl_isinvalid(x)` in VxWorks BSP = `addic. rD, rX, 0`. With rD=0,
+`addic.` sets CR0.EQ=1 → firmware takes the "channel empty/unavailable" path.
+This is correct behaviour with no FPGA fabric attached.
+
+**New blocker: task executing at 0x4ccec940 (heap, all zeros)**
+
+After rebuilding QEMU with FSL fix and fresh firmware boot, the system still stalls at
+PC=0x700 with SRR0 (r4) = `0x4ccec940` consistently. This crash PREDATES the FSL fix
+(i.e., it is NOT caused by FSL register corruption) and has a different root cause.
+
+**Known state at stall:**
+```
+PC  = 0x00000700   (APU skip handler executing)
+r4  = 0x4ccec940   (SRR0 = faulting address = task's PC)
+SP  = 0x07fffcb0   (kernel/root-task stack, near top of 128 MB)
+r0  = 0x005b118c   (firmware address — possible return addr)
+r28 = 0x4ccec900   (heap object base: struct at 0x4ccec900)
+r30 = 0x4ccec900   (same struct)
+LR  = 0x4c00012c   (suspicious: looks like instruction encoding, not code addr)
+CTR = 0x20000000
+```
+
+Memory at `0x4ccec900` (heap struct):
+```
++0x00: 0x00000000   (first word zero)
++0x04: 0x4ccec900   (self-referential pointer)
++0x08: 0x00840600   (firmware pointer)
++0x2c: 0x4cce6e40   (another heap pointer)
++0x30: 0x00267870   (firmware pointer)
++0x3c: 0x00010000   (flag/offset)
++0x40: 0x00000000   (ZERO — this is the address execution jumped to!)
+```
+
+**Analysis:** `0x4ccec940 = 0x4ccec900 + 0x40`. The code reached offset +0x40 of this
+heap object and executed a null instruction (0x00000000 = illegal). Three possible
+interpretations:
+
+1. **Virtual function call**: Object at 0x4ccec900 has a vtable/function pointer table;
+   offset 0x40 holds a null function pointer → branch to 0 → immediate Program Check.
+   BUT then SRR0 should be 0x0, not 0x4ccec940. Ruled out.
+
+2. **TCB saved register set**: 0x4ccec900 is a VxWorks WIND_TCB. The saved PC (in
+   VxWorks PPC WIND_TCB.regs.pc) is at offset 0x40 = field 16 of the struct. If the
+   task entry point was set to null (0x00000000), then when the scheduler context-
+   switches to this task, PC = 0x4ccec900 + 0x40 = 0x4ccec940 → 0x00000000 is loaded
+   as PC → CPU executes null instruction at current PC field address. This is the most
+   likely explanation.
+
+3. **Corrupted branch target**: Some indirect branch loaded 0x4ccec940 from a computed
+   address, pointing into uninitialized heap.
+
+**Stack call chain at crash:**
+```
+0x005a8194  (kernel/usrInit region)
+  → 0x005b118c  (near kernelInit, ~0x5a7f30+0x8000)
+    → PC = 0x4ccec940 (executing null instruction in heap)
+```
+
+**0x005b1188 disassembly:** `bl 0x005b57b0` (function called from kernelInit area).
+Function at `0x005b57b0` is not yet identified — likely `taskSpawn`, `taskInit`, or
+a related VxWorks task-create function in the 0x5b range.
+
+**Next debug steps for this blocker:**
+1. Set BP at `0x005b57b0` (function called from 0x005b1188) — identify what it is
+2. Read r3/r4/r5 at BP entry to see task name, entry function pointer, stack args
+3. Check if the "entry function" argument is already 0x4ccec940 (corrupt at call site)
+   or whether `0x005b57b0` itself sets up the bad entry point
+4. Alternatively: set write-watchpoint (`Z2`) on address that stores 0x4ccec940 before
+   the task starts — trace where 0x4ccec940 is written as a task entry point
+
+**r3=0x010d0584 note:** This value is also the address polled in the workQ spin
+(`*(0x010D0584) != 0`). Its presence in r3 at crash time suggests the task at
+0x4ccec940 IS the kernel work-queue task (`windWorker` or similar), and its saved PC
+field was corrupted before the scheduler ran it.
+
+
 
 **SW BP trap crashes (DISCOVERED THIS SESSION):**
 - QEMU SW BPs use a PPC trap instruction. When the trap fires, the CPU takes a Program Check

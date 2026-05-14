@@ -946,6 +946,57 @@ BUILD32_PATCHES: list[Patch] = [
     ),
 
     # -------------------------------------------------------------------------
+    # Patch #47b — APU Unavailable exception handler: skip UDI instructions
+    # -------------------------------------------------------------------------
+    # Root cause: PPC405 fires the APU Unavailable exception (vector 0x700)
+    # for any UDI (User Defined Instruction) that the CPU's APU unit cannot
+    # execute.  xparameters.h (recovered from ISE EDK build) shows 8 UDI custom
+    # instructions enabled: APU_CONTROL = 0b1101111000000000.
+    #
+    # QEMU's ppc405 model does not implement APU/UDI extensions.  Every UDI
+    # instruction fired by VxWorks tasks (including the VxWorks context-switch
+    # path) hits the 0x700 handler in the firmware.
+    #
+    # The firmware's 0x700 handler at instruction offset +0x10 loads a function
+    # pointer from address 0xe0ffc314 (MMIO space: `lis r9,0xe1; lwz r9,-0x3CEC(r9)`).
+    # That address is unmapped in QEMU; the CPU read returns 0.  With the
+    # function pointer == 0, `bctrl` dispatches to address 0x00000000, eventually
+    # returns with r3=0, then `cmpwi cr7,r3,-1` / `bne cr7,0x708` → r3=0 ≠ -1 →
+    # infinite loop at 0x708.  Every VxWorks task that executes a UDI instruction
+    # is permanently stuck in this 0x700 exception handler; the system makes no
+    # further progress.
+    #
+    # Fix: replace the first 4 instructions at 0x700 with a minimal skip handler
+    # that advances SRR0 (the faulting PC) by 4 and executes `rfi`, causing the
+    # CPU to resume at the instruction AFTER the UDI.  The UDI result (if any)
+    # in the destination register is left unchanged or zero - acceptable for boot.
+    #
+    # Replacement instruction encodings (PPC big-endian):
+    #   0x700: 7c801a86  mfspr r4, SRR0    ; r4 = address of faulting UDI
+    #   0x704: 38840004  addi r4, r4, 4    ; advance past the UDI instruction
+    #   0x708: 7c801ba6  mtspr SRR0, r4    ; update exception return address
+    #   0x70c: 4c000064  rfi               ; return to instruction after UDI
+    #
+    # r4 is clobbered (original handler's first instruction was `li r4, 0`
+    # anyway).  The 8 original handler instructions that are overwritten are
+    # the li/bl/li/b sequence that dispatches to the MMIO function pointer;
+    # none of those are executed on any other code path.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x700,
+        original=b'\x38\x80\x00\x00'   # li r4, 0
+                 b'\x4b\xff\xf9\xb5'   # bl 0xb8 (context save)
+                 b'\x3b\xa0\x00\x00'   # li r29, 0
+                 b'\x4b\xff\xff\x4c',  # b 0x750
+        replacement=b'\x7c\x80\x1a\x86'  # mfspr r4, SRR0
+                    b'\x38\x84\x00\x04'  # addi r4, r4, 4
+                    b'\x7c\x80\x1b\xa6'  # mtspr SRR0, r4
+                    b'\x4c\x00\x00\x64', # rfi
+        description="APU Unavailable (0x700) skip handler: replace MMIO-pointer dispatch with mfspr/addi/mtspr/rfi that advances SRR0 by 4, skipping the faulting UDI instruction. Without this, QEMU returns 0 for unmapped 0xe0ffc314 → bctrl 0 → cmpwi -1 → bne → infinite loop. Clobbers r4 (harmless: original li r4,0 did the same).",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
     # Patch #47 — Zero pre-seeded intCnt (exception nesting counter) at 0xE2942C
     # -------------------------------------------------------------------------
     # Root cause: The firmware binary's DATA segment (0x0–0xE9BF20) is extracted
