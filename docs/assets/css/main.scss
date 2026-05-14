@@ -1492,3 +1492,81 @@ td:first-child {
 @media (max-width: 600px) {
   .made-on-grid { grid-template-columns: 1fr; }
 }
+
+// Made on R1 - card thumbnail image area
+.made-on-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.made-on-thumb {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #000;
+  flex-shrink: 0;
+}
+
+.made-on-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  transition: opacity 0.2s ease;
+  // YouTube hqdefault is 4:3; crop to 16:9 by shifting slightly
+  transform: translateY(-10%);
+  height: 120%;
+}
+
+.made-on-thumb:hover img {
+  opacity: 0.8;
+}
+
+.made-on-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  color: rgba(255,255,255,0.85);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+
+.made-on-thumb:hover .made-on-play {
+  opacity: 1;
+}
+
+.made-on-body {
+  padding: 1rem 1.1rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.made-on-body p {
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0.2rem 0 0.4rem;
+  flex: 1;
+}
+
+.made-on-nothumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
