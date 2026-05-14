@@ -15,7 +15,7 @@ set -euo pipefail
 QEMU_VERSION="8.2.2"
 QEMU_TARBALL="qemu-${QEMU_VERSION}.tar.xz"
 QEMU_URL="https://download.qemu.org/${QEMU_TARBALL}"
-QEMU_SHA256="f09765383cc685197e8814ba43d0a7c6b49c74c55c3b5ebad4a70ca80bdcc56c"
+QEMU_SHA256="847346c1b82c1a54b2c38f6edbd85549edeb17430b7d4d3da12620e2962bc4f3"
 DEST="$HOME/src/qemu-r1mx"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
