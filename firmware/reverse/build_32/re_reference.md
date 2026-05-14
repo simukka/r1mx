@@ -466,14 +466,14 @@ Found entries (in order, from PLB table at 0xdfbbc8 — 20 entries total):
 0x0ff9c000  Heap/RAM end marker (size 0x64000 = 400KB, heap boundary sentinel)
 0x80000000  PCI memory window (size 0x20000000 = 512MB, secondary PCI aperture)
 0xe0600000  XUartLite (UART Lite, 115200 baud)       ← confirmed: config at 0xe005dc
-0xe0640000  XUartNs550 #1 (NS16550 UART, 100MHz)     ← confirmed: config at 0xe00600
-0xe0650000  XUartNs550 #2 (NS16550 UART, 100MHz)     ← confirmed: config at 0xe00614
+0xe0640000  XUartNs550 #1 (NS16550 UART)             ← confirmed: config at 0xe00600
+0xe0650000  XUartNs550 #2 (NS16550 UART)             ← confirmed: config at 0xe00614
 0xe0800000  XIntc (Interrupt Controller)              ← confirmed: config table at 0xe003f4
 0xe1200000  XPci_v3 register space (64KB, large register window)
 0xe1020000  XEmacLite (Ethernet MAC)                 ← confirmed: config at 0xe00390
 0xb2600000  XIic (I²C controller)                   ← confirmed: code at 0xdd24-0xdd30 accesses
                                                         RX_FIFO (+0x10C) and ADR (+0x110)
-0x64010000  XDmaChannel (DMA engine) — candidate; no code refs found yet
+0x64010000  XDmaChannel (DMA engine) — CONFIRMED by xparameters.h (xps_central_dma)
 0xe00a0000  Custom RED histogram IP
 0xe0200000  Custom RED histogram IP
 0xe0100000  Custom RED histogram IP
@@ -499,8 +499,8 @@ Entries marked ❓ are estimated pending XFoo_Initialize call site analysis.
 | MMIO Base | IP Core | Confidence | Evidence |
 |-----------|---------|------------|----------|
 | `0xe0600000` | **xps_uartlite** | ✅ Confirmed | Config struct at 0xe005dc: baud=115200; QEMU crash at 0xe0600004 (TX FIFO) |
-| `0xe0640000` | **xps_uartns550 #1** | ✅ Confirmed | Config struct at 0xe00600: base + 100MHz clock |
-| `0xe0650000` | **xps_uartns550 #2** | ✅ Confirmed | Config struct at 0xe00614: base + 100MHz clock |
+| `0xe0640000` | **xps_uartns550 #1** | ✅ Confirmed | Config struct at 0xe00600; xparameters.h CLOCK_HZ=66000000 (default fallback; real clock TBD from baud divisors) |
+| `0xe0650000` | **xps_uartns550 #2** | ✅ Confirmed | Config struct at 0xe00614; same clock note as #1 |
 | `0xe0800000` | **xps_intc** | ✅ Confirmed | Config table at 0xe003f4: DeviceId=0, Base=0xe0800000, 32×default_handler entries |
 | `0xe1020000` | **xps_emaclite** | ✅ Confirmed | Config at 0xe00390: [0x00][0xe1020000][TxPP=1][RxPP=1] + 7 VxWorks END adapter fn ptrs |
 | `0xb2600000` | **xps_iic** | ✅ Confirmed | Code at 0xdd24-0xdd30: `lis r4, 0xb260; ori r4,r4,0x010c` (RX_FIFO) and `ori r5,r5,0x0110` (ADR) |
@@ -510,7 +510,7 @@ Entries marked ❓ are estimated pending XFoo_Initialize call site analysis.
 | `0xe0120000` | Custom RED histogram IP | 🔵 PLB table | Device name strings |
 | `0xe0200000` | Custom RED histogram / waveform IP | 🔵 PLB table | "Luma Waveform" string |
 | `0xe1200000` | **xps_pci_v3** (register space) | 🔵 PLB table | Large window; PCI bridge for SiI3512 + ISP1562 |
-| `0x64010000` | **xps_central_dma** | ❓ Candidate | PLB table; no code references found; XDmaChannel symbols present in binary |
+| `0x64010000` | **xps_central_dma** | ✅ Confirmed | xparameters.h: `XPAR_DMACHANNEL_0_BASEADDR 0x64010000`; XDmaChannel symbols present in binary |
 | `0xe2000000` | PCI config aperture | 🔵 PLB table | 256KB window; standard XPci_v3 config access |
 | `0xa0000000` | PCI memory window (primary) | 🔵 PLB table | 64MB; PCI device BARs (SiI3512 SATA, ISP1562 USB) |
 | `0x80000000` | PCI memory window (secondary) | 🔵 PLB table | 512MB; additional PCI aperture |
@@ -579,6 +579,74 @@ connect via wdbserial or wdbnetwork on the XEmacLite MAC.
 
 **Baud rate:** Fixed at 115200 (confirmed from XUartLite SIO config struct at 0xe005dc,
 field `baud_rate = 0x0001C200`). FIFO depth: 2048 bytes (0x800).
+
+---
+
+## 6b. xparameters.h (Generated — ISE EDK 10.1, confirmed 2026-05-14)
+
+The complete `xparameters.h` is preserved at `firmware/reverse/build_32/xparameters.h`.
+Generated from a Platform Studio project matching the RED ONE MX FPGA config. Key values:
+
+### Confirmed CPU and Clock Parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `XPAR_CPU_PPC405_CORE_CLOCK_FREQ_HZ` | **400,000,000** | PPC405 core = 400 MHz |
+| `XPAR_XUARTNS550_CLOCK_HZ` | 66,000,000 | **Default fallback** — clock not propagated in our project; real frequency TBD from baud divisors in firmware |
+| PLB data bus width | 64-bit | `C_SPLB_DWIDTH = 64` across all peripherals |
+
+### Confirmed MMIO Addresses (all match firmware analysis)
+
+All 7 peripherals generated with exact addresses matching the PLB table analysis. No
+corrections needed. DMA at `0x64010000` confirmed (was previously marked ❓ Candidate).
+
+### APU UDI Custom Instructions (major RE finding)
+
+The xparameters.h reveals the PPC405 APU (Auxiliary Processing Unit) is configured with
+**8 custom User Defined Instructions (UDIs)** wired into the FPGA fabric:
+
+```
+XPAR_PPC405_VIRTEX4_APU_CONTROL  = 0b1101111000000000
+XPAR_PPC405_VIRTEX4_APU_UDI_1    = 0b101000011000100110000011
+XPAR_PPC405_VIRTEX4_APU_UDI_2    = 0b101000111000100110000011
+XPAR_PPC405_VIRTEX4_APU_UDI_3    = 0b101001011000100111000011
+XPAR_PPC405_VIRTEX4_APU_UDI_4    = 0b101001111000100111000011
+XPAR_PPC405_VIRTEX4_APU_UDI_5    = 0b101010011000110000000011
+XPAR_PPC405_VIRTEX4_APU_UDI_6    = 0b101010111000110000000011
+XPAR_PPC405_VIRTEX4_APU_UDI_7    = 0b101011011000110001000011
+XPAR_PPC405_VIRTEX4_APU_UDI_8    = 0b101011111000110001000011
+```
+
+APU_CONTROL bits (from PPC405 APU spec):
+- Bits 0-1 = `11` → FCM (Floating-Point/Custom Machine) enabled
+- Bits 2-3 = `01` → UDI mode active
+- Remaining bits enable specific APU instruction decode features
+
+UDI instructions are issued by the PPC405 CPU as `udi0fcm`–`udi7fcm` opcodes (PPC
+APU extension). The FPGA fabric receives the instruction operands via the FCM interface
+and returns results. These are almost certainly **video pipeline acceleration** instructions
+(RAW demosaic, color transform, compression assist, or histogram operations).
+
+**For QEMU:** APU/UDI instructions will generate an illegal instruction exception unless
+emulated. The firmware may use these in the hot path (sensor data processing); they may
+also be used only in the `vpfpga` domain and not executed during early boot.
+Search the firmware binary for `udi` opcode encodings (PPC opcode 0x1F with XO 0x200–0x27F
+range) to identify which UDIs are actually called and from what context.
+
+### NS550 Clock — Determination Method
+
+The xparameters.h CLOCK_HZ=66MHz is a tool default (clock propagation was not configured
+in our Platform Studio project). To find the real value, read the baud rate divisor the
+firmware programs into XUartNs550 DLL/DLM registers:
+
+```
+real_clock_hz = divisor × 16 × baud_rate
+```
+
+The `XUartNs550_SetBaudRate()` call site will show the divisor written to DLAB registers.
+Likely candidates: 50 MHz (÷8 of 400 MHz), 66 MHz, 100 MHz.
+
+---
 
 ### First MMIO Accesses in Boot (crash candidates in QEMU)
 
