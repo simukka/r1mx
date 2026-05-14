@@ -32,6 +32,8 @@ nav:
     url: "/guides"
   - title: "Roadmap"
     url: "/roadmap"
+  - title: "Made on R1"
+    url: "/made-on-r1"
   - title: "Resources"
     url: "/resources"
 
