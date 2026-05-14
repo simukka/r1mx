@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Technical Specifications | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Technical Specifications | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Technical Specifications" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/specs/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/specs/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Technical Specifications" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Technical Specifications","url":"http://0.0.0.0:4000/r1mx/specs/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/troubleshooting">Troubleshooting</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simook/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content">
+  
+  <header class="page-header">
+    <h1 class="page-title">Technical Specifications</h1>
+    <p class="page-subtitle">RED ONE (Mysterium™) and RED ONE MX (Mysterium-X™)</p>
+  </header>
+  
+  <div class="page-body">
+    <p>This page documents the technical specifications for the RED ONE and RED ONE MX cameras
+as published by RED Digital Cinema. The <strong>RED ONE MX</strong> refers to any RED ONE body
+equipped with the Mysterium-X™ sensor, either factory-configured or field-upgraded.</p>
+
+<div class="gallery">
+  <figure class="figure">
+    <img src="/r1mx/assets/images/redone-specs-front.png" alt="RED ONE MX front view" />
+    <figcaption>Front</figcaption>
+  </figure>
+  <figure class="figure">
+    <img src="/r1mx/assets/images/redone-specs-back.png" alt="RED ONE MX rear view" />
+    <figcaption>Rear</figcaption>
+  </figure>
+  <figure class="figure">
+    <img src="/r1mx/assets/images/redone-side.png" alt="RED ONE MX side view" />
+    <figcaption>Side</figcaption>
+  </figure>
+  <figure class="figure">
+    <img src="/r1mx/assets/images/redone-detail.png" alt="RED ONE MX detail" />
+    <figcaption>Detail</figcaption>
+  </figure>
+</div>
+
+<div class="callout callout--info">
+  Sources: Archived red.com tech specs pages (May 2010 and January 2011 snapshots via
+  the Wayback Machine). Original pages:
+  <code>web.archive.org/web/20100516/http://www.red.com/cameras/tech_specs</code> and
+  <code>web.archive.org/web/20110102/http://www.red.com/products/red-one</code>
+</div>
+
+<h2 id="sensor-comparison">Sensor Comparison</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Specification</th>
+      <th>RED ONE (Mysterium™)</th>
+      <th>RED ONE MX (Mysterium-X™)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Sensor name</td>
+      <td>Mysterium™</td>
+      <td>Mysterium-X™</td>
+    </tr>
+    <tr>
+      <td>Megapixels</td>
+      <td>12 MP</td>
+      <td><strong>14 MP</strong></td>
+    </tr>
+    <tr>
+      <td>Full pixel array</td>
+      <td>4900 (h) × 2580 (v)</td>
+      <td><strong>5120 (h) × 2700 (v)</strong></td>
+    </tr>
+    <tr>
+      <td>Active pixel array</td>
+      <td>4520 (h) x 2540 (v)</td>
+      <td>N/A</td>
+    </tr>
+    <tr>
+      <td>Max image area</td>
+      <td>N/A</td>
+      <td>4480 (h) x 2304 (v)</td>
+    </tr>
+    <tr>
+      <td>Physical sensor size</td>
+      <td>24.4mm × 13.7mm</td>
+      <td>24.2mm (h) × 12.5mm (v) × 27.3mm (d) diagonal</td>
+    </tr>
+    <tr>
+      <td>Lens coverage</td>
+      <td>Super 35mm</td>
+      <td>Super 35mm</td>
+    </tr>
+    <tr>
+      <td>Dynamic range</td>
+      <td>&gt; 66 dB</td>
+      <td><strong>13+ stops</strong></td>
+    </tr>
+    <tr>
+      <td>S/N ratio</td>
+      <td>66 dB</td>
+      <td>66 dB</td>
+    </tr>
+    <tr>
+      <td>ISO range</td>
+      <td>320–1600</td>
+      <td><strong>320–6400</strong> (with MX sensor)</td>
+    </tr>
+    <tr>
+      <td>Firmware required</td>
+      <td>Any release build</td>
+      <td><strong>Build 30 minimum</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="depth-of-field-equivalence">Depth of Field Equivalence</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Mode</th>
+      <th>DoF equivalent</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>4K / 4.5K (full sensor)</td>
+      <td>35mm Cine lens (Super 35mm)</td>
+    </tr>
+    <tr>
+      <td>2K windowed</td>
+      <td>S16mm equivalent</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="resolution-modes">Resolution Modes</h2>
+
+<p>All resolutions available on both Mysterium and Mysterium-X sensors (where firmware supports them).
+4.5K requires Build 20 or later.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Resolution</th>
+      <th>Dimensions</th>
+      <th>Aspect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>4.5K</strong></td>
+      <td>4480 × 1920</td>
+      <td>2.4:1 (introduced Build 20)</td>
+    </tr>
+    <tr>
+      <td>4K 16:9</td>
+      <td>4096 × 2304</td>
+      <td>16:9</td>
+    </tr>
+    <tr>
+      <td>4K 2:1</td>
+      <td>4096 × 2048</td>
+      <td>2:1</td>
+    </tr>
+    <tr>
+      <td>4K HD</td>
+      <td>3840 × 2160</td>
+      <td>16:9</td>
+    </tr>
+    <tr>
+      <td>4K Anamorphic 2:1</td>
+      <td>2764 × 2304</td>
+      <td>Anam. 2:1</td>
+    </tr>
+    <tr>
+      <td>3K 16:9</td>
+      <td>3072 × 1728</td>
+      <td>16:9</td>
+    </tr>
+    <tr>
+      <td>3K 2:1</td>
+      <td>3072 × 1536</td>
+      <td>2:1</td>
+    </tr>
+    <tr>
+      <td>3K Anamorphic 2:1</td>
+      <td>2074 × 1728</td>
+      <td>Anam. 2:1</td>
+    </tr>
+    <tr>
+      <td>2K 16:9</td>
+      <td>2048 × 1152</td>
+      <td>16:9</td>
+    </tr>
+    <tr>
+      <td>2K 2:1</td>
+      <td>2048 × 1024</td>
+      <td>2:1</td>
+    </tr>
+    <tr>
+      <td>2K Anamorphic</td>
+      <td>1382 × 1152</td>
+      <td>Anam.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="frame-rates">Frame Rates</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Resolution</th>
+      <th>Frame rates</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>4.5K</td>
+      <td>23.98, 24, 25, 29.97 fps</td>
+    </tr>
+    <tr>
+      <td>4K (all modes)</td>
+      <td>23.98, 24, 25, 29.97 fps</td>
+    </tr>
+    <tr>
+      <td>3K (all modes)</td>
+      <td>+ 50, 59.94 fps</td>
+    </tr>
+    <tr>
+      <td>2K (all modes)</td>
+      <td>+ 75, 120 fps (Mysterium); 50, 59.94 fps (Mysterium-X)</td>
+    </tr>
+  </tbody>
+</table>
+
+<blockquote>
+  <p><strong>Note (Mysterium-X):</strong> With the MX sensor, maximum frame rates at 2K are limited
+compared to the original Mysterium sensor. The MX sensor prioritises dynamic range
+and low-light performance over extreme high-speed capability.</p>
+</blockquote>
+
+<hr />
+
+<h2 id="redcode-compression">REDCODE™ Compression</h2>
+
+<p>REDCODE is RED’s proprietary 12-bit RAW wavelet compression codec. The camera records
+<code class="language-plaintext highlighter-rouge">.R3D</code> files directly to the storage media.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Quality Level</th>
+      <th>Data rate</th>
+      <th>Available resolutions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>REDCODE 28</strong></td>
+      <td>~28 MB/s</td>
+      <td>All resolutions</td>
+    </tr>
+    <tr>
+      <td><strong>REDCODE 36</strong></td>
+      <td>~36 MB/s</td>
+      <td>All resolutions</td>
+    </tr>
+    <tr>
+      <td><strong>REDCODE 42</strong></td>
+      <td>~42 MB/s</td>
+      <td>4.5K, 4K, 3K, 2K (Build 30+)</td>
+    </tr>
+  </tbody>
+</table>
+
+<ul>
+  <li>All levels: <strong>12-bit RAW</strong> with full sensor data retained</li>
+  <li>Color science: REDcolor (Build 20+), REDcolor2 with FLUT (Build 30+)</li>
+  <li>No lossy downsampling; full debayer in post</li>
+</ul>
+
+<hr />
+
+<h2 id="recording-formats--io">Recording Formats &amp; I/O</h2>
+
+<h3 id="digital-media-in-camera">Digital Media (in-camera)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Interface</th>
+      <th>Media type</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CF Module (in-body)</td>
+      <td>CompactFlash card</td>
+      <td>Included with camera body; also used for firmware upgrades</td>
+    </tr>
+    <tr>
+      <td>RED SSD™ Module</td>
+      <td>REDMAG SSD (128GB or 256GB)</td>
+      <td>Via iVDR 26-pin connector</td>
+    </tr>
+    <tr>
+      <td>RED DRIVE™</td>
+      <td>External RAID-0 (320GB)</td>
+      <td>Via Drive Connector LEMO; mounts on RED-RAIL</td>
+    </tr>
+    <tr>
+      <td>RED-RAM™</td>
+      <td>External RAID-0 SSD (128GB)</td>
+      <td>Same form factor as RED DRIVE</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="monitor-outputs">Monitor Outputs</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Output</th>
+      <th>Signal</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HD-SDI</td>
+      <td>1280×720p 4:2:2, 48kHz 24-bit audio</td>
+      <td>Frame guides, Look Around, HANC metadata</td>
+    </tr>
+    <tr>
+      <td>HDMI</td>
+      <td>1280×720p 4:2:2</td>
+      <td>Same signal as HD-SDI</td>
+    </tr>
+    <tr>
+      <td>3G SDI</td>
+      <td>1080p via GS2978 driver IC</td>
+      <td>Requires appropriate cable</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="control--connectivity">Control &amp; Connectivity</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Port</th>
+      <th>Type</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>USB-2</td>
+      <td>USB-A</td>
+      <td>Remote control; file transfer to computer</td>
+    </tr>
+    <tr>
+      <td>FireWire 400/800</td>
+      <td>IEEE 1394</td>
+      <td>Media offload (RED DRIVE)</td>
+    </tr>
+    <tr>
+      <td>eSATA</td>
+      <td>External SATA</td>
+      <td>Media offload (RED DRIVE)</td>
+    </tr>
+    <tr>
+      <td>GPI/O</td>
+      <td>GPIO trigger</td>
+      <td>Remote start/stop; trigger COLOR via Build 30</td>
+    </tr>
+    <tr>
+      <td>LEMO 5-pin</td>
+      <td>LTC timecode</td>
+      <td>Time-of-day timecode output</td>
+    </tr>
+    <tr>
+      <td>XLR (×2)</td>
+      <td>Analog audio in</td>
+      <td>Via XLR module (4-ch, 24-bit, 48kHz)</td>
+    </tr>
+    <tr>
+      <td>mini-XLR</td>
+      <td>Audio in/out</td>
+      <td>Included cable: mini-XLR to XLR adaptor</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="audio">Audio</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Specification</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Channels</td>
+      <td>4 channel (standard)</td>
+    </tr>
+    <tr>
+      <td>Bit depth</td>
+      <td>24-bit</td>
+    </tr>
+    <tr>
+      <td>Sample rate</td>
+      <td>48kHz</td>
+    </tr>
+    <tr>
+      <td>Encoding</td>
+      <td>Uncompressed PCM embedded in R3D</td>
+    </tr>
+    <tr>
+      <td>Preamp</td>
+      <td>PGA2500I digitally-controlled microphone preamp</td>
+    </tr>
+    <tr>
+      <td>DAC</td>
+      <td>DAC23 stereo 8–96kHz with headphone amp</td>
+    </tr>
+    <tr>
+      <td>Input</td>
+      <td>XLR (balanced) via XLR module</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="physical">Physical</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Specification</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Body weight</td>
+      <td>~10 lbs (4.5 kg) without lens, battery, or viewfinder</td>
+    </tr>
+    <tr>
+      <td>Construction</td>
+      <td>Precision-machined aluminum alloy</td>
+    </tr>
+    <tr>
+      <td>Dimensions</td>
+      <td>Approx. 18 cm × 19 cm × 19 cm (body only)</td>
+    </tr>
+    <tr>
+      <td>Operating temperature</td>
+      <td>0°C to +40°C (32°F to 104°F)</td>
+    </tr>
+    <tr>
+      <td>Storage temperature</td>
+      <td>−20°C to +50°C (−4°F to 122°F)</td>
+    </tr>
+    <tr>
+      <td>Lens mount (standard)</td>
+      <td>PL Mount (ARRI-compatible)</td>
+    </tr>
+    <tr>
+      <td>Lens mount (optional)</td>
+      <td>Nikon F, Canon EF, B4 to PL adaptor</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="delivery-formats-post-production">Delivery Formats (Post Production)</h2>
+
+<p>Output via <strong>REDCINE-X</strong> or <strong>ROCKETCINE-X</strong> software:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Format</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>DPX</td>
+      <td>Log, Linear, or REC709 colorspace; 4K or 2K</td>
+    </tr>
+    <tr>
+      <td>OpenEXR</td>
+      <td>4K or 2K</td>
+    </tr>
+    <tr>
+      <td>TIFF</td>
+      <td>4K or 2K</td>
+    </tr>
+    <tr>
+      <td>ProRes HQ 1080p</td>
+      <td>Via Apple FCP pipeline</td>
+    </tr>
+    <tr>
+      <td>DNxHD QuickTime</td>
+      <td>Via Avid pipeline</td>
+    </tr>
+    <tr>
+      <td>H.264/MP4</td>
+      <td>Via REDCINE-X</td>
+    </tr>
+    <tr>
+      <td>Avid AAF/MXF</td>
+      <td>EDL-based conforming</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="post-production-software-compatibility-as-of-2011">Post Production Software Compatibility (as of 2011)</h3>
+
+<p>Final Cut Pro · Avid Media Composer · Avid DS · Adobe Premiere Pro ·
+Adobe After Effects · Sony Vegas · Assimilate Scratch · Filmlight Baselight ·
+Quantel Pablo · DaVinci Resolve · The Foundry Nuke · DVS Clipster ·
+REDCINE-X · ROCKETCINE-X</p>
+
+  </div>
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simook/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/troubleshooting">Troubleshooting</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simook/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firmware History | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Firmware History | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Firmware History" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/firmware/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/firmware/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Firmware History" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Firmware History","url":"http://0.0.0.0:4000/r1mx/firmware/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/troubleshooting">Troubleshooting</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simook/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content">
+  
+  <header class="page-header">
+    <h1 class="page-title">Firmware History</h1>
+    <p class="page-subtitle">Complete release history for RED ONE and RED ONE MX camera firmware</p>
+  </header>
+  
+  <div class="page-body">
+    <p>RED ONE firmware is distributed as encrypted <code class="language-plaintext highlighter-rouge">.zip</code> archives containing a single upgrade
+file (<code class="language-plaintext highlighter-rouge">redone.su</code>). The camera applies upgrades from a CompactFlash card at boot.
+This page documents all known production and pre-production builds.</p>
+
+<div class="callout callout--info">
+  Firmware files for production builds are preserved in the
+  <a href="https://github.com/simook/r1mx/tree/main/firmware/builds">r1mx firmware archive</a>.
+  The decryption key and extraction method are documented in
+  <a href="https://github.com/simook/r1mx/blob/main/firmware/README.md">firmware/README.md</a>.
+</div>
+
+<hr />
+
+<h2 id="upgrade-instructions">Upgrade Instructions</h2>
+
+<p>These steps apply to all production builds:</p>
+
+<ol>
+  <li>Format a CF card using the camera (or a compatible build - see per-build notes)</li>
+  <li>Copy the <code class="language-plaintext highlighter-rouge">upgrade/</code> folder from the build archive onto the CF card root</li>
+  <li>Do <strong>not</strong> rename the <code class="language-plaintext highlighter-rouge">upgrade/</code> folder - the camera only reads a folder named <code class="language-plaintext highlighter-rouge">upgrade</code></li>
+  <li>Do <strong>not</strong> decompress <code class="language-plaintext highlighter-rouge">redone.su</code> - the camera handles that itself</li>
+  <li>Power down the camera and insert the CF card</li>
+  <li>Power on - the rear status display will show <strong>“New Firmware”</strong></li>
+  <li>Press the joystick to confirm; the display will show <strong>“Upgrading”</strong></li>
+  <li>A blue progress bar runs for approximately 5 minutes</li>
+  <li>When complete, the display shows <strong>“O.K. Cycle Power”</strong></li>
+  <li>Power cycle the camera and verify the build number on the status display</li>
+</ol>
+
+<div class="callout callout--warn">
+  <strong>After any firmware upgrade or downgrade:</strong> Reformat a CF card and perform
+  a BLACK SHADING calibration. Operating without a fresh black shade after a firmware change
+  usually causes significant color errors.
+</div>
+
+<hr />
+
+<h2 id="compatibility-rules">Compatibility Rules</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Rule</th>
+      <th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Mysterium-X cameras</td>
+      <td>Cannot use firmware prior to Build 30</td>
+    </tr>
+    <tr>
+      <td>Mysterium cameras (downgrade)</td>
+      <td>Cannot downgrade below Build 16</td>
+    </tr>
+    <tr>
+      <td>Build 21 upgrade path</td>
+      <td>Must be on Build 16 or later before upgrading to Build 21</td>
+    </tr>
+    <tr>
+      <td>Build 21 downgrade</td>
+      <td>Cannot roll back to Build 15 or earlier after upgrading</td>
+    </tr>
+    <tr>
+      <td>Media compatibility</td>
+      <td>After upgrading, media formatted by older builds may be incompatible</td>
+    </tr>
+    <tr>
+      <td>CF cards (non-speed-verified)</td>
+      <td>Limited to 2K record resolution</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="production-builds">Production Builds</h2>
+
+<ul class="build-list">
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 32</span>
+      <span class="build-version">v32.0.3</span>
+      <span class="build-date">Release date: unknown</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">Final known production build for RED ONE MX.</p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 31</span>
+      <span class="build-version">v31.6.16</span>
+      <span class="build-date">Release date: unknown</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">Late production build.</p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 30</span>
+      <span class="build-version">v30.7.0 / v30.5.0</span>
+      <span class="build-date">April 2, 2010 (v30.5.0)</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">
+        Major release: first official support for the Mysterium-X sensor. Introduces FLUT color
+        science, REDcolor, expanded ISO range, REDCODE 42 for 3K/2K, false color MULTI user key,
+        LOOK file import from REDCINE-X, CLEAN feed output, monitor FLIP, Edge Code in HANC,
+        shutter entry in degrees.
+      </p>
+      <ul>
+        <li>Support for Mysterium-X sensor in RED ONE body</li>
+        <li>FLUT Color Science with RGB and RAW metering updates</li>
+        <li>ISO 2500-6400 options (Mysterium-X only)</li>
+        <li>REDcolor VIEW mode added to AV/VIEW menu</li>
+        <li>REDCODE 42 quality option for all 3K and 2K recordings</li>
+        <li>Exposure (RAW sensor check), Focus, and Video false color modes</li>
+        <li>LOOK (.RLK) file import from REDCINE-X</li>
+        <li>SETUP/PROGRAM menu: VIDEO flip, CLEAN feed output, TALLY control</li>
+        <li>Remote enable/disable of COLOR via GPI/O</li>
+        <li>UNMOUNT added as a USER KEY option</li>
+        <li>Time-of-day timecode output freezes when not in Record</li>
+        <li>Edge Code value added to LTC location on HD-SDI outputs</li>
+        <li>Shutter (exposure time) in Degrees or 1/Sec format</li>
+        <li>MAX resolution selector removed (all resolutions now record in MAX mode)</li>
+      </ul>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 21</span>
+      <span class="build-version">v21.4.1</span>
+      <span class="build-date">December 17, 2009</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">
+        Adds 4.5K WS resolution; REDCODE 42 for 4.5K WS, 4K 2:1, 4K ANA, 4K HD;
+        color space VIEW indicator; Video Genlock for HD-SDI; Cooke S4/i lens data support;
+        enhanced USER PROFILE; CONFIGURATION function; camera STATUS overview;
+        REPEAT FRAME and IN-RECORD flags.
+      </p>
+      <ul>
+        <li>4.5K WS (4480x1920) resolution added</li>
+        <li>REDCODE 42 available at 4.5K WS, 4K 2:1, 4K ANA, 4K HD</li>
+        <li>Video Genlock for HD-SDI preview output</li>
+        <li>Support for S4/i metadata from Cooke Prime and Zoom lenses</li>
+        <li>Enhanced USER PROFILE function</li>
+        <li>Project CONFIGURATION function and camera STATUS overview</li>
+        <li>REPEAT FRAME and IN-RECORD flags in HANC VITC-2 metadata</li>
+        <li>CLIP NAME added as HANC metadata in preview HD-SDI output</li>
+        <li>Edge highlight color changed from red to blue</li>
+        <li>Variable OPACITY for LOOK AROUND area</li>
+      </ul>
+      <p><strong>Upgrade requirement:</strong> Must be on Build 16 or later. Cannot roll back to Build 15 or earlier.</p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 20</span>
+      <span class="build-version">v20.1.6 / v20.1.3</span>
+      <span class="build-date">2009</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">
+        Introduced REDcolor color science and updated post-production color pipeline.
+        Other post tools needed updates to reflect the new color science.
+      </p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 17</span>
+      <span class="build-version">v3.4.1</span>
+      <span class="build-date">2008/2009</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">Production build in the v3.x series.</p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 16</span>
+      <span class="build-version">v3.2.5</span>
+      <span class="build-date">2008/2009</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">
+        Minimum build required before upgrading to Build 21. Minimum downgrade target
+        for Mysterium-sensor cameras.
+      </p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 15</span>
+      <span class="build-version">v2.2.5</span>
+      <span class="build-date">2008</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">Last build in the v2.x series before the v3.x platform update.</p>
+    </div>
+  </li>
+
+  <li class="build-item">
+    <div class="build-header">
+      <span class="build-number">Build 13</span>
+      <span class="build-version">v1.8.8</span>
+      <span class="build-date">2008</span>
+    </div>
+    <div class="build-body">
+      <p class="build-summary">
+        First production build of the v1.8 series. Equivalent feature set to Build 12
+        but as an official production release.
+      </p>
+      <ul>
+        <li>SYNCED or FIXED refresh rates for RED-EVF in SYSTEM/MONITOR</li>
+        <li>RECORD MODE parameter: NORMAL / VARISPEED / TIMELAPSE in SETUP</li>
+        <li>Enable checkbox for USER 1 and USER 2 keys in KEYMAP submenu</li>
+        <li>Variable fan speed mode in SYSTEM/SETUP/MAINTENANCE/FAN</li>
+        <li>On-camera playback of recorded clips</li>
+        <li>Cue to beginning, step through clip list, Normal/Fast Forward/Reverse playback</li>
+      </ul>
+    </div>
+  </li>
+
+</ul>
+
+<hr />
+
+<h2 id="pre-production-builds">Pre-Production Builds</h2>
+
+<p>These builds were distributed before general availability. Contact the project if you
+have firmware images not listed here.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Build</th>
+      <th>Version</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Build 12</td>
+      <td>v1.8.8</td>
+      <td>Pre-production equivalent of Build 13</td>
+    </tr>
+    <tr>
+      <td>Build 11</td>
+      <td>v1.8.6</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 10</td>
+      <td>v1.7.0</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 8</td>
+      <td>v1.3.6</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 7</td>
+      <td>v1.3.5</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 6</td>
+      <td>v1.2.1</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 5</td>
+      <td>v1.1.3</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 4</td>
+      <td>v1.1.2</td>
+      <td>Pre-production</td>
+    </tr>
+    <tr>
+      <td>Build 3</td>
+      <td>v1.0.4</td>
+      <td>Earliest known build</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="companion-software">Companion Software</h2>
+
+<p>These software tools were distributed free from red.com/support alongside camera firmware:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Software</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>REDCINE-X</td>
+      <td>Primary post-production application for R3D files; exports DPX, TIFF, OpenEXR, H.264</td>
+    </tr>
+    <tr>
+      <td>ROCKETCINE-X</td>
+      <td>REDCINE-X variant accelerated by the RED ROCKET PCIe card</td>
+    </tr>
+    <tr>
+      <td>RED ALERT!</td>
+      <td>Early RED post tool (superseded by REDCINE-X)</td>
+    </tr>
+    <tr>
+      <td>REDCODE QuickTime Codec</td>
+      <td>Codec for native R3D playback in QuickTime / Final Cut Pro</td>
+    </tr>
+    <tr>
+      <td>RED Final Cut Studio 2/3 Installer</td>
+      <td>Integration package for Apple Final Cut Pro</td>
+    </tr>
+    <tr>
+      <td>RED Adobe CS4 Installer</td>
+      <td>Integration package for Adobe Creative Suite 4</td>
+    </tr>
+  </tbody>
+</table>
+
+  </div>
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simook/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/troubleshooting">Troubleshooting</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simook/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

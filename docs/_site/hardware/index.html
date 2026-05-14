@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hardware Reference | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Hardware Reference | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Hardware Reference" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/hardware/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/hardware/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Hardware Reference" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Hardware Reference","url":"http://0.0.0.0:4000/r1mx/hardware/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/troubleshooting">Troubleshooting</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simook/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content">
+  
+  <header class="page-header">
+    <h1 class="page-title">Hardware Reference</h1>
+    <p class="page-subtitle">PCB boards, key ICs, and interconnects from the r1mx reverse engineering project</p>
+  </header>
+  
+  <div class="page-body">
+    <p>The RED ONE MX houses four primary PCB boards, one sensor board, and several supporting boards,
+all precision-machined into an aluminum alloy body. This page summarizes the known hardware
+architecture based on the ongoing <a href="https://github.com/simook/r1mx">r1mx reverse engineering project</a>.</p>
+
+<figure class="figure">
+  <img src="/r1mx/assets/images/red-one-overview.png" alt="RED ONE MX camera overview" width="334" height="515" />
+  <figcaption>RED ONE MX body overview</figcaption>
+</figure>
+
+<div class="callout callout--warn">
+  <strong>Work in progress:</strong> The r1mx project is actively reverse engineering each board.
+  Information here reflects current findings and will be updated as research progresses.
+  See the <a href="https://github.com/simook/r1mx">GitHub repository</a> for the latest schematics,
+  component lists, and board images.
+</div>
+
+<hr />
+
+<h2 id="board-overview">Board Overview</h2>
+
+<div class="board-grid">
+  <div class="board-card">
+    <div class="board-card-title">AUDIO_PCI Board</div>
+    <ul>
+      <li><strong>ISP1562</strong> - USB PCI host controller</li>
+      <li><strong>NET2280REV1A-LF</strong> - USB-to-SPI/PCI bridge (USB 2.0)</li>
+      <li><strong>SiI3512ECTU128</strong> - 2-port SATA PCI host controller</li>
+      <li><strong>PCA9698DGG</strong> - 40-bit I2C I/O expander</li>
+      <li><strong>TMDS141</strong> - HDMI re-driver</li>
+      <li><strong>DAC23</strong> - Stereo audio DAC, 8-96kHz + headphone amp</li>
+      <li><strong>PGA2500I</strong> - Digitally controlled mic preamp</li>
+      <li><strong>GS2978</strong> - 3G SDI cable driver</li>
+    </ul>
+  </div>
+
+  <div class="board-card">
+    <div class="board-card-title">CPU_IO Board</div>
+    <ul>
+      <li>Central processing and I/O routing board</li>
+      <li>Connects to AUDIO_PCI via 180-position high-speed mezzanine connector</li>
+      <li>Connects to SENSOR board via 240-position high-speed mezzanine connector</li>
+      <li>3x flat flex connectors to Monitor, EVF, and display outputs</li>
+      <li>Houses the main SoC/CPU running VxWorks 6.x</li>
+    </ul>
+  </div>
+
+  <div class="board-card">
+    <div class="board-card-title">SENSOR Board</div>
+    <ul>
+      <li>Houses the Mysterium-X 14MP sensor</li>
+      <li>Connects to Xilinx Virtex-4 FPGA for sensor data pipeline</li>
+      <li><strong>XC4VLX</strong> family FPGA - handles encoding and data routing</li>
+      <li>Connects to CPU_IO via 240-position mezzanine</li>
+    </ul>
+  </div>
+
+  <div class="board-card">
+    <div class="board-card-title">UI Board</div>
+    <ul>
+      <li><strong>LTBPY</strong> - Hot-swappable 2-wire bus buffer</li>
+      <li><strong>PCA9698DGG</strong> - 40-bit I2C I/O expander</li>
+      <li><strong>AD5241</strong> - 256-position digital potentiometer</li>
+      <li><strong>CoolRunner-II XC2C256</strong> - CPLD for UI logic</li>
+      <li>Provides physical joystick and button interface for camera operators</li>
+    </ul>
+  </div>
+
+  <div class="board-card">
+    <div class="board-card-title">POWER Board</div>
+    <ul>
+      <li>Manages power distribution to all camera systems</li>
+      <li>Interfaces with RED BRICK V-Mount battery</li>
+      <li>Supports AC power adaptor input</li>
+      <li>Research ongoing - see repository for current findings</li>
+    </ul>
+  </div>
+
+  <div class="board-card">
+    <div class="board-card-title">SSD Board</div>
+    <ul>
+      <li>Houses the iVDR 26-pin connector (Amphenol 10033998-002LF)</li>
+      <li>Interfaces REDMAG SSD modules to the SiI3512 SATA controller</li>
+      <li>Standard 2.5" SATA SSD internally</li>
+      <li>See <a href="#ssd-drive">SSD Drive section</a> below</li>
+    </ul>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="board-interconnects">Board Interconnects</h2>
+
+<h3 id="cpu_io-to-audio_pci-180-position-mezzanine">CPU_IO to AUDIO_PCI (180-position mezzanine)</h3>
+
+<p>The CPU_IO and AUDIO_PCI boards are connected by a 180-position high-speed mezzanine connector.
+This single connector carries:</p>
+
+<ul>
+  <li>HD-SDI and HDMI video signals</li>
+  <li>XLR audio input/output</li>
+  <li>USB host bus</li>
+  <li>SATA storage bus (CF, SSD, RED DRIVE)</li>
+</ul>
+
+<div class="callout callout--danger">
+  <strong>Known failure point:</strong> Broken traces on the CPU_IO board at or near the
+  180-position mezzanine connector cause <em>simultaneous</em> loss of multiple subsystems.
+  If your camera exhibits all of the following at once, suspect this interconnect:
+  <ul style="margin-top:0.5rem">
+    <li>No HD-SDI or HDMI video output</li>
+    <li>No XLR audio input</li>
+    <li>Unable to detect CF card, SSD, or RED DRIVE</li>
+  </ul>
+  See the <a href="/r1mx/troubleshooting">Troubleshooting</a> page for
+  diagnostic steps.
+</div>
+
+<h3 id="cpu_io-to-sensor-240-position-mezzanine">CPU_IO to SENSOR (240-position mezzanine)</h3>
+
+<p>A 240-position high-speed mezzanine connector carries the full-bandwidth sensor data
+from the SENSOR board to the CPU_IO board for FPGA processing.</p>
+
+<hr />
+
+<h2 id="key-ics-reference">Key ICs Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Part Number</th>
+      <th>Function</th>
+      <th>Board</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Xilinx XC4VLX (Virtex-4)</td>
+      <td>FPGA - sensor data pipeline + REDCODE encoding</td>
+      <td>SENSOR</td>
+      <td>Handles all RAW data processing</td>
+    </tr>
+    <tr>
+      <td>SiI3512ECTU128</td>
+      <td>2-port SATA PCI host controller</td>
+      <td>AUDIO_PCI</td>
+      <td>Controls CF and SSD storage</td>
+    </tr>
+    <tr>
+      <td>ISP1562</td>
+      <td>USB PCI host controller</td>
+      <td>AUDIO_PCI</td>
+      <td>USB 2.0 host bus</td>
+    </tr>
+    <tr>
+      <td>NET2280REV1A-LF</td>
+      <td>USB-to-PCI bridge</td>
+      <td>AUDIO_PCI</td>
+      <td>USB 2.0 interface bridge</td>
+    </tr>
+    <tr>
+      <td>GS2978</td>
+      <td>3G SDI cable driver</td>
+      <td>AUDIO_PCI</td>
+      <td>HD-SDI output</td>
+    </tr>
+    <tr>
+      <td>TMDS141</td>
+      <td>HDMI re-driver</td>
+      <td>AUDIO_PCI</td>
+      <td>HDMI output signal conditioning</td>
+    </tr>
+    <tr>
+      <td>DAC23</td>
+      <td>Stereo audio DAC</td>
+      <td>AUDIO_PCI</td>
+      <td>8-96kHz, integrated headphone amp</td>
+    </tr>
+    <tr>
+      <td>PGA2500I</td>
+      <td>Mic preamp</td>
+      <td>AUDIO_PCI</td>
+      <td>Digitally controlled, XLR input</td>
+    </tr>
+    <tr>
+      <td>PCA9698DGG</td>
+      <td>40-bit I2C I/O expander</td>
+      <td>AUDIO_PCI, UI</td>
+      <td>Used on multiple boards</td>
+    </tr>
+    <tr>
+      <td>CoolRunner-II XC2C256</td>
+      <td>CPLD</td>
+      <td>UI</td>
+      <td>UI button and joystick logic</td>
+    </tr>
+    <tr>
+      <td>AD5241</td>
+      <td>Digital potentiometer</td>
+      <td>UI</td>
+      <td>256-position, I2C controlled</td>
+    </tr>
+    <tr>
+      <td>LTBPY</td>
+      <td>2-wire bus buffer</td>
+      <td>UI</td>
+      <td>Hot-swappable I2C buffer</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="firmware-architecture">Firmware Architecture</h2>
+
+<p>The RED ONE MX runs <strong>VxWorks 6.x</strong> (Wind River Systems) as its real-time operating system.
+The firmware image is encrypted and stored in flash memory.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>Details</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>OS</td>
+      <td>VxWorks 6.x (RTOS)</td>
+    </tr>
+    <tr>
+      <td>FPGA bitstream</td>
+      <td>Xilinx Virtex-4 (XC4VLX family)</td>
+    </tr>
+    <tr>
+      <td>Encryption</td>
+      <td>AES-256-CBC with MD5 KDF</td>
+    </tr>
+    <tr>
+      <td>Decryption key</td>
+      <td>Public - see firmware/README.md in the repository</td>
+    </tr>
+    <tr>
+      <td>Build system</td>
+      <td>Xilinx EDK (Embedded Development Kit)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The firmware is distributed as encrypted <code class="language-plaintext highlighter-rouge">.zip</code> archives. The r1mx project has
+documented the decryption method and extracted artifacts for all known production builds.
+See the <a href="/r1mx/firmware">Firmware page</a> for the full build history.</p>
+
+<hr />
+
+<h2 id="ssd-drive-redmag">SSD Drive (REDMAG)</h2>
+
+<p>The RED ONE MX records to REDMAG SSD modules via the iVDR 26-pin connector.
+The r1mx project has fully documented the SSD interface.</p>
+
+<h3 id="identified-drive-toshiba-hg3-series-thnsnc256gbsj">Identified Drive: Toshiba HG3 Series (THNSNC256GBSJ)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Specification</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Interface</td>
+      <td>SATA II (3 Gbit/s), 5V only</td>
+    </tr>
+    <tr>
+      <td>NAND</td>
+      <td>Toshiba 32nm MLC (TH58TEG series, Toggle Mode)</td>
+    </tr>
+    <tr>
+      <td>Controller</td>
+      <td>Toshiba TC58 “Type C” (proprietary)</td>
+    </tr>
+    <tr>
+      <td>Sequential read</td>
+      <td>220 MB/s</td>
+    </tr>
+    <tr>
+      <td>Sequential write</td>
+      <td>180 MB/s</td>
+    </tr>
+    <tr>
+      <td>Camera connection</td>
+      <td>Silicon Image SiI3512 -&gt; iVDR 26-pin (Amphenol 10033998-002LF)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="drive-validation">Drive Validation</h3>
+
+<div class="callout callout--warn">
+  <strong>Firmware drive validation:</strong> At boot, the camera reads the drive's ATA model
+  string and checks it against a hardcoded approved-drive list. Replacement drives must either
+  match an approved model string or the firmware must be patched. Drives that fail validation
+  will not be mounted.
+</div>
+
+<p>Full research including datasheets, interface mapping, firmware analysis, and replacement
+options is documented in
+<a href="https://github.com/simook/r1mx/blob/main/ssd_drive/README.md">ssd_drive/README.md</a>.</p>
+
+<hr />
+
+<h2 id="board-manufacturing">Board Manufacturing</h2>
+
+<p>The PCB boards were manufactured by the
+<a href="https://web.archive.org/web/20081024222256/https://www.sanmina.com/">Sanmina Corporation</a>.
+Sanmina is a contract electronics manufacturer that produced boards for many professional
+broadcast and cinema equipment makers during this era.</p>
+
+<hr />
+
+<h2 id="contributing">Contributing</h2>
+
+<p>The r1mx project is actively building out schematics, component lists, and repair guides.
+If you have a RED ONE MX and want to contribute measurements, photos, or findings:</p>
+
+<ul>
+  <li>Open an issue or pull request on <a href="https://github.com/simook/r1mx">GitHub</a></li>
+  <li>All board images, component measurements, and reverse engineering artifacts are welcome</li>
+</ul>
+
+  </div>
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simook/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/troubleshooting">Troubleshooting</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simook/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
