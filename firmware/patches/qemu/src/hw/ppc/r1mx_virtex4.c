@@ -62,7 +62,10 @@
 #define BOOT_ROM_BASE   0xffff0000u  /* Boot ROM 64 KB                         */
 
 /* Unimplemented device region sizes (must be ≥ max register offset + 4) */
-#define UART550_SIZE    0x1000u
+/* NS550: XUN_REG_OFFSET = 0x1000; highest reg at 0x101F → need > 0x1020 */
+#define UART550_SIZE    0x2000u
+#define DMA_BASE        0x64010000u  /* XPS Central DMA — confirmed by xparameters.h */
+#define DMA_SIZE        0x10000u     /* 64 KB standard PLB mapping */
 #define ERRCTRS_SIZE    0x1000u
 #define HIST_SIZE       0x10000u
 #define PCI_CFG_SIZE    0x10000u
@@ -184,9 +187,16 @@ static void r1mx_init(MachineState *machine)
 
     /* --- Unimplemented / stub regions ------------------------------------ */
 
-    /* XPS UART16550 #1 and #2 (not used for debug; firmware probes them) */
+    /* XPS UART16550 #1 and #2 (not used for debug; firmware probes them)
+     * NOTE: XUN_REG_OFFSET = 0x1000 — the NS550 driver accesses registers
+     * starting at base+0x1000 (RBR at +0x1003, highest at +0x101F).
+     * UART550_SIZE must be > 0x1020 to avoid MCE on those accesses. */
     create_unimplemented_device("uart16550-0", UART550_0_BASE, UART550_SIZE);
     create_unimplemented_device("uart16550-1", UART550_1_BASE, UART550_SIZE);
+
+    /* XPS Central DMA (confirmed at 0x64010000 by xparameters.h)
+     * Without this stub, firmware MCEs on first DmaChannel access. */
+    create_unimplemented_device("xps-dma", DMA_BASE, DMA_SIZE);
 
     /* RED custom error-counter IP (probed early in boot, patches #40-42) */
     create_unimplemented_device("red-errctrs", ERRCTRS_BASE, ERRCTRS_SIZE);
