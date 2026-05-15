@@ -57,6 +57,9 @@ if [[ ! -d "$DEST" ]]; then
   patch -p1 < "${PATCH_DIR}/0002-ppc32-tlb-vaddr-truncation.patch"
   patch -p1 < "${PATCH_DIR}/0003-ppc32-crosspage-addr-truncation.patch"
 
+  # PPC405 FSL instruction support (APU/FCM - required for VxWorks boot)
+  patch -p1 < "${PATCH_DIR}/0004-ppc405-fsl-instructions.patch"
+
   # Copy new machine file (not patchable — it is entirely new)
   cp "${PATCH_DIR}/src/hw/ppc/r1mx_virtex4.c" "${DEST}/hw/ppc/r1mx_virtex4.c"
   echo "   hw/ppc/r1mx_virtex4.c installed"
