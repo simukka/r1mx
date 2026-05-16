@@ -2692,3 +2692,238 @@ print(d[s:s+500].decode('ascii','replace'))
 # Check build date/version:
 strings firmware/reverse/build_32/extracted/software.bin | grep -E '(32_0_3|Build 32|SUNDANCE)'
 ```
+
+---
+
+## 23. Display Pipelines
+
+The RED ONE MX has **two independent display outputs** managed by the firmware. Both are driven by the PPC405 inside the iofpga, but via entirely different hardware paths.
+
+---
+
+### 23.1 Display Architecture Overview
+
+```
+PPC405 (inside iofpga)
+  |
+  +-- StatusLCD path -----> IoCpldGpio* (MMIO) ---> CoolRunner-II XC2C256 CPLD
+  |                                                          |
+  |                                                   bitbang SPI
+  |                                                          |
+  |                                             small body-mounted status LCD
+  |
+  +-- Main OSD path ------> FlashVx::FrameBufferAlloc (CPU RAM)
+                                     |
+                             Scaleform GFx renders SWF
+                                     |
+                             FlashVx::FrameBufferBlit(SCREEN)
+                                     |
+                           FPGA framebuffer DMA (0xE0xxxxxx)
+                                     |
+                          +----------+----------+
+                          |                     |
+                    TMDS141 (HDMI)         GS2978 (3G-SDI)
+                   external monitor          HD-SDI output
+```
+
+---
+
+### 23.2 StatusLCD - Small Body-Mounted Display
+
+The camera body has a small status LCD that shows camera state, active parameters, button labels, and error messages. It is fully independent of the sensor and image pipeline.
+
+**Hardware path:**
+
+```
+PPC405 --> IoCpldGpio* (memory-mapped GPIO) --> XC2C256 CPLD --> SPI --> LCD controller
+```
+
+The CoolRunner-II XC2C256 CPLD on the UI board acts as an intermediary. The firmware bit-bangs SPI to the LCD controller through CPLD GPIO lines. The CPLD also debounces the four physical buttons (SW1-SW4) and routes them back to the PPC405.
+
+**Key firmware classes and symbols:**
+
+| Symbol / Class | Mangled name | Role |
+|---|---|---|
+| `StatusLCD` | `_GLOBAL__I_CreateStatusLCD` | Singleton, manages display content |
+| `StatusLCD::SetPane()` | (C++ vtable method) | Sets the active display pane |
+| `UpdateStatusLCD` | global function | Pushes new content to display |
+| `LcdManager` | `_ZN10LcdManagerC1Ev` | Button handling + intensity |
+| `LcdManager::GetManager()` | singleton accessor | Returns active LcdManager |
+| `UiLocal::setLcdIntensity()` | `_ZN7UiLocal15setLcdIntensityEi` | Backlight brightness (0-255) |
+| `UiEngineModule::ConfigureLCD()` | `_ZN14UiEngineModule12ConfigureLCDEv` | Brightness from config |
+| `IoCpldGpioOutSet` | global | Set CPLD GPIO output bit |
+| `IoCpldGpioInGet` | global | Read CPLD GPIO input |
+| `IoCpldGpioTriSet` | global | Set GPIO tri-state |
+| `cpldInit()` | global | Initializes CPLD library; logs `Initializing CPLD interface library...` |
+
+**Config parameter keys (from firmware strings):**
+
+- `SYSTEM.DEV.LCD.ENABLED` - enable/disable LCD
+- `SYSTEM.DEV.LCD.BRIGHTNESS` - brightness level
+- `SYSTEM.DEV.LCD.ENABLE54SCALING` - enable 5:4 scaling mode
+- `SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW1` through `SW4` - raw button values
+- `GUI.KEYMAP.LCD_A.ENABLED`, `GUI.KEYMAP.LCD_A.FUNCTION` - key mapping
+
+**Boot sequence for StatusLCD:**
+
+```
+cpldInit()                      ; sets up CPLD MMIO, GPIO direction
+  "Asserting SYS_RUNNING signal to CPLD..."
+StatusLCD::CreateStatusLCD()    ; instantiates singleton
+LcdManager()                    ; CTOR, registers button callbacks
+UiEngineModule::ConfigureLCD()  ; "ConfigureLCD() brightness = %d"
+UpdateStatusLCD()               ; first content write
+```
+
+**QEMU capture strategy:**
+
+The CPLD GPIO MMIO base address is not yet confirmed (TODO: find in `cpldInit()` via Ghidra). Once known, adding a stub MMIO region in `r1mx_virtex4.c` that:
+1. Returns OK for reads (GPIO direction/status)
+2. Logs all GPIO write sequences
+3. Decodes the SPI bit patterns to LCD commands
+
+This path does **not** need the FPGA framebuffer or video pipeline. It should be observable within 3-7 sessions of getting root-task dispatching working.
+
+**StatusLCD SWF components (OSD XML):**
+
+The main OSD XML at `0x9D2AE0` includes ActionScript component classes that render to the StatusLCD:
+- `GUI.OSD_Components.StatusLCD` - main panel
+- `GUI.OSD_Components.StatusLcdErrorMC` - error overlay
+- `GUI.OSD_Components.LcdJogDialFieldMC` - jog dial value display
+
+---
+
+### 23.3 Main OSD - Scaleform GFx (HDMI/SDI Output)
+
+The main camera display output is rendered by a Scaleform GFx (Flash) engine embedded in the firmware. It composites the UI overlay (menus, histograms, metadata) on top of the video signal via the FPGA.
+
+**Hardware path:**
+
+```
+FlashVx (Scaleform wrapper)
+  --> CPU allocates RAM framebuffer (FlashVx::FrameBufferAlloc)
+  --> Renders SWF ActionScript UI to framebuffer pixels
+  --> FlashVx::FrameBufferBlit(SCREEN: x,y,w,h) - pushes region to FPGA
+  --> FPGA DMA controller (address range 0xE0xxxxxx)
+  --> FPGA composites OSD with sensor data
+  --> TMDS141 (HDMI re-driver) or GS2978 (3G-SDI driver)
+```
+
+**Key firmware classes and symbols:**
+
+| Symbol / Class | Mangled name | Role |
+|---|---|---|
+| `FlashVx` | `_ZN7FlashVxC1Ev` | Scaleform GFx wrapper; owns framebuffer |
+| `FlashVx::FrameBufferAlloc` | `_ZN7FlashVx16FrameBufferAllocEiiRi` | Allocates CPU RAM for render target |
+| `FlashVx::FrameBufferBlit` | `_ZN7FlashVx15FrameBufferBlitEiiii` | Copies rendered region to FPGA DMA |
+| `FlashVx::FrameBufferFree` | `_ZN7FlashVx15FrameBufferFreeEv` | Frees framebuffer |
+| `FlashVx::FrameBufferResize` | `_ZN7FlashVx17FrameBufferResizeEii` | Resizes framebuffer |
+| `FlashVx::FrameBufferPixelFormat` | `_ZN7FlashVx22FrameBufferPixelFormatEv` | Returns pixel format (TODO: confirm RGBA/BGRA) |
+| `FlashVx::FrameBufferRect` | `_ZNK7FlashVx15FrameBufferRectER9FlashRect` | Returns bounding rect |
+| `VxForceRedraw` | `_Z13VxForceRedrawPv` | Forces full GUI redraw |
+| `UiEngineModule` | `_ZN14UiEngineModuleC1Ev` | Top-level UI engine |
+| `UiEngineModule::FlashLoadSwf` | (C++ method) | Loads SWF file from firmware image |
+| `UiEngineModule::RunPhase` | (C++ method) | Main render loop; "Registering callbacks and buttons..." |
+| `VideoMonitorMgr` | `_ZN15VideoMonitorMgrC1Ev` | Manages HDMI/SDI output paths |
+| `VideoMonitorMgr::ConfigureLcd` | `_ZN15VideoMonitorMgr12ConfigureLcdEP15outPathConfig_t` | Sets output resolution/format |
+| `VideoMonitorMgr::CheckDisplayConnections` | `_ZN15VideoMonitorMgr23CheckDisplayConnectionsEv` | Polls HDMI/SDI hotplug |
+| `flashPlayerPlay` | `_Z15flashPlayerPlayv` | Start Flash player |
+| `flashPlayerStop` | `_Z15flashPlayerStopv` | Stop Flash player |
+| `flashPlayerPause` | `_Z16flashPlayerPausev` | Pause playback |
+| `flashPlayerForceRedraw` | `_Z22flashPlayerForceRedrawv` | Force frame redraw |
+
+**Embedded SWF resources (in firmware image):**
+
+| Offset | Size | Description |
+|--------|------|-------------|
+| `0x9E03BC` | ~1.33 MB | Primary GUI SWF (menus, overlays) |
+| `0xB24EF8` | ~1.35 MB | Secondary GUI SWF (alt skin or playback UI) |
+| + 7 others | | Total 9 SWF files in firmware |
+
+The SWF files are SWF v7 (ActionScript 2.0). They can be extracted with `binwalk` and decompiled with `JPEXS Free Flash Decompiler` or `ffdec`.
+
+**OSD XML at `0x9D2AE0`** (~40KB) defines the panel/widget hierarchy. Extract with:
+
+```bash
+python3 - << 'EOF'
+data = open('firmware/reverse/build_32/extracted/software.bin','rb').read()
+start = 0x9D2AE0
+end = data.index(b'\x00', start)   # null-terminated or find closing tag
+# Adjust: look for '<?xml' header, scan forward for end of document
+import re
+m = re.search(b'<\?xml', data[start:start+16])
+end = data.find(b'</root>', start)
+if end < 0:
+    end = data.find(b'\x00\x00\x00', start)
+open('/tmp/osd_panels.xml','wb').write(data[start:end+7])
+print(f"Wrote {end+7-start} bytes")
+EOF
+```
+
+**QEMU capture strategy:**
+
+Add a QEMU write-trap memory region that covers the framebuffer RAM allocated by `FlashVx::FrameBufferAlloc`. After each `FrameBufferBlit` call, dump the framebuffer contents as a raw pixel array and convert to PNG using Python:
+
+```python
+# Post-processing: convert raw BGRA dump to PNG
+from PIL import Image
+import numpy as np
+
+width, height = 1280, 720   # confirm from FrameBufferAlloc log
+data = open('/tmp/fb_dump.raw','rb').read()
+arr = np.frombuffer(data, dtype=np.uint8).reshape((height, width, 4))
+img = Image.fromarray(arr[:,:,:3], 'RGB')   # drop alpha
+img.save('/tmp/fb_frame.png')
+```
+
+---
+
+### 23.4 EVF (Electronic Viewfinder)
+
+A third display path exists for the optional electronic viewfinder accessory:
+
+- `UiEngineModule::ConfigureEVF() intensity = %d` - EVF brightness
+- The EVF receives the same framebuffer content as the main OSD output, routed via a separate flat-flex connector on the CPU_IO board
+
+---
+
+### 23.5 Two-FPGA Context
+
+Writes to the display happen through the **iofpga**, not the vpfpga. Both FPGAs are present:
+
+| FPGA | Role | Display involvement |
+|------|------|---------------------|
+| `iofpga` (Virtex-4 FX) | PPC405 host, connectivity, I/O, histograms | YES - OSD framebuffer DMA, histogram overlay |
+| `vpfpga` | Sensor pipeline, RAW encoding, color science | NO direct display writes (feeds decompressed video to iofpga) |
+
+The OSD compositing (overlaying `FlashVx` output onto the video signal) happens in `iofpga` logic. The sensor RAW data flows through `vpfpga` independently.
+
+---
+
+### 23.6 Path to First Observable Display Write
+
+**Shorter path - StatusLCD (3-7 sessions from current state):**
+
+```
+[DONE] Boot to WDB agent
+  --> [TODO] Connect WDB, dump root task descriptor at 0x020390d0
+  --> [TODO] Trace usrRoot (0x37c33c) to find task spawn list
+  --> [TODO] Patch root descriptor or task table to spawn UI subsystem
+  --> [TODO] Find cpldInit() MMIO base (Ghidra trace)
+  --> [TODO] Add CPLD GPIO stub to r1mx_virtex4.c (returns OK)
+  --> [TODO] StatusLCD::CreateStatusLCD() runs
+  --> [GOAL] Capture GPIO writes = LCD SPI commands
+```
+
+**Longer path - Main OSD (8-15 sessions from current state):**
+
+```
+[DONE] Boot to WDB agent
+  --> [TODO] Get app tasks spawning (root descriptor fix)
+  --> [TODO] Stub FPGA MMIO (0xE0xxxxxx) version/status regs
+  --> [TODO] Stub NOR flash CFI at 0xFE000000
+  --> [TODO] Get UiEngineModule::FlashLoadSwf() to run
+  --> [TODO] Confirm FlashVx::FrameBufferAlloc address
+  --> [TODO] Add QEMU framebuffer RAM write trap
+  --> [GOAL] Capture FrameBufferBlit = rendered OSD frame pixels
+```
