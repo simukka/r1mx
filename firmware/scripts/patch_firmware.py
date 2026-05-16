@@ -1267,69 +1267,146 @@ BUILD32_PATCHES: list[Patch] = [
     ),
 
     # =========================================================================
-    # Patch #54 — fn_38038c NULL-buffer guard (fixes root-task infinite loop)
-    # =========================================================================
-    # Call chain at root-task first dispatch:
+    # Patch #54 — fn_38038c overflow-path redirect (fixes root-task infinite loop)
+    # ============================================================================
+    # Call chain at root-task dispatch:
     #
-    #   fn_381a8c (wrapper)
-    #     → fn_381a38
-    #       → fn_381824  (descriptor scanner)
-    #         → fn_38038c (r3=descriptor=0x020390d0, r4=local_buf, r5=0 <NULL>)
+    #   fn_381a8c → fn_381a38 → fn_381824 → fn_38038c(r3=descriptor, r4=buf, r5=NULL)
     #
-    # fn_38038c interprets r5 as a pointer to a "hash state" struct and reads
-    # *(r5) as a hash-limit sentinel.  With r5=0 (NULL) it reads the PPC reset
-    # vector at address 0x00000000 (= 0x48000008 = `b +8`) and uses that as the
-    # limit.  On the very first hash iteration r31 = 0 - 48 = 0xFFFFFFD0 which
-    # immediately exceeds 0x48000008, so fn_38038c branches to the "resize" path
-    # at 0x38042c:
+    # fn_38038c reads *(r5) as the hash-table size sentinel.  With r5=NULL it
+    # reads the PPC reset vector at address 0 (= 0x48000008).  As bytes are
+    # hashed (each iteration: r31 = r31*10 + char - 48) r31 eventually exceeds
+    # 0x48000008, triggering the hash-table overflow branch at 0x3803f0:
     #
-    #   0x38042c: mr r3, r29      ; r3 = r29 = r5_original = 0  (NULL)
-    #   0x380430: bl 0x38029c     ; call fn_38029c(0) — CORRUPTS exception vectors
-    #                             ;   (writes incremented instruction words to
-    #                             ;    addresses 0x10, 0x18, 0x24 = PPC critical-
-    #                             ;    interrupt, machine-check, and data-storage
-    #                             ;    exception vectors)
-    #   0x380434: lwz r31,0(r29)  ; r31 = *(0) = 0x48000008  (reset vector word)
-    #   ...
-    #   0x380440: stw r31,0(r28)  ; outputs 0x48000008 as the descriptor "length"
-    #   blr
+    #   0x3803ec: cmpl cr7, r8, r31      ; r8=0x48000008, r31=current hash
+    #   0x3803f0: blt cr7, 0x38042c      ; if hash > table_size → resize
+    #
+    # The overflow path at 0x38042c/0x380430:
+    #   0x38042c: mr r3, r29    ; r3 = r29 = original r5 = NULL
+    #   0x380430: bl 0x38029c   ; fn_38029c(NULL) — CORRUPTS exception vectors!
+    #   0x380434: lwz r31,0(r29); r31 = *(NULL) = 0x48000008 → output is 0x48000008
     #
     # Back in fn_381824:
-    #   r11 = 0x48000008  (length from fn_38038c)
-    #   r9  = descriptor_base + r11 = 0x020390d0 + 0x48000008 = 0x4a0390d8
-    #   → scan loop runs indefinitely (no '_' found in all-zero descriptor,
-    #     r9 bound is far beyond the 256 MB RAM limit)
+    #   r11 = large value → r9 = descriptor_base + r11 wraps badly → INFINITE LOOP
     #
-    # Fix (2 instruction patches at 0x38042c / 0x380430):
+    # The prior implementation (cmpi+bc) only guarded when r29=NULL; for
+    # descriptors with many bytes of the same value (e.g. 0xee uninitialized heap)
+    # the hash grows past 0x48000008 over multiple iterations, and the value
+    # stored in the output buffer is whatever r31 is at that point — not 0.
+    # That large r31 causes the same infinite loop even though the branch fires.
+    #
+    # Fix (revised — 2 instruction patches at 0x38042c / 0x380430):
     #
     #   BEFORE:
     #     0x38042c: mr r3, r29          ; 0x7fa3eb78  prepare fn_38029c arg
-    #     0x380430: bl 0x38029c         ; 0x4bfffe6d  hash-table resize (destructive with NULL)
+    #     0x380430: bl 0x38029c         ; 0x4bfffe6d  hash-table resize
     #
     #   AFTER:
-    #     0x38042c: cmpi cr7, r29, 0    ; 0x2f9d0000  test if buffer ptr is NULL
-    #     0x380430: bc 12,30,0x380404   ; 0x419effd4  if NULL: jump to safe return
-    #                                   ;             (r31 still = 0, stored to output
-    #                                   ;              → fn_381824 sees length = 0
-    #                                   ;              → cmpli r11,7 → branch to 0x381910
-    #                                   ;              → clean exit from descriptor scan)
+    #     0x38042c: li r31, 0           ; 0x3be00000  always zero the output value
+    #     0x380430: b 0x380404          ; 0x4bffffd4  unconditionally return r31=0
     #
-    # For non-NULL r29 (legitimate hash-state struct): branch NOT taken, falls
-    # through to 0x380434 (lwz r31,0(r29)) — hash resize is skipped but the
-    # return value is loaded from the valid struct.  Acceptable for emulation.
+    # Effect: whenever the hash exceeds the (bogus) table-size limit, r31 is set
+    # to 0 and the function returns immediately via the normal exit at 0x380404:
+    #   0x38040c: stw r31, 0(r28)  → stores 0 to output buffer
+    # Back in fn_381824:
+    #   r11 = 0 → cmpli cr7, r11, 7 → bng cr7, 0x381910 (r11 ≤ 7 → exit) ✓
+    #
+    # Trade-off: fn_38029c (hash-table resize for non-NULL r29) is never called.
+    # This is acceptable for emulation; all observed call sites pass r5=NULL.
     # -------------------------------------------------------------------------
     Patch(
         offset=0x38042c,
         original=b'\x7f\xa3\xeb\x78',   # mr r3, r29
-        replacement=b'\x2f\x9d\x00\x00', # cmpi cr7, r29, 0  (test NULL buffer ptr)
-        description="fn_38038c NULL-buffer guard (part 1/2): replace 'mr r3,r29' with 'cmpi cr7,r29,0' to test whether the hash-state struct pointer (r29 = original r5 arg) is NULL. Works with patch #54b to skip the fn_38029c resize call that would corrupt PPC exception vectors at addresses 0x10/0x18/0x24 when called with NULL.",
+        replacement=b'\x3b\xe0\x00\x00', # li r31, 0  — zero output before early return
+        description="fn_38038c overflow-path redirect (part 1/2): replace 'mr r3,r29' (prepare fn_38029c arg) with 'li r31,0' to zero r31 before the unconditional return in patch #54b. When the hash accumulator overflows the table-size limit (always bogus because r5=NULL makes *(r5) read the PPC reset vector 0x48000008), r31 is forced to 0 so the output buffer receives 0, causing fn_381824 to see r11=0 and exit cleanly.",
         phase=2,
     ),
     Patch(
         offset=0x380430,
         original=b'\x4b\xff\xfe\x6d',   # bl 0x38029c  (hash-table resize)
-        replacement=b'\x41\x9e\xff\xd4', # bc 12,30,0x380404  (if r29==NULL: skip to safe return)
-        description="fn_38038c NULL-buffer guard (part 2/2): replace 'bl 0x38029c' with 'bc 12,30,0x380404' to skip the fn_38029c hash-table resize when r29 (buffer ptr) is NULL (set by patch #54a). Branch target 0x380404 is the normal return path; r31=0 (initial value) gets stored as the descriptor length, so fn_381824 sees length=0, the 'cmpli r11,7' check at 0x381874 passes, and execution jumps to 0x381910 (the message-wait / fn_382e80 call) instead of looping indefinitely.",
+        replacement=b'\x4b\xff\xff\xd4', # b 0x380404   (unconditional return with r31=0)
+        description="fn_38038c overflow-path redirect (part 2/2): replace 'bl 0x38029c' (fn_38029c resize call) with 'b 0x380404' (unconditional branch to return path). Combined with patch #54a (li r31,0), this ensures r31=0 is stored to the output buffer on every hash overflow, regardless of the descriptor content or r29 value. fn_381824 then reads r11=0 from SP+8, which satisfies the 'cmpli r11,7 / bng 0x381910' exit at 0x381874-0x381878.",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #55 — Force fn_371cd4 alternate path: skip fn_381a8c RTTI loop
+    #
+    # fn_371cd4 initialises a C++ typeinfo object. At 0x371d58 it reads a
+    # kernel-BSS global (~0xe3ffa790). On real hardware this is set before
+    # fn_371cd4 runs; in QEMU it is always 0.
+    #
+    # When the global == 0 the function stores fn_381a8c (0x381a8c) as the
+    # typeinfo callback at offsets +580 and +588 of the object. fn_381a8c is
+    # then invoked as an infinite VxWorks task that walks a C++ RTTI type
+    # descriptor stream starting at 0x840600. In QEMU the stream never reaches
+    # a Q0 terminator (only null bytes follow); r3 advances at ~800 KB/s
+    # through the heap forever, starving usrRoot of CPU and preventing WDB.
+    #
+    # Fix: change the conditional branch at 0x371d5c from "bc (bne) 0x371d78"
+    # to "b 0x371d78" (unconditional), so fn_371cd4 ALWAYS takes the alternate
+    # path. That path calls fn_371c74 with a NULL global (returns -1 safely)
+    # and stores obj[192]/obj[148][212] as the callbacks — both NULL from BSS,
+    # so typeinfo processing is simply skipped without any crash.
+    #
+    #   0x371d5c: 0x4082001c  bc 0x371d78  (beq — take alt path if BSS global != 0)
+    #   ->         0x4800001c  b  0x371d78  (always take alt path)
+    Patch(
+        offset=0x371d5c,
+        original=b'\x40\x82\x00\x1c',
+        replacement=b'\x48\x00\x00\x1c',
+        description="Force fn_371cd4 alternate path: skip fn_381a8c RTTI infinite loop (BSS global ~0xe3ffa790 is 0 in QEMU; bc->b at 0x371d5c always takes the fn-ptr-copy path, never installs fn_381a8c)",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #56 — NOP deferred-constructor list walk (fn_37d87c) in usrRoot
+    #
+    # usrRoot at 0x37c33c calls fn_37d87c, which walks a circular linked list
+    # of pending C++ deferred constructors. In normal operation fn_381a8c
+    # populates this list during RTTI processing. Because Patch #55 bypasses
+    # fn_381a8c entirely, the list is never populated; its head pointer in BSS
+    # at 0xe9ffc5c0 is 0 (NULL).
+    #
+    # fn_37d87c's loop exits when the current node pointer == sentinel (r30).
+    # With the head = NULL the loop immediately reads *(NULL) = *(0x0) = 0
+    # (PPC reset vector, which is 0 in RAM after boot-time patching), getting
+    # stuck cycling 0 → 0 → 0 forever since NULL != sentinel.
+    #
+    # Fix: NOP the call. The list is intentionally empty — no deferred
+    # constructors need running in QEMU. Skipping fn_37d87c is safe.
+    #
+    #   0x37c33c: 0x48001541  bl 0x37d87c
+    #   ->         0x60000000  nop
+    Patch(
+        offset=0x37c33c,
+        original=b'\x48\x00\x15\x41',
+        replacement=PPC_NOP,
+        description="NOP bl fn_37d87c in usrRoot: deferred-constructor list walk loops on NULL head (list unpopulated because fn_381a8c was bypassed by Patch #55); list is intentionally empty in QEMU",
+        phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #57 — NOP blocking WDB network init (fn_5a7f30) in usrInit
+    #
+    # usrInit (fn_36c350) at 0x36c424 calls fn_5a7f30, which:
+    #   1. Spawns the WDB task (via fn_5b2880) with entry point 0x37c440
+    #   2. Then blocks forever in a UDP socket wait for a network semaphore
+    #      that never fires in QEMU (no real network / WDB UDP agent)
+    #
+    # Because fn_5a7f30 never returns, usrInit never completes, the root
+    # task never exits, and the VxWorks scheduler never gets the opportunity
+    # to run any other tasks (WDB, camera, etc.).
+    #
+    # Fix: NOP the call. The WDB task spawn inside fn_5a7f30 is lost, but
+    # usrInit then returns normally and the scheduler runs all remaining
+    # ready tasks. Further patches can stub out any WDB state that depends
+    # on fn_5a7f30 having run.
+    #
+    #   0x36c424: 0x4823bb0d  bl 0x5a7f30
+    #   ->         0x60000000  nop
+    Patch(
+        offset=0x36c424,
+        original=b'\x48\x23\xbb\x0d',
+        replacement=PPC_NOP,
+        description="NOP bl fn_5a7f30 in usrInit: WDB network init blocks forever on UDP semaphore in QEMU; usrInit never returns without this NOP; skipping allows root task to complete and scheduler to run other tasks",
         phase=2,
     ),
 ]
