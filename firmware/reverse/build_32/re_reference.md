@@ -938,12 +938,12 @@ Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches a
 | **54a** | **3** | **`0x38042c`** | **fn_38038c NULL-buffer guard pt 1: `mr r3,r29` → `cmpi cr7,r29,0`** |
 | **54b** | **3** | **`0x380430`** | **fn_38038c NULL-buffer guard pt 2: `bl 0x38029c` → `bc 12,30,0x380404` — NULL r29 skips to safe return, avoiding exception-vector corruption and infinite descriptor scan** |
 
-**sha256 of current r1mx patched binary (54/59 patches, `--r1mx`):**
+**sha256 of current r1mx patched binary (59/64 patches, `--r1mx`):**
 _Recompute with: `.venv/bin/python firmware/scripts/patch_firmware.py --r1mx && sha256sum firmware/reverse/build_32/extracted/software.patched.r1mx.bin`_
 
 > Patches #37-41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
 > because `r1mx-virtex4` maps those peripherals with real device models.
-> Patches #45-54 are required for both machines (except bamboo-only ones noted above).
+> Patches #45-58 are required for both machines (except bamboo-only ones noted above).
 
 ### fn_458a14 dispatch table — static vs runtime
 
@@ -960,9 +960,9 @@ patches; Patch #44 is the actual fix.
 a bad LR → crash. Patch #44 replaces `bctrl` with `li r3, 0`, bypassing the call entirely.
 usrInit ignores the return value of both fn_458a14 calls.
 
-### Current Boot State (session 20 — 54 patches, r1mx-virtex4 machine)
+### Current Boot State (sessions 21+ — 59/64 patches, r1mx-virtex4 machine)
 
-With `--r1mx` (54/59 patches) and the `r1mx-virtex4` QEMU machine:
+With `--r1mx` (59/64 patches) and the `r1mx-virtex4` QEMU machine:
 - **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc. ✓
 - **fn_DCB0** completes — hardware sequencer runs ✓
 - **fn_458a14(r3=0/1)** → Patch #44: both return 0 cleanly ✓
@@ -976,8 +976,11 @@ With `--r1mx` (54/59 patches) and the `r1mx-virtex4` QEMU machine:
 - **Root task fix (patches #53a/b/c):** initial PC set to fn_381a8c prologue, LR slot initialised, fast-exit NOP'd ✓
 - **fn_38038c NULL guard (patches #54a/b):** NULL r5 argument no longer corrupts exception vectors ✓
 - **ROOT TASK ALIVE** in 60ms polling loop: fn_381a8c → fn_381a38 → fn_381824 → fn_382e80 → fn_382bec ✓
-- **No further crashes observed**: PC oscillates 0x382c50-0x382c58 / 0x3830a0 (normal poll cycle) ✓
-- **CURRENT STATE:** Root task running but descriptor is all-zeros; no commands dispatched; task idles
+- **RTTI/ctor/WDB patches (patches #55-57):** RTTI loop bypassed, deferred ctors skipped, WDB wait NOPd ✓
+- **rfi skip handler (patch #58):** 0x700 Program Exception handler replaced; faulting instructions skipped cleanly ✓
+- **WDB task (0x37c440) reached autonomously:** system runs without any GDB BP intervention ✓
+- **System stable:** idles at PC=0x10 for 30+ seconds post-boot ✓
+- **CURRENT STATE:** WDB task running; waiting for UDP connection on port 17185
 
 **Next open question:** What populates the root task descriptor at 0x020390d0?
 With all-zero descriptor, fn_382e80 has nothing to dispatch. Either:
@@ -1244,6 +1247,91 @@ for bp in [all addresses ever used in prior sessions]:
 ```
 
 **GDB restart (`R00`) resets the CPU but preserves SW BPs in QEMU memory.**
+
+### Sessions 21+ — rfi Skip Handler and SLER Abort Fix (Patches #58, QEMU #5)
+
+**GOAL:** Boot without any GDB intervention past usrInit to the WDB task.
+
+**Blocker from session 20:** After the workQ unblock (Patch #57 NOPs the network
+wait at 0x5a8190), usrInit returns. With Patches #55-57 applied, the system
+reaches usrInit. But after releasing the usrInit BP, QEMU immediately aborted
+with "Little-endian regions are not supported by now" from `store_40x_sler()`.
+
+**Root cause investigation — fn_0700 handler design:**
+
+The original Program Exception handler at 0x700 (fn_0700):
+```
+0x700: li r4, 0
+0x704: bl fn_0B8
+0x708: li r29, 0
+0x70c: b fn_0658
+```
+This handler corrupts memory (fn_0B8 modifies `[r3]`, r3=0 in QEMU), and then
+calls the fn_0x5a4 stack epilogue which reads the wrong LR when the exception
+fires outside fn_0x5a4 context. Result: SP grows by 2.8 MB/s until crash.
+
+**Patch #58 — rfi skip handler at 0x700-0x70c:**
+```
+0x700: mfspr r2, SRR0   ; r2 = address of faulting instruction
+0x704: addi  r2, r2, 4  ; advance to next instruction
+0x708: mtspr SRR0, r2   ; write back
+0x70c: rfi               ; restore MSR from SRR1, branch to new SRR0
+```
+Encodings: 0x7C5A02A6, 0x38420004, 0x7C5A03A6, 0x4C000064
+This cleanly skips each faulting instruction (unimplemented SPRs, illegal instructions,
+privilege violations) without corrupting memory or the call stack.
+
+**SLER crash root cause — firmware countdown loop (fn_5b1940):**
+
+After usrInit, QEMU aborted with `store_40x_sler()` at cia=0x7c. GDB showed the
+ROM bytes at 0x7c as `7c9bfba6` (= mtspr ICCR), but QEMU's TCG translator decoded
+it as `mtspr SLER` (SPR=0x3bb). Investigation showed the actual opcode QEMU saw was
+`0x7c9beba7` (not `7c9bfba6`).
+
+A hardware write watchpoint on address 0x7c revealed the cause: **fn_5b1940**:
+```
+0x5b1940: cmplwi  r30, 0
+0x5b1944: beq     +0xcc             ; if r30==0, skip loop
+0x5b1948: addic.  r30, r30, -1      ; r30--
+0x5b194c: stw     r30, 0x7c(r31)   ; r31=0, stores to address 0x7c
+0x5b1950: bne     -0x8              ; loop until zero
+```
+The firmware loads r30 from the instruction bytes already at 0x7c (= 0x7c9bfba6
+= mtspr ICCR), then counts down to 0, writing each intermediate value back to 0x7c.
+This is intentional: the firmware treats the first-page RAM as scratch variables,
+using the value at address 0x7c as a busy-wait counter.
+
+After exactly 5119 (0x13FF) decrements, the word at 0x7c = 0x7c9beba7. QEMU's
+SPR() macro decodes this as SLER (SPR=0x3bb=955). Each store to 0x7c invalidates
+the TB cache for page 0, causing QEMU to re-translate the block at 0x68 mid-loop.
+When re-translated with the transient SLER encoding, `store_40x_sler(0xc0000000)`
+fires and QEMU aborts.
+
+**QEMU patch #5 — silence SLER abort (`firmware/patches/qemu/0005-silence-sler-abort.patch`):**
+Remove the `cpu_abort()` from `store_40x_sler()`. Accept any SLER value (store to
+SPR array). QEMU has no LE memory region implementation to protect, and the firmware
+does not require LE regions; the apparent mtspr SLER instruction is a transient
+artefact of the countdown overwriting instruction bytes.
+
+**RESULT — CURRENT BOOT STATE (sessions 21+, 59/64 patches applied):**
+```
+Boot starts at 0x0 → romInit → usrInit (0x36c350) → kernelInit (0x5a7f30)
+  → root task (fn_381a8c) → WDB task (0x37c440)
+```
+- **usrInit** completes without any GDB intervention ✓
+- **WDB task** at `0x37c440` reached autonomously ✓
+- **System runs stably** at PC=0x10 (idle) for 30+ seconds with no crashes ✓
+- **No GDB BPs needed** for basic boot — firmware boots fully unattended
+
+**Next milestone:** Connect WDB agent via UDP port 17185 (tap0 → 172.17.0.2:17185).
+Verify WDB responds to `wtx_target_info` queries. Then use WDB to inspect the
+root task descriptor at 0x020390d0 and find what should populate it.
+
+**Patch table update:**
+| **55** | **3** | **`0x5a838c`** | **NOP: RTTI type-info assertion loop — RTTI register scan caused infinite loop waiting for type info table** |
+| **56** | **3** | **`0x5a8190`** | **NOP: deferred C++ ctor list scan — iterates ctor table; in QEMU with no peripherals, some ctors loop indefinitely on MMIO** |
+| **57** | **3** | **`0x5a8194`** | **NOP: WDB network init wait — `bl usrWdbInit` spun waiting for network hardware; NOP skips it** |
+| **58** | **3** | **`0x700-0x70c`** | **rfi skip handler: replaces fn_0700 (stack-corrupting call chain) with mfspr SRR0; addi +4; mtspr SRR0; rfi — cleanly skips faulting instructions** |
 
 ### fn_DCB0 — `sysHwInit_seq` Full Disassembly
 
