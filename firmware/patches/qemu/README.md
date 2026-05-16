@@ -18,18 +18,21 @@ src/
 ## Quick start
 
 ```bash
-cd ~/src
-./r1mx/firmware/scripts/build_qemu.sh
+cd ~/src/RED/r1mx
+./firmware/scripts/build_qemu.sh
 # produces: ~/src/qemu-r1mx/build/qemu-system-ppc
 ```
 
 Then boot the firmware:
 
 ```bash
-cd ~/src/r1mx/firmware
-python3 scripts/patch_firmware.py --r1mx
+cd ~/src/RED/r1mx/firmware
+.venv/bin/python scripts/patch_firmware.py --r1mx
 ./scripts/qemu_boot.sh --patched
 ```
+
+For the full boot guide (GDB, WDB networking, crash diagnosis) see:
+`firmware/reverse/build_32/qemu_howto.md`
 
 ## What each patch does
 

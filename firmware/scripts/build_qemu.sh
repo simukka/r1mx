@@ -60,7 +60,11 @@ if [[ ! -d "$DEST" ]]; then
   # PPC405 FSL instruction support (APU/FCM - required for VxWorks boot)
   patch -p1 < "${PATCH_DIR}/0004-ppc405-fsl-instructions.patch"
 
-  # Copy new machine file (not patchable — it is entirely new)
+  # Silence SLER abort: firmware uses 0x7c as a countdown counter during early boot,
+  # causing transient mtspr SLER encoding that would otherwise abort QEMU
+  patch -p1 < "${PATCH_DIR}/0005-silence-sler-abort.patch"
+
+  # Copy new machine file (not patchable - it is entirely new)
   cp "${PATCH_DIR}/src/hw/ppc/r1mx_virtex4.c" "${DEST}/hw/ppc/r1mx_virtex4.c"
   echo "   hw/ppc/r1mx_virtex4.c installed"
 
