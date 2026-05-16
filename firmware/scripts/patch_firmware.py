@@ -946,53 +946,159 @@ BUILD32_PATCHES: list[Patch] = [
     ),
 
     # -------------------------------------------------------------------------
-    # Patch #47b — APU Unavailable exception handler: skip UDI instructions
+    # NOTE: Patch #47b (APU Unavailable / 0x700 skip handler) was removed in
+    # session 10.  Originally needed to skip FSL/UDI instructions that QEMU
+    # rejected at vector 0x700.  QEMU patch 0004 (0004-ppc405-fsl-instructions.patch)
+    # added native FSL instruction support, so FSL no longer reaches 0x700.
+    # The 0x700 skip handler also had a wrong SPR encoding (mfdcr DCR96 instead
+    # of mfspr SRR0), causing it to loop forever on any genuine Program Check
+    # exception rather than advancing past it.  With FSL handled by QEMU the
+    # patch served no purpose and was actively harmful; removed entirely.
     # -------------------------------------------------------------------------
-    # Root cause: PPC405 fires the APU Unavailable exception (vector 0x700)
-    # for any UDI (User Defined Instruction) that the CPU's APU unit cannot
-    # execute.  xparameters.h (recovered from ISE EDK build) shows 8 UDI custom
-    # instructions enabled: APU_CONTROL = 0b1101111000000000.
+
+    # -------------------------------------------------------------------------
+    # Patches #48a/#48b — fn_5b57b0: hardcode vtable[4] dispatch target
+    # -------------------------------------------------------------------------
+    # Root cause: fn_5b57b0 contains a vtable dispatch guarded by TCB+0x70:
     #
-    # QEMU's ppc405 model does not implement APU/UDI extensions.  Every UDI
-    # instruction fired by VxWorks tasks (including the VxWorks context-switch
-    # path) hits the 0x700 handler in the firmware.
+    #   0x5b5858: lwz  r12, 0x70(r30)
+    #   0x5b585c: cmpwi r12, 1
+    #   0x5b5860: bne  0x5b5884        ; skip if *(r30+0x70) != 1
+    #   0x5b5864: lis  r31, 0x10d
+    #   0x5b5868: addi r3, r31, 0x584  ; r3 = 0x010d0584 (taskClassId)
+    #   0x5b586c: lwz  r11, 0xc(r3)    ; r11 = *(0x010d0590) = taskClass vtable ptr
+    #   0x5b5870: addi r4, r30, 0x40   ; r4 = TCB+0x40 (OBJ_CORE address)
+    #   0x5b5874: lwz  r11, 0x10(r11)  ; r11 = vtable[4] = classObjInit method
+    #   0x5b5878: lwz  r5, 0x74(r30)
+    #   0x5b587c: mtctr r11
+    #   0x5b5880: bctrl                ; call classObjInit(taskClassId, TCB+0x40, ...)
     #
-    # The firmware's 0x700 handler at instruction offset +0x10 loads a function
-    # pointer from address 0xe0ffc314 (MMIO space: `lis r9,0xe1; lwz r9,-0x3CEC(r9)`).
-    # That address is unmapped in QEMU; the CPU read returns 0.  With the
-    # function pointer == 0, `bctrl` dispatches to address 0x00000000, eventually
-    # returns with r3=0, then `cmpwi cr7,r3,-1` / `bne cr7,0x708` → r3=0 ≠ -1 →
-    # infinite loop at 0x708.  Every VxWorks task that executes a UDI instruction
-    # is permanently stuck in this 0x700 exception handler; the system makes no
-    # further progress.
+    # The method at vtable[4] stores TCB+0x40 into *(taskClassId), making it
+    # non-zero.  A spin loop in fn_5aaf5c waits on *(taskClassId) != 0 before
+    # the scheduler can proceed.
     #
-    # Fix: replace the first 4 instructions at 0x700 with a minimal skip handler
-    # that advances SRR0 (the faulting PC) by 4 and executes `rfi`, causing the
-    # CPU to resume at the instruction AFTER the UDI.  The UDI result (if any)
-    # in the destination register is left unchanged or zero - acceptable for boot.
+    # Problem: *(0x010d0590) is in BSS, so it is always 0 at cold boot.
+    # fn_498cd8 (objCoreInit / classCreate) is supposed to populate it, but all
+    # call paths fail: the parent-class self-referential check
+    # (*(parentClass+0x38) == parentClass) finds no valid CLASS_DESC in the
+    # firmware's static DATA.  BSS is zeroed every boot, so no static
+    # initialisation is possible either.
     #
-    # Replacement instruction encodings (PPC big-endian):
-    #   0x700: 7c801a86  mfspr r4, SRR0    ; r4 = address of faulting UDI
-    #   0x704: 38840004  addi r4, r4, 4    ; advance past the UDI instruction
-    #   0x708: 7c801ba6  mtspr SRR0, r4    ; update exception return address
-    #   0x70c: 4c000064  rfi               ; return to instruction after UDI
+    # With the old Patch #50-era heap fix in place, taskInit succeeds and sets
+    # *(TCB+0x70) = 1.  The guard falls through to the vtable dispatch, which
+    # derefs a null pointer and raises an ISI exception.
     #
-    # r4 is clobbered (original handler's first instruction was `li r4, 0`
-    # anyway).  The 8 original handler instructions that are overwritten are
-    # the li/bl/li/b sequence that dispatches to the MMIO function pointer;
-    # none of those are executed on any other code path.
+    # Fix: replace the two load instructions that dereference the null BSS
+    # pointer with a two-instruction sequence that loads the address of
+    # 0x0046bfec directly into r11.  0x0046bfec is:
+    #
+    #   0x0046bfec: stw r4, 0(r3)   ; *(r3) = r4  →  *(taskClassId) = TCB+0x40
+    #   0x0046bff0: blr
+    #
+    # This is a standalone leaf function (preceded by blr at 0x0046bfe8) that
+    # stores its second argument into the memory pointed to by its first
+    # argument.  Calling it as vtable[4](taskClassId, TCB+0x40, ...) satisfies
+    # the spin-loop invariant and is functionally equivalent to what the real
+    # classObjInit would do at this call site.
+    #
+    #   0x5b586c: lis r11, 0x46       ; r11 = 0x00460000
+    #   0x5b5874: ori r11, r11, 0xbfec ; r11 = 0x0046bfec
     # -------------------------------------------------------------------------
     Patch(
-        offset=0x700,
-        original=b'\x38\x80\x00\x00'   # li r4, 0
-                 b'\x4b\xff\xf9\xb5'   # bl 0xb8 (context save)
-                 b'\x3b\xa0\x00\x00'   # li r29, 0
-                 b'\x4b\xff\xff\x4c',  # b 0x750
-        replacement=b'\x7c\x80\x1a\x86'  # mfspr r4, SRR0
-                    b'\x38\x84\x00\x04'  # addi r4, r4, 4
-                    b'\x7c\x80\x1b\xa6'  # mtspr SRR0, r4
-                    b'\x4c\x00\x00\x64', # rfi
-        description="APU Unavailable (0x700) skip handler: replace MMIO-pointer dispatch with mfspr/addi/mtspr/rfi that advances SRR0 by 4, skipping the faulting UDI instruction. Without this, QEMU returns 0 for unmapped 0xe0ffc314 → bctrl 0 → cmpwi -1 → bne → infinite loop. Clobbers r4 (harmless: original li r4,0 did the same).",
+        offset=0x5b586c,
+        original=b'\x81\x63\x00\x0c',   # lwz r11, 0xc(r3)  [loads BSS vtable ptr]
+        replacement=b'\x3d\x60\x00\x46', # lis r11, 0x46     [r11 = 0x00460000]
+        description="fn_5b57b0: replace lwz r11,0xc(r3) with lis r11,0x46. First half of two-instruction sequence to load 0x0046bfec (stw r4,0(r3);blr) into r11, bypassing BSS vtable ptr *(0x010d0590)=0 that would cause a null-deref ISI crash.",
+        phase=2,
+    ),
+    Patch(
+        offset=0x5b5874,
+        original=b'\x81\x6b\x00\x10',   # lwz r11, 0x10(r11) [loads vtable[4] from null]
+        replacement=b'\x61\x6b\xbf\xec', # ori r11, r11, 0xbfec [r11 = 0x0046bfec]
+        description="fn_5b57b0: replace lwz r11,0x10(r11) with ori r11,r11,0xbfec. Completes r11=0x0046bfec. The subsequent bctrl calls stw-r4-0(r3);blr which stores TCB+0x40 into *(0x010d0584), satisfying the fn_5aaf5c spin-loop and allowing the scheduler to proceed.",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patches #49a/#49b — fn_5b58a8: hardcode vtable[6] dispatch target
+    # -------------------------------------------------------------------------
+    # Root cause: fn_5b58a8 is the companion to fn_5b57b0 with opposite guard
+    # polarity.  fn_5b57b0's epilogue clears bit 0 of *(TCB+0x70):
+    #   rlwinm r12, r12, 0, 0, 0x1e  ; clear bit 31 (bit 0)
+    # So after fn_5b57b0, *(TCB+0x70) = 0.  fn_5b58a8 checks:
+    #   0x5b5950: lwz  r12, 0x70(r30)
+    #   0x5b5954: cmpwi r12, 0
+    #   0x5b5958: bne  0x5b5978   ; skip if *(TCB+0x70) != 0
+    # When *(TCB+0x70) == 0 (always after fn_5b57b0), the guard falls through
+    # to an identical vtable dispatch using offset 0x18 (vtable[6]) instead of
+    # 0x10 (vtable[4]):
+    #   0x5b5964: lwz  r11, 0xc(r3)    ; r11 = *(0x010d0590) = 0 (BSS)
+    #   0x5b596c: lwz  r11, 0x18(r11)  ; r11 = *(0 + 0x18) = *(0x18) → ISI crash
+    #
+    # fn_5b58a8's epilogue sets bit 4 (0x10) of *(TCB+0x70) after the call.
+    # The vtable[6] method is a "post-init hook" that can safely be a no-op;
+    # using the same 0x0046bfec leaf (stw r4,0(r3);blr) is idempotent because
+    # *(taskClassId) = TCB+0x40 is already set by the vtable[4] call.
+    #
+    #   0x5b5964: lis r11, 0x46        ; r11 = 0x00460000
+    #   0x5b596c: ori r11, r11, 0xbfec ; r11 = 0x0046bfec
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x5b5964,
+        original=b'\x81\x63\x00\x0c',   # lwz r11, 0xc(r3)   [loads BSS vtable ptr]
+        replacement=b'\x3d\x60\x00\x46', # lis r11, 0x46      [r11 = 0x00460000]
+        description="fn_5b58a8: replace lwz r11,0xc(r3) with lis r11,0x46. First half of two-instruction sequence to load 0x0046bfec into r11, bypassing BSS vtable ptr *(0x010d0590)=0.",
+        phase=2,
+    ),
+    Patch(
+        offset=0x5b596c,
+        original=b'\x81\x6b\x00\x18',   # lwz r11, 0x18(r11)  [loads vtable[6] from null]
+        replacement=b'\x61\x6b\xbf\xec', # ori r11, r11, 0xbfec [r11 = 0x0046bfec]
+        description="fn_5b58a8: replace lwz r11,0x18(r11) with ori r11,r11,0xbfec. Completes r11=0x0046bfec. The bctrl calls stw-r4-0(r3);blr which writes TCB+0x40 into *(0x010d0584) (idempotent). fn_5b58a8 epilogue then sets bit 4 of *(TCB+0x70).",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patch #50 — Zero live-camera "sysMemTop" cache at 0xE0C37C / 0xE0C380
+    # -------------------------------------------------------------------------
+    # Root cause: The DATA segment snapshot contains cached RAM-top values that
+    # the real camera computed on a system with 1.25 GB of RAM.  Two consecutive
+    # words hold these values:
+    #
+    #   0xE0C37C = 0x395944A3  — fn_d87c cache ("sysPhysMemTop" lower bound)
+    #   0xE0C380 = 0x4CCECBD7  — fn_d8a0 cache ("sysMemTop"   upper bound)
+    #
+    # fn_d8a0 (0xD8A0): reads *(0xE0C380) and returns it immediately if non-zero.
+    # fn_d87c (0xD87C): reads *(0xE0C37C) and returns it immediately if non-zero.
+    # Both functions are called from usrInit to compute the VxWorks heap bounds:
+    #
+    #   heapEnd = fn_d8a0()        => 0x4CCECBD7 on live camera, ~ 1.2 GB
+    #   r6 = heapEnd               => passed as arg-6 to kernelInit
+    #   kernelInit saves r6 as r28 => used as the heap-region object pointer
+    #   fn_5b0ff4(r3=r28)          => r3 = 0x4CCECBD7 (outside QEMU 256 MB RAM)
+    #   *(r3+0x70)                 => ISI crash, PC stuck at 0x700
+    #
+    # QEMU maps 256 MB: 0x00000000-0x0FFFFFFF.  Any address >= 0x10000000 causes
+    # an Instruction Storage Interrupt (ISI) on access.
+    #
+    # Fix: zero both cached words so the functions fall through to their fallback:
+    #   fn_d87c fallback:  lis r3, 0x1000  => r3 = 0x10000000 (top of 256 MB RAM)
+    #   fn_d8a0 fallback:  r3 = fn_d87c() - 0x60000 - 0x4000 = 0x0FF9C000
+    #
+    # 0x0FF9C000 is well within QEMU RAM, giving VxWorks ~238 MB of heap space.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0xE0C37C,
+        original=b'\x39\x59\x44\xa3',   # 0x395944A3 — live-camera sysPhysMemTop
+        replacement=b'\x00\x00\x00\x00',
+        description="Zero live-camera sysPhysMemTop cache at 0xE0C37C: fn_d87c returns this cached value directly when non-zero, yielding 0x395944A3 (outside QEMU 256MB RAM). Zeroing forces fn_d87c fallback: lis r3,0x1000 → 0x10000000 (256MB top).",
+        phase=2,
+    ),
+    Patch(
+        offset=0xE0C380,
+        original=b'\x4c\xce\xcb\xd7',   # 0x4CCECBD7 — live-camera sysMemTop
+        replacement=b'\x00\x00\x00\x00',
+        description="Zero live-camera sysMemTop cache at 0xE0C380: fn_d8a0 returns this cached value immediately when non-zero, yielding 0x4CCECBD7 (~1.2GB, outside QEMU 256MB RAM). usrInit passes this to kernelInit as the heap object pointer; fn_5b0ff4 then accesses *(ptr+0x70) → ISI crash. Zeroing forces fn_d8a0 to call fn_d87c and compute heapEnd = 0x0FF9C000 (well within QEMU RAM).",
         phase=2,
     ),
 
@@ -1020,6 +1126,210 @@ BUILD32_PATCHES: list[Patch] = [
         original=b'\x00\x55\x2f\x30',   # 0x00552F30 — snapshotted intCnt value
         replacement=b'\x00\x00\x00\x00',
         description="Zero pre-seeded intCnt at 0xE2942C: live-camera snapshot value 0x00552F30 causes taskInit (fn_5b231c) to return -1 for every task, making kernelInit fail → 0x124 spin-loop. VxWorks exception entry/exit (0x36eb38/0x36eea8) correctly maintains this counter once it starts at 0.",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patch #52 — Skip null priority-struct deref in fn_5aaf5c scheduler
+    # -------------------------------------------------------------------------
+    # Root cause: The root task TCB at 0x0ff9bd30 has TCB+0x94 = 0 (null pointer
+    # to the CPU priority-queue struct).  The VxWorks scheduler (fn_5aaf5c) at
+    # 0x5ab128 unconditionally dereferences *(TCB+0x94 + 0xD4C) to find the
+    # highest-priority preemption candidate:
+    #
+    #   0x5ab124: lwz  r29, 0x94(r30)      ; r29 = *(TCB+0x94) = 0  (null!)
+    #   0x5ab128: lwz  r31, 0xd4c(r29)     ; r31 = *(0+0xD4C) = 0x9001004c  ← CRASH
+    #   0x5ab12c: cmpwi r31, 0             ; is there a preemption candidate?
+    #   0x5ab130: beq  0x5ab160            ; if none (r31==0), skip preemption
+    #
+    # When r29=0: *(0xD4C) = 0x9001004c (boot-code instruction bytes misread as
+    # a TCB address).  The scheduler selects 0x9001004c as "next task", loads its
+    # all-zero context, and rfi jumps to PC=0 MSR=0 → 0x700 Program Exception.
+    #
+    # The existing beq at 0x5ab130 already handles the "no candidate" case: if
+    # r31==0, it jumps to 0x5ab160 and selects the workQ-head task directly.
+    # We just need to force r31=0 when r29=0 so the null dereference is avoided.
+    #
+    # Fix: replace the dangerous lwz r31,0xd4c(r29) with li r31,0.  This forces
+    # the beq at 0x5ab130 to always be taken, selecting the workQ-head task
+    # (0x0ff9bd30, the root task) without any preemption check.
+    #
+    # Trade-off: preemption via this scheduler path is disabled (any higher-
+    # priority task in the priority-struct would not be noticed), making VxWorks
+    # effectively cooperative at this code site.  For the emulation goal of
+    # reaching the WDB debug agent this is acceptable; a full fix would require
+    # tracking down where TCB+0x94 should be initialised and setting it to a
+    # valid priority-queue descriptor.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x5ab128,
+        original=b'\x83\xfd\x0d\x4c',   # lwz r31, 0xd4c(r29) — crashes when r29=0
+        replacement=b'\x3b\xe0\x00\x00', # li r31, 0 — force "no preemption candidate"
+        description="fn_5aaf5c scheduler: replace lwz r31,0xd4c(r29) with li r31,0 to avoid null-ptr deref. When root task TCB+0x94=0, *(0+0xD4C)=0x9001004c (boot code) is misread as a TCB address, causing rfi to PC=0 → 0x700 crash. Forcing r31=0 makes the existing beq at 0x5ab130 skip preemption and select the workQ-head task (root task, 0x0ff9bd30) directly.",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patch #53a — Fix initial root-task PC: epilogue → prologue of fn_381a8c
+    # -------------------------------------------------------------------------
+    # fn_371cd0 ("task context init") builds the initial context for the root
+    # task.  It computes the start PC with:
+    #   0x371d60: addis r12, r0, 0x38      ; r12 = 0x380000
+    #   0x371d64: addi  r12, r12, 0x1aec   ; r12 = 0x381aec  ← WRONG (epilogue)
+    #   0x371d68: stw   r12, 0x24c(r31)    ; ctx+0x8c = PC = 0x381aec
+    #
+    # 0x381aec is in the MIDDLE of fn_381a8c's epilogue (restoring saved regs
+    # and executing blr to LR).  Dispatching the task there immediately hits
+    # blr with LR=0 (ctx+0x84 uninitialised), jumping to address 0 → crash.
+    #
+    # The correct entry point is the PROLOGUE at 0x381a8c:
+    #   0x381a8c: mflr r0               ; save LR (needed for fn_381a8c to return)
+    #   0x381a90: stwu r1, -0x50(r1)    ; allocate stack frame
+    #   ...
+    #   0x381a98: cmpwi cr7, r0, 0x51   ; check task type == 'Q'
+    #   0x381aa0: stw   r4, 0x1c(r1)    ; save r4 (task descriptor pointer)
+    #   ...
+    #   0x381acc: cmpwi cr7, r4, 0      ; check task descriptor
+    #   0x381ad0: bc 4,30 0x381b14      ; fast-exit if r4 != 0  (patched by #53b)
+    #
+    # Fix: change addi immediate from 0x1aec → 0x1a8c (difference = 0x60 = 96 bytes).
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x371d64,
+        original=b'\x39\x8c\x1a\xec',   # addi r12, r12, 0x1aec  (epilogue PC 0x381aec)
+        replacement=b'\x39\x8c\x1a\x8c', # addi r12, r12, 0x1a8c  (prologue PC 0x381a8c)
+        description="Fix initial root-task PC: addi r12,r12,0x1aec → 0x1a8c in fn_371cd0 (0x381aec is fn_381a8c epilogue; dispatching there hits blr with LR=0 → crash. 0x381a8c is the correct prologue entry).",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patch #53b — NOP fast-exit branch in fn_381a8c wrapper
+    # -------------------------------------------------------------------------
+    # fn_381a8c checks the task descriptor pointer (r4) near the top:
+    #   0x381acc: cmpwi cr7, r4, 0
+    #   0x381ad0: bc 4,30 0x381b14    ; branch if cr7[EQ]=0  (i.e., r4 != 0)
+    #
+    # 0x381b14 is the function EPILOGUE (restores saved regs + blr).  If the
+    # branch is taken with the saved-LR slot holding the return-to address from
+    # ctx+0x84, then blr returns to LR = ctx+0x84 = 0x381a8c (set by #53c) and
+    # the wrapper loops once, then correctly processes the descriptor.
+    #
+    # However, with r4 = ctx+0x10 (GPR4 at first dispatch) potentially non-zero
+    # (the timer interrupt can save a non-zero r4 to ctx+0x10 before first
+    # dispatch), the fast-exit fires before fn_381a8c does any work at all.
+    # Confirmed: r4 = 0x0dcf5120 at the original crash site (0x381aec).
+    #
+    # Fix: NOP the bc so the normal processing path (bl 0x381a38 → fn_381824
+    # → fn_38038c) always runs regardless of r4.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x381ad0,
+        original=b'\x40\x9e\x00\x44',   # bc 4,30 0x381b14 (fast-exit if r4 != 0)
+        replacement=PPC_NOP,             # nop — always fall through to bl 0x381a38
+        description="NOP fast-exit branch at fn_381a8c+0x44: bc 4,30 skips to epilogue when r4 (task descriptor) != 0. At first dispatch r4=ctx+0x10=0x0dcf5120 (non-zero), so the fast-exit fires before any descriptor processing. NOP forces the normal bl 0x381a38 path always.",
+        phase=2,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Patch #53c — Initialise ctx+0x84 (LR slot) in fn_371cd0 root-task setup
+    # -------------------------------------------------------------------------
+    # The task context (TCB+0x1c0) stores the hardware LR as ctx+0x84 (TCB+0x244).
+    # The dispatch code (0x372734) does:
+    #   lwz r4, 0x0084(r3)   ; r4 = ctx+0x84 = LR
+    #   mtspr LR, r4          ; set hardware LR before rfi
+    # So when fn_381a8c executes "mflr r0" in its prologue, r0 = ctx+0x84.
+    # fn_381a8c saves r0 (the LR) onto the stack and later restores it with
+    # "blr" at its epilogue.  With ctx+0x84 = 0, blr jumps to address 0 → crash.
+    #
+    # fn_371cd0's if-path setup block (taken for the root task) has:
+    #   0x371d60: addis r12, r0, 0x38     ; r12 = 0x380000
+    #   0x371d64: addi  r12, r12, 0x1a8c  ; r12 = 0x381a8c (entry PC, after #53a)
+    #   0x371d68: stw   r12, 0x24c(r31)   ; ctx+0x8c = PC
+    #   0x371d6c: li    r11, 1            ; ← THIS SLOT (was: prepare flag=1 for ctx+0x9c)
+    #   0x371d70: stw   r11, 0x25c(r31)   ; ctx+0x9c = flag (SPR945 value)
+    #   0x371d74: b     0x371db8          ; end of if-path
+    #
+    # After #53a, r12 = 0x381a8c and is free to use.  The slot at 0x371d6c is
+    # repurposed to store r12 into ctx+0x84 (TCB+0x244 = r31+0x244).
+    #
+    # Side-effect: r11 is still 0 (from `li r11, 0` at 0x371d48), so the
+    # unchanged instruction at 0x371d70 now writes ctx+0x9c = flag = 0 instead
+    # of 1.  SPR945 is set to 0 at dispatch instead of 1.  SPR945 is a VxWorks-
+    # internal software register; its value affects only debug/trace behaviour,
+    # not normal task execution.  Acceptable trade-off for the emulation goal.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x371d6c,
+        original=b'\x39\x60\x00\x01',   # li r11, 1  (was: flag=1 for ctx+0x9c)
+        replacement=b'\x91\x9f\x02\x44', # stw r12, 0x244(r31)  (ctx+0x84/LR = 0x381a8c)
+        description="fn_371cd0 root-task setup: replace 'li r11,1' with 'stw r12,0x244(r31)' to initialise ctx+0x84 (LR slot, TCB+0x244) with r12=0x381a8c (the wrapper prologue PC set by #53a). Without this, ctx+0x84=0 → hardware LR=0 at dispatch → fn_381a8c's mflr+blr returns to 0x0 → crash. Side-effect: ctx+0x9c flag becomes 0 (r11 remains 0 from li r11,0 at 0x371d48); SPR945 is set to 0 at dispatch (non-critical).",
+        phase=2,
+    ),
+
+    # =========================================================================
+    # Patch #54 — fn_38038c NULL-buffer guard (fixes root-task infinite loop)
+    # =========================================================================
+    # Call chain at root-task first dispatch:
+    #
+    #   fn_381a8c (wrapper)
+    #     → fn_381a38
+    #       → fn_381824  (descriptor scanner)
+    #         → fn_38038c (r3=descriptor=0x020390d0, r4=local_buf, r5=0 <NULL>)
+    #
+    # fn_38038c interprets r5 as a pointer to a "hash state" struct and reads
+    # *(r5) as a hash-limit sentinel.  With r5=0 (NULL) it reads the PPC reset
+    # vector at address 0x00000000 (= 0x48000008 = `b +8`) and uses that as the
+    # limit.  On the very first hash iteration r31 = 0 - 48 = 0xFFFFFFD0 which
+    # immediately exceeds 0x48000008, so fn_38038c branches to the "resize" path
+    # at 0x38042c:
+    #
+    #   0x38042c: mr r3, r29      ; r3 = r29 = r5_original = 0  (NULL)
+    #   0x380430: bl 0x38029c     ; call fn_38029c(0) — CORRUPTS exception vectors
+    #                             ;   (writes incremented instruction words to
+    #                             ;    addresses 0x10, 0x18, 0x24 = PPC critical-
+    #                             ;    interrupt, machine-check, and data-storage
+    #                             ;    exception vectors)
+    #   0x380434: lwz r31,0(r29)  ; r31 = *(0) = 0x48000008  (reset vector word)
+    #   ...
+    #   0x380440: stw r31,0(r28)  ; outputs 0x48000008 as the descriptor "length"
+    #   blr
+    #
+    # Back in fn_381824:
+    #   r11 = 0x48000008  (length from fn_38038c)
+    #   r9  = descriptor_base + r11 = 0x020390d0 + 0x48000008 = 0x4a0390d8
+    #   → scan loop runs indefinitely (no '_' found in all-zero descriptor,
+    #     r9 bound is far beyond the 256 MB RAM limit)
+    #
+    # Fix (2 instruction patches at 0x38042c / 0x380430):
+    #
+    #   BEFORE:
+    #     0x38042c: mr r3, r29          ; 0x7fa3eb78  prepare fn_38029c arg
+    #     0x380430: bl 0x38029c         ; 0x4bfffe6d  hash-table resize (destructive with NULL)
+    #
+    #   AFTER:
+    #     0x38042c: cmpi cr7, r29, 0    ; 0x2f9d0000  test if buffer ptr is NULL
+    #     0x380430: bc 12,30,0x380404   ; 0x419effd4  if NULL: jump to safe return
+    #                                   ;             (r31 still = 0, stored to output
+    #                                   ;              → fn_381824 sees length = 0
+    #                                   ;              → cmpli r11,7 → branch to 0x381910
+    #                                   ;              → clean exit from descriptor scan)
+    #
+    # For non-NULL r29 (legitimate hash-state struct): branch NOT taken, falls
+    # through to 0x380434 (lwz r31,0(r29)) — hash resize is skipped but the
+    # return value is loaded from the valid struct.  Acceptable for emulation.
+    # -------------------------------------------------------------------------
+    Patch(
+        offset=0x38042c,
+        original=b'\x7f\xa3\xeb\x78',   # mr r3, r29
+        replacement=b'\x2f\x9d\x00\x00', # cmpi cr7, r29, 0  (test NULL buffer ptr)
+        description="fn_38038c NULL-buffer guard (part 1/2): replace 'mr r3,r29' with 'cmpi cr7,r29,0' to test whether the hash-state struct pointer (r29 = original r5 arg) is NULL. Works with patch #54b to skip the fn_38029c resize call that would corrupt PPC exception vectors at addresses 0x10/0x18/0x24 when called with NULL.",
+        phase=2,
+    ),
+    Patch(
+        offset=0x380430,
+        original=b'\x4b\xff\xfe\x6d',   # bl 0x38029c  (hash-table resize)
+        replacement=b'\x41\x9e\xff\xd4', # bc 12,30,0x380404  (if r29==NULL: skip to safe return)
+        description="fn_38038c NULL-buffer guard (part 2/2): replace 'bl 0x38029c' with 'bc 12,30,0x380404' to skip the fn_38029c hash-table resize when r29 (buffer ptr) is NULL (set by patch #54a). Branch target 0x380404 is the normal return path; r31=0 (initial value) gets stored as the descriptor length, so fn_381824 sees length=0, the 'cmpli r11,7' check at 0x381874 passes, and execution jumps to 0x381910 (the message-wait / fn_382e80 call) instead of looping indefinitely.",
         phase=2,
     ),
 ]
