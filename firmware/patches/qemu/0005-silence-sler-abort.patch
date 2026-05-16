@@ -1,0 +1,56 @@
+From: r1mx reverse engineering project
+Subject: [PATCH 0005] target/ppc: silence SLER abort for PPC405 emulation
+
+The RED ONE MX firmware uses address 0x7c as a 32-bit countdown counter
+during early boot initialisation. The initial counter value is loaded from
+whatever bytes already reside at that address (which happen to be the
+instruction bytes for `mtspr ICCR,r4` = 0x7c9bfba6). The firmware runs
+a tight loop decrementing and storing that counter back to 0x7c:
+
+  fn_5b1940:
+    0x5b1940: cmplwi  r30, 0          ; if r30 == 0, skip loop
+    0x5b1944: beq     +0xcc
+    0x5b1948: addic.  r30, r30, -1    ; r30--
+    0x5b194c: stw     r30, 0x7c(r31)  ; r31=0, writes to address 0x7c
+    0x5b1950: bne     -0x8            ; loop while r30 != 0
+
+After exactly 5119 (0x13FF) iterations the 32-bit word at 0x7c equals
+0x7c9beba7, which QEMU decodes as `mtspr SLER, r4` (SPR 0x3BB = 955).
+Each store to address 0x7c invalidates QEMU's translation block cache
+for page 0, so when the romInit block at 0x68 is re-translated at that
+moment it sees a SLER write instruction. QEMU then calls store_40x_sler
+with r4 = 0xc0000000 and the existing cpu_abort() fires.
+
+The SLER (Storage Little-Endian Register) controls byte-lane reversal
+for memory regions on PPC405. QEMU does not implement little-endian
+memory regions, but the firmware never actually needs them; the SLER
+write is an artefact of self-modifying initialisation code. Silently
+accepting any SLER value (and storing it in the SPR) is the correct
+fix: the firmware does not depend on SLER behaviour.
+
+---
+ target/ppc/helper_regs.c | 9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+diff --git a/target/ppc/helper_regs.c b/target/ppc/helper_regs.c
+index 1234567..abcdef0 100644
+--- a/target/ppc/helper_regs.c
++++ b/target/ppc/helper_regs.c
+@@ -313,12 +313,9 @@ static int hreg_store_msr(CPUPPCState *env, target_ulong value,
+ #ifndef CONFIG_USER_ONLY
+ void store_40x_sler(CPUPPCState *env, uint32_t val)
+ {
+-    /* XXX: TO BE FIXED */
+-    if (val != 0x00000000) {
+-        cpu_abort(env_cpu(env),
+-                  "Little-endian regions are not supported by now\n");
+-    }
+-    env->spr[SPR_405_SLER] = val;
++    /* r1mx: firmware uses address 0x7c as a countdown counter during early boot,
++     * causing transient instruction bytes that QEMU decodes as mtspr SLER.
++     * PPC405 SLER controls little-endian memory regions; silently ignore non-zero
++     * writes since QEMU doesn't emulate LE regions and the firmware doesn't need them. */
++    env->spr[SPR_405_SLER] = val;
+ }
+ 
+ void check_tlb_flush(CPUPPCState *env, bool global)

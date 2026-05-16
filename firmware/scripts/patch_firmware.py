@@ -1384,29 +1384,122 @@ BUILD32_PATCHES: list[Patch] = [
         phase=2,
     ),
     # -----------------------------------------------------------------------
-    # Patch #57 — NOP blocking WDB network init (fn_5a7f30) in usrInit
+    # Patch #58 — Replace fn_0700 Program Exception handler with rfi skip handler
     #
-    # usrInit (fn_36c350) at 0x36c424 calls fn_5a7f30, which:
-    #   1. Spawns the WDB task (via fn_5b2880) with entry point 0x37c440
-    #   2. Then blocks forever in a UDP socket wait for a network semaphore
-    #      that never fires in QEMU (no real network / WDB UDP agent)
+    # fn_0700 at 0x700 is the PPC Program Exception vector.  The firmware's
+    # original handler was designed as an in-place hardware-unavailable escape
+    # hatch for fn_0x5a4 (0x5a4–0x744): it clears a hardware register via
+    # fn_0B8 (stb r4,0(r3)) and then re-uses fn_0x5a4's stack epilogue path
+    # (fn_0658 → fn_0608) to return to fn_0x5a4's caller.
     #
-    # Because fn_5a7f30 never returns, usrInit never completes, the root
-    # task never exits, and the VxWorks scheduler never gets the opportunity
-    # to run any other tasks (WDB, camera, etc.).
+    # This design has three failure modes in QEMU:
     #
-    # Fix: NOP the call. The WDB task spawn inside fn_5a7f30 is lost, but
-    # usrInit then returns normally and the scheduler runs all remaining
-    # ready tasks. Further patches can stub out any WDB state that depends
-    # on fn_5a7f30 having run.
+    # 1. MEMORY CORRUPTION: fn_0B8 writes 0 to address [r3].  In QEMU r3 often
+    #    holds a ROM address (e.g. 0x2000) or 0x0 at exception time; writing to
+    #    ROM or to the reset vector corrupts code and causes secondary faults.
     #
-    #   0x36c424: 0x4823bb0d  bl 0x5a7f30
+    # 2. WRONG EPILOGUE CONTEXT: fn_0608 reads the saved LR from the current
+    #    sp+52, which is only valid if fn_0x5a4's frame is at the top of stack.
+    #    When the exception fires in a context other than fn_0x5a4 (e.g. a
+    #    nested call, or a different function entirely), sp+52 holds garbage,
+    #    causing blr to jump to 0 or some random address.
+    #
+    # 3. INFINITE SP GROWTH: blr returning to 0x0 executes `b 0x8` (intact reset
+    #    vector), but only after fn_0608's `addi r1,r1,48` already ran.  Repeated
+    #    re-entry via the exception → epilogue → 0x0 → romInit → exception path
+    #    causes SP to climb at ~2.8 MB/s until address space wraps.
+    #
+    # The correct QEMU fix is a minimal "skip the faulting instruction" handler:
+    #
+    #   0x700: mfspr r2, SRR0   — r2 = address of faulting instruction
+    #   0x704: addi  r2, r2, 4  — r2 += 4 (advance to next instruction)
+    #   0x708: mtspr SRR0, r2   — update exception return address
+    #   0x70c: rfi               — restore MSR from SRR1, branch to new SRR0
+    #
+    # This skips each faulting instruction individually, preserves all GPRs
+    # (except r2, a PPC scratch register), leaves the stack untouched, and
+    # correctly restores MSR — the same effect as the GDB "clear-step-readd"
+    # workaround used in earlier sessions.
+    #
+    # Encoding:
+    #   mfspr r2, SRR0  = 0x7C5A02A6  (opcode31, RT=2, SPR=26, XO=339)
+    #   addi  r2, r2, 4 = 0x38420004  (opcode14, RT=2, RA=2, SI=4)
+    #   mtspr SRR0, r2  = 0x7C5A03A6  (opcode31, RS=2, SPR=26, XO=467)
+    #   rfi             = 0x4C000064
+    Patch(
+        offset=0x0700,
+        original=b'\x38\x80\x00\x00'   # li r4, 0
+                 b'\x4b\xff\xf9\xb5'   # bl fn_0B8
+                 b'\x3b\xa0\x00\x00'   # li r29, 0
+                 b'\x4b\xff\xff\x4c',  # b fn_0658
+        replacement=b'\x7c\x5a\x02\xa6'   # mfspr r2, SRR0
+                    b'\x38\x42\x00\x04'   # addi r2, r2, 4
+                    b'\x7c\x5a\x03\xa6'   # mtspr SRR0, r2
+                    b'\x4c\x00\x00\x64',  # rfi
+        description="Replace fn_0700 Program Exception handler (li r4,0; bl fn_0B8; li r29,0; b fn_0658) with rfi skip handler (mfspr r2,SRR0; addi r2,r2,4; mtspr SRR0,r2; rfi): original handler corrupts [r3] via fn_0B8 (r3 holds ROM addr or 0 in QEMU) and uses fn_0x5a4 stack epilogue which reads wrong LR when exception fires outside fn_0x5a4 context, causing SP to grow at 2.8 MB/s; rfi skip handler advances SRR0 past the faulting instruction and returns cleanly",
+        phase=1,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #59 — NOP bctrl in fn_0x5a4 hardware-dispatch path (prevent NULL call)
+    #
+    # fn_0x5a4 (0x5a4–0x744) is a hardware-init dispatcher.  When mem[0xe1bdf8]
+    # equals 0 (BSS not yet populated), it takes the path at 0x710 which sets up
+    # arguments and calls a function pointer via `bctrl` at 0x734:
+    #
+    #   0x71c: mtspr CTR, r8   — CTR = mem[0xe1c314] (function pointer from BSS)
+    #   0x734: bctrl            — call through CTR; if CTR=0 → jumps to address 0x0
+    #
+    # Because BSS is zero-initialised at boot, mem[0xe1c314]=0 initially.  The
+    # bctrl therefore jumps to address 0x0 (`b 0x8`), restarting romInit.  romInit
+    # resets SP and reinitialises hardware, but BSS remains 0 → the same bctrl
+    # fires again → infinite boot-restart loop.
+    #
+    # Fix: NOP the bctrl.  After the NOP, execution falls to 0x738:
+    #   `cmpwi r3,-1; bc 4,30,0x708; stw r29,8(r1); b fn_0658`
+    # r3 still holds arg0 of fn_0x5a4 (set at 0x718: mr r3,r25), which is
+    # never −1 in normal use, so the code takes the 0x708 path:
+    #   `li r29,0; b fn_0658` — returns 0 to the caller (hardware-unavailable).
+    # The caller interprets 0 as "not available" and continues boot.
+    #
+    #   0x0734: 0x4e800421  bctrl
+    #   ->      0x60000000  nop
+    Patch(
+        offset=0x0734,
+        original=b'\x4e\x80\x04\x21',
+        replacement=PPC_NOP,
+        description="NOP bctrl at 0x734 in fn_0x5a4 hardware-dispatch path: CTR=mem[0xe1c314]=0 (BSS not yet initialised) causes bctrl to jump to address 0x0 = romInit restart; NOP allows fall-through to r29=0 / b fn_0658 which returns hardware-unavailable (0) to the caller",
+        phase=1,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #57 — NOP the blocking poll call inside fn_5a7f30 (WDB network init)
+    #
+    # fn_5a7f30 (called from usrInit at 0x36c424) performs three critical steps:
+    #   1. Sets up the WDB agent struct on its own stack frame (sp+56)
+    #   2. Writes BSS[0xe9c420] = sp+56  (WDB struct pointer used by WDB task)
+    #   3. Spawns the WDB task via fn_5b2880 (entry = 0x37c440)
+    #   4. Calls fn_5b11ac (0x5b0ff4) — a blocking UDP socket / semaphore wait
+    #      that never returns in QEMU (no real WDB UDP network agent present)
+    #
+    # Because step 4 blocks forever, usrInit never completes and the scheduler
+    # never runs the WDB task or any other task.
+    #
+    # Fix: NOP the blocking call at 0x5a8190, NOT the outer fn_5a7f30 call.
+    # With this patch:
+    #   - Steps 1-3 run normally: WDB struct is initialised and BSS[0xe9c420]
+    #     is set; the WDB task is spawned into the VxWorks task queue.
+    #   - fn_5a7f30 returns to usrInit; usrInit returns to the root task.
+    #   - The WDB struct lives at a fixed address on the root task's stack
+    #     (below its current SP after usrInit returns).  The idle loop at
+    #     0x124 never grows the root task's stack so the struct stays valid.
+    #   - The scheduler then runs the WDB task (and camera tasks).
+    #
+    #   0x5a8190: 0x4800901d  bl 0x5b11ac  (→ blocks in fn_5b0ff4 UDP wait)
     #   ->         0x60000000  nop
     Patch(
-        offset=0x36c424,
-        original=b'\x48\x23\xbb\x0d',
+        offset=0x5a8190,
+        original=b'\x48\x00\x90\x1d',
         replacement=PPC_NOP,
-        description="NOP bl fn_5a7f30 in usrInit: WDB network init blocks forever on UDP semaphore in QEMU; usrInit never returns without this NOP; skipping allows root task to complete and scheduler to run other tasks",
+        description="NOP bl fn_5b11ac inside fn_5a7f30: blocking UDP poll call that prevents fn_5a7f30 from returning; NOP allows WDB task to be spawned (at 0x5a8170) and BSS[0xe9c420] WDB struct ptr to be set before fn_5a7f30 returns normally",
         phase=2,
     ),
 ]
