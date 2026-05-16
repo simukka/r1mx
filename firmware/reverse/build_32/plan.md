@@ -10,7 +10,90 @@ Strategy: decompile first, patch second.
 
 ---
 
-## Current State (session 8)
+## Current State (session 20)
+
+- **54 patches** in firmware/scripts/patch_firmware.py (committed to `reverse-build-32`)
+- Boot progress (fully confirmed):
+  - fn_36e168 completes — VxWorks exception handlers installed ✓
+  - fn_DCB0 completes — hardware sequencer runs ✓
+  - fn_458a14(r3=0/1) returns 0 (Patch #44) ✓
+  - fn_36860c completes — conditional task spawns skipped at cold boot ✓
+  - usrInit fully completes — UART output `^^^123456789\r\n` seen TWICE ✓
+  - kernelInit(0x5a7f30) called — VxWorks multitasking started ✓
+  - Root task TCB 0x0ff9bd30 created and dispatched ✓
+  - Root task running in 60ms polling loop (fn_382bec / fn_3801cc) ✓
+  - **No crashes or infinite loops observed**
+
+**ROOT TASK is alive** — but descriptor at 0x020390d0 is all-zeros, so fn_382e80
+dispatches nothing and the task idles.
+
+---
+
+## Key Addresses
+
+usrInit layout (0x36c350):
+  0x36c3cc: bl fn_36e3dc         <- pre-init
+  0x36c3d0: bl fn_36e168         <- VxWorks exc handler install
+  0x36c3d4: bl fn_DCB0           <- hardware sequencer
+  0x36c3d8: li r3, 0
+  0x36c3dc: bl fn_458a14 (r3=0)  <- driver dispatch (Patch #44)
+  0x36c3e0: li r3, 1
+  0x36c3e4: bl fn_458a14 (r3=1)  <- driver dispatch (Patch #44)
+  0x36c3ec: bl fn_36860c         <- conditional task spawns (all skipped)
+  0x36c3f0: bl fn_0000d8a0       <- timer/clock helper
+  0x36c424: bl 0x5a7f30          <- kernelInit MILESTONE ✓ PASSED
+
+Root task dispatch chain:
+  TCB = 0x0ff9bd30
+  ctx+0x8c (PC) = 0x381a8c  (fn_381a8c prologue - Patch #53a)
+  fn_381a8c → fn_381a38 → fn_381824 → fn_382e80 (main dispatcher)
+  fn_382e80 → fn_382bec → fn_3801cc(r3=60) [60ms sleep] → loops
+
+---
+
+## IMMEDIATE NEXT STEPS
+
+### Step 1: Understand the root task descriptor format
+
+The root task context descriptor at 0x020390d0 is all-zeros. With no `__L` tokens,
+fn_382e80 has no commands to dispatch, so no VxWorks services are initialized.
+
+Options:
+1. **Search for writes to 0x020390d0**: Use GDB write-watchpoint `Z2,20390d0,4` to
+   catch any runtime write. If nothing writes, the descriptor is meant to be populated
+   by the boot path before kernelInit.
+2. **Disassemble fn_382e80 body**: Find the message-queue wait/read call. Identify
+   if it's `msgQReceive` or `semTake`. If messages must arrive from another task,
+   trace what task sends them.
+3. **Search firmware for `__L` patterns**: `strings software.bin | grep '__L'` to find
+   candidate command strings. One of these may be the correct initial descriptor.
+
+### Step 2: Find WDB agent initialization
+
+The WDB target agent is started by `usrWdbInit()`. Search for it:
+- `strings software.bin | grep -i wdb` — look for "wdb", "WDB", "tWdbTask"
+- Look for UDP port 17185 (0x4321): `grep -a $'\x43\x21' software.bin | od -A x -t x1z`
+- Cross-reference to find the function that calls socket()/bind()/recvfrom()
+
+### Step 3: Connect via WDB once reachable
+
+Once tWdbTask is started:
+- Add tuntap networking to QEMU launch
+- Connect: `wdbrpc 192.168.0.2 17185`
+- Via WDB: `lkup "DEBUG.USB.CONNECTION"` → write 1 to BSS addr
+
+---
+
+## Constraints
+
+- SW BPs (Z0) only — QEMU PPC405 HW BPs broken
+- Write watchpoints (Z2/Z4) DO work on QEMU PPC405
+- NEVER place SW BPs inside a function that will run at full speed
+- QEMU launch: use `setsid ./qemu-system-ppc ... > /tmp/qemu-r1mx.log 2>&1 &`
+- SPR encoding: spr = ((w >> 11) & 0x1f) << 5 | ((w >> 16) & 0x1f)
+- GDB RSP: send `$c#63`, do NOT recv — let wait_bp() drain
+- Clear ALL stale BPs at start of each session (use z0,addr,4 for known-used addresses)
+
 
 - **44 patches** in firmware/scripts/patch_firmware.py
   - sha256: `b2a63a78d7606a0cb75486cbc03038e08f0f0470b43e8a270c4c325611bc8d8c`

@@ -899,7 +899,7 @@ Applied in addition to the Phase 1 patches above. All offsets are also runtime a
 
 Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches and produce `software.patched.r1mx.bin`. Omit `--r1mx` for the bamboo-machine binary.
 
-### Complete Patch Table (47 patches — current as of session 11)
+### Complete Patch Table (54 patches — current as of session 20)
 
 | # | Phase | Offset | Description |
 |---|-------|--------|-------------|
@@ -930,13 +930,20 @@ Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches a
 | 45 | 2 | `0x44c720` | NOP self-referential `bctrl` at fn_44c720 (CTR points to itself → infinite loop) |
 | 46 | 2 | `0x44c6a8` | NOP `stw r11, 0x7c(r12=0)` — null-deref corrupting exception vector at 0x7c |
 | **47** | **2** | **`0xE2942C` (data)** | **Zero pre-seeded `intCnt` — snapshot value `0x00552F30` causes taskInit to fail (`intCnt>0` guard), preventing root task creation → 0x124 spin loop** |
+| 48-51 | 2 | Various (sessions 12-18) | XIntc timer, workQ, and scheduler fixes (see session 12-18 notes) |
+| **52** | **3** | **`0x5ab128`** | **Scheduler null-deref: `lwz r31,0xd4c(r29)` → `li r31,0` — TCB+0x94=0 caused read of boot-code addr (0+0xd4c=0x9001004c) as fake TCB, rfi to PC=0** |
+| **53a** | **3** | **`0x371d64`** | **Root-task initial PC: fn_371cd0 stored epilogue addr 0x381aec → fixed to prologue 0x381a8c** |
+| **53b** | **3** | **`0x381ad0`** | **NOP fast-exit branch in fn_381a8c: `bc 4,30` skipped descriptor processing when ctx GPR4=0x0dcf5120 (non-zero)** |
+| **53c** | **3** | **`0x371d6c`** | **Init ctx LR slot: `li r11,1` → `stw r12,0x244(r31)` writes 0x381a8c to LR slot; without this blr returns to 0x0** |
+| **54a** | **3** | **`0x38042c`** | **fn_38038c NULL-buffer guard pt 1: `mr r3,r29` → `cmpi cr7,r29,0`** |
+| **54b** | **3** | **`0x380430`** | **fn_38038c NULL-buffer guard pt 2: `bl 0x38029c` → `bc 12,30,0x380404` — NULL r29 skips to safe return, avoiding exception-vector corruption and infinite descriptor scan** |
 
-**sha256 of current r1mx patched binary (42/47 patches, `--r1mx`):**
+**sha256 of current r1mx patched binary (54/59 patches, `--r1mx`):**
 _Recompute with: `.venv/bin/python firmware/scripts/patch_firmware.py --r1mx && sha256sum firmware/reverse/build_32/extracted/software.patched.r1mx.bin`_
 
-> Patches #37–41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
+> Patches #37-41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
 > because `r1mx-virtex4` maps those peripherals with real device models.
-> Patches #45–47 are required for both machines.
+> Patches #45-54 are required for both machines (except bamboo-only ones noted above).
 
 ### fn_458a14 dispatch table — static vs runtime
 
@@ -953,9 +960,9 @@ patches; Patch #44 is the actual fix.
 a bad LR → crash. Patch #44 replaces `bctrl` with `li r3, 0`, bypassing the call entirely.
 usrInit ignores the return value of both fn_458a14 calls.
 
-### Current Boot State (session 11 — 46 patches, r1mx-virtex4 machine)
+### Current Boot State (session 20 — 54 patches, r1mx-virtex4 machine)
 
-With `--r1mx` (41/46 patches) and the `r1mx-virtex4` QEMU machine:
+With `--r1mx` (54/59 patches) and the `r1mx-virtex4` QEMU machine:
 - **fn_36e168** completes — VxWorks exception handlers installed at 0x200, 0x300, etc. ✓
 - **fn_DCB0** completes — hardware sequencer runs ✓
 - **fn_458a14(r3=0/1)** → Patch #44: both return 0 cleanly ✓
@@ -965,8 +972,18 @@ With `--r1mx` (41/46 patches) and the `r1mx-virtex4` QEMU machine:
 - **usrInit called TWICE** — first from 0x36c3d4 (pre-kernel), second from 0xdde0 (root task) ✓
 - UART output `^^^123456789\r\n` appears TWICE — both usrInit runs complete ✓
 - VxWorks task stack confirmed: r1=0x4cce6df0 (task stack at ~1.28 GB, above kernel pool) ✓
-- **CURRENT BLOCKER:** workQ spin at `0x5ab0dc` — waiting for `*(0x010D0584) != 0`
-- **POST-WORKQ BLOCKER (session 9):** task jumps to null-instruction heap region at `0x4ccec940`
+- **Scheduler fix (patch #52):** scheduler null-deref bypassed, root task TCB at 0x0ff9bd30 dispatched ✓
+- **Root task fix (patches #53a/b/c):** initial PC set to fn_381a8c prologue, LR slot initialised, fast-exit NOP'd ✓
+- **fn_38038c NULL guard (patches #54a/b):** NULL r5 argument no longer corrupts exception vectors ✓
+- **ROOT TASK ALIVE** in 60ms polling loop: fn_381a8c → fn_381a38 → fn_381824 → fn_382e80 → fn_382bec ✓
+- **No further crashes observed**: PC oscillates 0x382c50-0x382c58 / 0x3830a0 (normal poll cycle) ✓
+- **CURRENT STATE:** Root task running but descriptor is all-zeros; no commands dispatched; task idles
+
+**Next open question:** What populates the root task descriptor at 0x020390d0?
+With all-zero descriptor, fn_382e80 has nothing to dispatch. Either:
+1. Another task should have written to 0x020390d0 before root task runs, OR
+2. fn_382e80 waits for external messages (VxWorks msgQ) that never arrive in emulation, OR
+3. The correct boot path spawns additional tasks via a valid descriptor with `__L` records
 
 **workQ spin blocker (session 11 analysis):**
 
@@ -1106,7 +1123,104 @@ a related VxWorks task-create function in the 0x5b range.
 0x4ccec940 IS the kernel work-queue task (`windWorker` or similar), and its saved PC
 field was corrupted before the scheduler ran it.
 
+### Sessions 19-20 — Root-Task Dispatch and fn_38038c NULL Guard (Patches #52-54)
 
+**GOAL:** Boot past the scheduler, dispatch the root task, and reach its main event loop.
+
+**Prior blocker (session 18 / patch #47):** `intCnt` pre-seeded to `0x00552F30` caused all
+`taskInit` calls to fail; root task never created. Patch #47 zeros it at the data address
+`0xe2942c`. After that, root task TCB at `0x0ff9bd30` is created and queued.
+
+**New blocker: scheduler null-ptr deref (patch #52 / 0x5ab128):**
+fn_5aaf5c (scheduler) read `r31 = lwz r31,0xd4c(r29)` where r29=TCB and TCB+0x94=0.
+Dereferencing 0+0xD4C read `0x9001004c` (boot code) as a fake TCB address, then
+`rfi` to PC=0 → crash. Patch: `li r31, 0` forces selection of the workQ-head task (root
+task, 0x0ff9bd30) directly.
+
+**Context block layout (confirmed via GDB reads of TCB 0x0ff9bd30):**
+```
+TCB base = 0x0ff9bd30
+ctx base = TCB + 0x1c0 = 0x0ff9bef0
+
+ctx+0x00-0x7c: GPR0-GPR31  (4 bytes each)
+ctx+0x80:      MSR
+ctx+0x84:      LR   (hardware LR at interrupt time / dispatch)
+ctx+0x88:      CTR
+ctx+0x8c:      PC   (SRR0 at interrupt time)
+ctx+0x90:      CR
+ctx+0x94:      XER
+ctx+0x9c:      SPR945 flag (VxWorks "first dispatch" marker)
+```
+
+**Patch #53a (0x371d64): fix initial root-task PC (epilogue → prologue).**
+fn_371cd0 computed `r12 = 0x381aec` (fn_381a8c EPILOGUE) and stored it to ctx+0x8c (PC slot).
+Dispatching to 0x381aec executes `blr` with LR=0 → crash. Fixed to `0x381a8c` (fn_381a8c PROLOGUE).
+
+**Patch #53b (0x381ad0): NOP fast-exit branch in fn_381a8c.**
+`bc 4,30 0x381b14` (skip to epilogue when r4 != 0) fired at first dispatch because ctx+0x10
+(GPR4) = `0x0dcf5120` (non-zero interrupt-captured value). NOP forces the normal `bl 0x381a38` path.
+
+**Patch #53c (0x371d6c): initialise ctx+0x84 (LR slot).**
+fn_371cd0 had a spare slot (`li r11, 1`) replaced with `stw r12, 0x244(r31)` to write
+`0x381a8c` (prologue PC, from #53a) into the LR slot. Without this, hardware LR=0 at dispatch
+means fn_381a8c's `mflr r0 / ... / blr` returns to 0x0 → crash. Side-effect: ctx+0x9c (SPR945
+flag) = 0 instead of 1 (r11 stays 0 from earlier `li r11,0`); non-critical for execution.
+
+**Breakpoint at 0x381a8c HIT (confirmed):** PC=LR=0x381a8c, r3=0x020390d0 (descriptor), r4=0x0dcf5120.
+
+**fn_381a8c / fn_381a38 / fn_381824 call chain:**
+```
+fn_381a8c (wrapper: dispatch based on descriptor[0])
+  checks descriptor[0] == 'Q' (0x51): if yes → 0x381b2c
+  else → fn_381a38(descriptor, 0, 0)
+    checks descriptor[0] == 'Z' (0x5a): if yes → fn_3834c4
+    else → fn_381824(descriptor, first_byte, 0, ...)
+      calls fn_38038c(descriptor, local_buf, r5=0, ...)
+      scans for '__L' tokens in descriptor, dispatches commands
+      if no tokens: exits to fn_382e80 (main dispatcher / message wait)
+```
+
+**fn_381824 hang analysis:** With all-zeros descriptor, fn_38038c was called with r5=NULL:
+1. fn_38038c read `r8 = *(r5=0) = *(0x00000000) = 0x48000008` (PPC reset vector = `b +8`)
+2. Hash loop: r31 = 0 - 48 = 0xFFFFFFD0 on first iteration → r8 (0x48000008) < r31 (0xFFFFFFD0) unsigned → jump to resize path at 0x38042c
+3. At 0x38042c: `mr r3, r29` + `bl 0x38029c` → called fn_38029c(NULL) which modified exception vectors at 0x10/0x18/0x24 (data corruption!)
+4. `lwz r31, 0(r29)` = *(0) = 0x48000008 stored as descriptor length
+5. Back in fn_381824: r9 = 0x020390d0 + 0x48000008 = 0x4a0390d8 (huge bound)
+6. Scan loop: no '_' found in all-zero descriptor, r31 grows toward 0x4a0390d8 → infinite loop
+
+**Patch #54 (0x38042c / 0x380430): NULL-buffer guard in fn_38038c.**
+Replace:
+- `mr r3, r29` → `cmpi cr7, r29, 0` (test NULL)
+- `bl 0x38029c` → `bc 12, 30, 0x380404` (if NULL: skip to safe return)
+
+When r29=NULL: r31=0xFFFFFFD0 (hash overflow value) stored to output. fn_381824 computes
+r9 = descriptor + 0xFFFFFFD0 = descriptor - 48, which is < descriptor+7, so the bounds
+check at 0x381888 (`cmpl cr7, r0, r9`) immediately triggers the `bc 4,28,0x381910` exit.
+fn_381824 reaches 0x381910 cleanly → calls fn_382e80.
+
+**CURRENT BOOT STATE (session 20 — 54 patches applied):**
+- Root task dispatches to fn_381a8c, processes empty descriptor, calls fn_382e80 ✓
+- fn_382e80 enters main dispatch loop ✓
+- Root task oscillates between fn_382bec (60ms sleep: `bl 0x3801cc` / `addi r3,r0,60`) and fn_38038c ✓
+- PC sample hot spots: 0x382c50-0x382c58 (sleep/poll loop), 0x3830a0 (compare-and-check) ✓
+- LR = 0x383094 (return from fn_382bec back into fn_382e80 body) ✓
+- No more infinite loops or crashes observed ✓
+
+**fn_382e80 (main dispatcher) entry args (with null descriptor):**
+```
+r3 = 0x020390d0   (descriptor ptr, all zeros)
+r4 = 0xffffffd0   (hash overflow value from fn_38038c = -48)
+r5-r9 = 0
+```
+
+**Next investigaton area:** What does the root task's polling loop expect to receive?
+fn_382bec is called every 60ms with r3=r30+6 (some pointer offset), r4=0, r5=r25, r6=r26.
+When messages arrive, fn_382e80 dispatches them. With no other tasks spawned (empty
+descriptor → no task creation), the root task idles in this loop indefinitely.
+
+To understand full boot: find the CORRECT initial descriptor format (what data should be
+at 0x020390d0), OR find how other VxWorks tasks (shell, network, etc.) are started in
+a real camera boot and patch to reach those code paths.
 
 **SW BP trap crashes (DISCOVERED THIS SESSION):**
 - QEMU SW BPs use a PPC trap instruction. When the trap fires, the CPU takes a Program Check
