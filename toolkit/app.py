@@ -37,9 +37,11 @@ from toolkit.gui.panels.inspector import InspectorPanel
 from toolkit.gui.panels.log import WorkflowLog
 from toolkit.gui.panels.tree import BoardTreePanel
 from toolkit.gui.scene import LayerScene, OBJECT_TYPES
+from toolkit.gui.theme import THEME
 from toolkit.gui.viewer import ImageViewer
 from toolkit.gui.widgets.service_status import ServiceStatusBar
-from toolkit.paths import COMPONENTS_DIR, REPO_ROOT
+from toolkit.gui.widgets.status_lcd import StatusLCDWidget
+from toolkit.paths import REPO_ROOT
 from toolkit.services.manager import ServiceManager, ServiceMonitor
 from toolkit.workers.base import SubprocessWorker
 from toolkit.workers.indexer import DatasheetIndexWorker
@@ -52,8 +54,10 @@ class CanvasMode(Enum):
     ADD_VIA         = auto()   # next click places a via
     ADD_COMPONENT   = auto()   # click+drag defines a component bounding box
     ADD_TEXT        = auto()   # next click places a text_label
+    ADD_TRACE       = auto()   # click via/pad or point → route trace segments; Enter breaks chain; Esc exits
     SET_ORIENTATION = auto()   # next edge-click sets pin-1 side for a component
     ALIGN_FOOTPRINT = auto()   # keyboard R/+/-/arrows adjust footprint overlay; Enter confirms
+    ADD_PIN         = auto()   # each click places a pin marker; Enter confirms, Esc cancels
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +77,21 @@ class MainWindow(QMainWindow):
         self._footprint_overlay = None                  # FootprintOverlayItem | None
         self._footprint_object_id: int | None = None   # component being aligned
         self._footprint_pinout_id: int | None = None   # pinout row id
+        # Pin placement state
+        self._pin_target_object_id: int | None = None  # component being pinned
+        self._pending_pin_items: list = []             # temp QGraphicsEllipseItems
+        # Continuous placement state (via / component / text modes)
+        self._last_placed_object_id: int | None = None  # last item placed in current mode
+        self._mode_place_count: int = 0                 # items placed since mode entered
+        self._last_via_drill_mm: float = 0.3            # remembered default for drill dialog
+        # Trace placement state (ADD_TRACE mode)
+        self._trace_points: list[tuple[float, float]] = []  # (x,y) mm of each clicked point
+        self._trace_start_obj_id: int | None = None         # DB id of snapped start via/pad
+        self._trace_end_obj_id:   int | None = None         # DB id of snapped end via/pad (last snap)
+        self._trace_preview_items: list = []                # QGraphicsLineItems for the live path
+        self._trace_anchor_dot  = None                      # QGraphicsEllipseItem at start
+        self._trace_snap_ring   = None                      # QGraphicsEllipseItem snap highlight
+        self._trace_width_mm: float = 0.2                   # remembered trace width
 
         # Background services
         self._svc_manager: ServiceManager | None = None
@@ -125,6 +144,10 @@ class MainWindow(QMainWindow):
         self._tree.mergeRequested.connect(self._on_merge_requested)
         self._tree.removeDataRequested.connect(self._remove_layer_data)
         self._tree.scanDatasheetRequested.connect(self._scan_datasheet)
+        # Layer CRUD
+        self._tree.addLayerRequested.connect(self._on_layer_added)
+        self._tree.deleteLayerRequested.connect(self._on_layer_deleted)
+        self._tree.shiftObjectsRequested.connect(self._on_objects_shifted)
         left_dock = QDockWidget("Boards & Layers", self)
         left_dock.setWidget(self._tree)
         left_dock.setMinimumWidth(200)
@@ -142,6 +165,8 @@ class MainWindow(QMainWindow):
         self._inspector.datasheetSearchRequested.connect(self._find_datasheet)
         self._inspector.pinoutSelectionRequested.connect(self._open_pinout_wizard)
         self._inspector.kicadFootprintRequested.connect(self._open_footprint_picker)
+        self._inspector.placePinsRequested.connect(self._enter_add_pin_mode)
+        self._inspector.photoEnhancementChanged.connect(self._on_photo_enhancement)
         right_dock = QDockWidget("Inspector", self)
         right_dock.setWidget(self._inspector)
         right_dock.setMinimumWidth(240)
@@ -160,6 +185,20 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, bottom_dock)
+
+        # Status LCD dock (hidden by default; show via View > Status LCD)
+        self._lcd_widget = StatusLCDWidget(parent=self)
+        lcd_dock = QDockWidget("Status LCD", self)
+        lcd_dock.setWidget(self._lcd_widget)
+        lcd_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        lcd_dock.setMinimumWidth(200)
+        lcd_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, lcd_dock)
+        self._lcd_dock = lcd_dock
 
         self._status = QStatusBar()
         self.setStatusBar(self._status)
@@ -213,6 +252,15 @@ class MainWindow(QMainWindow):
         zoom_100_act.triggered.connect(self._viewer.zoom_reset)
         view_menu.addAction(zoom_100_act)
 
+        view_menu.addSeparator()
+        lcd_act = QAction("Status LCD", self)
+        lcd_act.setCheckable(True)
+        lcd_act.setChecked(False)
+        lcd_act.setShortcut("Ctrl+Shift+L")
+        lcd_act.triggered.connect(self._toggle_lcd_dock)
+        self._lcd_dock.visibilityChanged.connect(lcd_act.setChecked)
+        view_menu.addAction(lcd_act)
+
         # Help
         help_menu = mb.addMenu("&Help")
         help_menu.addAction("About r1mx Toolkit", self._show_about)
@@ -257,6 +305,7 @@ class MainWindow(QMainWindow):
         add_menu.addAction("📍 Via",       lambda: self._set_canvas_mode(CanvasMode.ADD_VIA))
         add_menu.addAction("□ Component",  lambda: self._set_canvas_mode(CanvasMode.ADD_COMPONENT))
         add_menu.addAction("T Text Label", lambda: self._set_canvas_mode(CanvasMode.ADD_TEXT))
+        add_menu.addAction("∿ Trace",      lambda: self._enter_trace_mode())
         add_btn.setMenu(add_menu)
         tb.addWidget(add_btn)
 
@@ -426,7 +475,10 @@ class MainWindow(QMainWindow):
         # Load photo — shows raw image when not calibrated, warped when calibrated
         status = "calibrated" if calibrated else "raw (not calibrated)"
         self._log.append(f"Loading {board_name}/{layer_name} ({status}) …")
-        scene.load_photo(board_name, layer_name, source_image, warp_matrix, warped_size)
+        scene.load_photo(
+            board_name, layer_name, source_image, warp_matrix, warped_size,
+            board_dir=self._db.get_board_abs_dir(board_name),
+        )
 
         # Load extracted objects only if calibrated and objects exist
         if calibrated:
@@ -487,10 +539,41 @@ class MainWindow(QMainWindow):
 
     # ── Canvas events ─────────────────────────────────────────────────────
 
+    _CONTINUOUS_MODES = frozenset({CanvasMode.ADD_VIA, CanvasMode.ADD_COMPONENT, CanvasMode.ADD_TEXT, CanvasMode.ADD_TRACE})
+
     def _set_canvas_mode(self, mode: CanvasMode, target_object_id: int | None = None) -> None:
         """Switch the canvas interaction mode and update the status bar hint."""
+        prev_mode = self._canvas_mode
         # clean up edge preview from a previous SET_ORIENTATION session
         self._clear_edge_preview()
+        # clean up trace preview items whenever leaving ADD_TRACE
+        if prev_mode == CanvasMode.ADD_TRACE and mode != CanvasMode.ADD_TRACE:
+            self._clear_trace_preview()
+            self._trace_points = []
+            self._trace_start_obj_id = None
+            self._trace_end_obj_id   = None
+        # cancel any uncommitted pin placement when leaving ADD_PIN mode
+        if prev_mode == CanvasMode.ADD_PIN and mode != CanvasMode.ADD_PIN:
+            self._cancel_pin_placement()
+
+        # When exiting a continuous placement mode → select the last placed object
+        if (prev_mode in self._CONTINUOUS_MODES
+                and mode == CanvasMode.NORMAL
+                and self._last_placed_object_id is not None):
+            last_id = self._last_placed_object_id
+            self._last_placed_object_id = None
+            self._mode_place_count = 0
+            self._canvas_mode = mode
+            self._add_target_object_id = target_object_id
+            self._viewer.set_capture_mode(False)
+            self._status.clearMessage()
+            self._on_component_selected(last_id)
+            return
+
+        # When entering a continuous placement mode, reset counters
+        if mode in self._CONTINUOUS_MODES and prev_mode not in self._CONTINUOUS_MODES:
+            self._last_placed_object_id = None
+            self._mode_place_count = 0
 
         self._canvas_mode = mode
         self._add_target_object_id = target_object_id
@@ -501,16 +584,46 @@ class MainWindow(QMainWindow):
             from PyQt6.QtWidgets import QGraphicsView
             self._viewer.setDragMode(QGraphicsView.DragMode.NoDrag)
         if mode == CanvasMode.ADD_VIA:
-            self._status.showMessage("ADD VIA — click to place  |  Middle-mouse to pan  |  Esc to cancel")
+            n = self._mode_place_count
+            hint = f" ({n} placed)" if n else ""
+            self._status.showMessage(
+                f"ADD VIA{hint} — click to place  |  Middle-mouse to pan  |  Esc to finish"
+            )
         elif mode == CanvasMode.ADD_COMPONENT:
             if target_object_id is not None:
                 self._status.showMessage("DRAW OUTLINE — click and drag  |  Middle-mouse to pan  |  Esc to cancel")
             else:
-                self._status.showMessage("ADD COMPONENT — click and drag to draw bounding box  |  Middle-mouse to pan  |  Esc to cancel")
+                n = self._mode_place_count
+                hint = f" ({n} placed)" if n else ""
+                self._status.showMessage(
+                    f"ADD COMPONENT{hint} — click and drag to draw bounding box  |  Middle-mouse to pan  |  Esc to finish"
+                )
         elif mode == CanvasMode.ADD_TEXT:
-            self._status.showMessage("ADD TEXT — click to place  |  Middle-mouse to pan  |  Esc to cancel")
+            n = self._mode_place_count
+            hint = f" ({n} placed)" if n else ""
+            self._status.showMessage(
+                f"ADD TEXT{hint} — click to place  |  Middle-mouse to pan  |  Esc to finish"
+            )
         elif mode == CanvasMode.SET_ORIENTATION:
             self._status.showMessage("ORIENTATION — click the edge that is the pin-1/notch side  |  Middle-mouse to pan  |  Esc to cancel")
+        elif mode == CanvasMode.ADD_PIN:
+            count = len(self._pending_pin_items)
+            self._status.showMessage(
+                f"ADD PINS — click to place ({count} pending)  |  Enter to confirm  |  Esc to cancel"
+            )
+        elif mode == CanvasMode.ADD_TRACE:
+            n = self._mode_place_count
+            placed_hint = f" ({n} placed)" if n else ""
+            pts = len(self._trace_points)
+            if pts == 0:
+                self._status.showMessage(
+                    f"ADD TRACE{placed_hint} — click a via or pad to start  |  Esc to finish"
+                )
+            else:
+                self._status.showMessage(
+                    f"ADD TRACE{placed_hint} — {pts} point(s) — click to extend  |  "
+                    f"click via/pad then Enter to commit  |  Esc to cancel"
+                )
         else:
             self._status.clearMessage()
 
@@ -518,6 +631,30 @@ class MainWindow(QMainWindow):
         if self._canvas_mode == CanvasMode.ALIGN_FOOTPRINT:
             self._handle_alignment_key(event)
             return
+        if self._canvas_mode == CanvasMode.ADD_PIN:
+            if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+                self._confirm_pin_placement()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                self._cancel_pin_placement()
+                self._set_canvas_mode(CanvasMode.NORMAL)
+                return
+        if self._canvas_mode == CanvasMode.ADD_TRACE:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_trace()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                if self._trace_points:
+                    # Cancel in-progress route, stay in ADD_TRACE
+                    self._clear_trace_preview()
+                    self._trace_points = []
+                    self._trace_start_obj_id = None
+                    self._trace_end_obj_id   = None
+                    self._set_canvas_mode(CanvasMode.ADD_TRACE)
+                else:
+                    # Idle — exit mode (selects last committed trace via _CONTINUOUS_MODES exit logic)
+                    self._set_canvas_mode(CanvasMode.NORMAL)
+                return
         if event.key() == Qt.Key.Key_Escape and self._canvas_mode != CanvasMode.NORMAL:
             self._set_canvas_mode(CanvasMode.NORMAL)
         else:
@@ -570,8 +707,12 @@ class MainWindow(QMainWindow):
             self._viewer.start_rubber_band(pt)
         elif self._canvas_mode == CanvasMode.ADD_TEXT:
             self._place_text(pt, board, layer)
+        elif self._canvas_mode == CanvasMode.ADD_TRACE:
+            self._trace_click(pt, board, layer)
         elif self._canvas_mode == CanvasMode.SET_ORIENTATION:
             self._place_orientation(pt, board, layer)
+        elif self._canvas_mode == CanvasMode.ADD_PIN:
+            self._add_pending_pin(pt)
 
     def _on_canvas_release(self, pt: QPointF):
         if self._canvas_mode == CanvasMode.ADD_COMPONENT:
@@ -583,7 +724,8 @@ class MainWindow(QMainWindow):
             if rect is not None:
                 self._place_component_rect(rect, board, layer)
             else:
-                self._set_canvas_mode(CanvasMode.NORMAL)
+                # Too small / cancelled — stay in ADD_COMPONENT mode
+                self._set_canvas_mode(CanvasMode.ADD_COMPONENT)
 
     def _on_canvas_move(self, pt: QPointF):
         if self._canvas_mode == CanvasMode.NORMAL:
@@ -593,6 +735,8 @@ class MainWindow(QMainWindow):
             )
         elif self._canvas_mode == CanvasMode.SET_ORIENTATION:
             self._update_edge_preview(pt)
+        elif self._canvas_mode == CanvasMode.ADD_TRACE:
+            self._update_trace_preview(pt)
 
     def _px_to_mm(self, pt: QPointF) -> tuple[float, float]:
         """Convert scene-pixel coords to mm using the active layer's calibration."""
@@ -610,10 +754,12 @@ class MainWindow(QMainWindow):
     def _place_via(self, pt: QPointF, board: str, layer: str) -> None:
         from PyQt6.QtWidgets import QInputDialog as _QID
         drill, ok = _QID.getDouble(
-            self, "Via Drill Diameter", "Drill diameter (mm):", 0.3, 0.05, 5.0, 2
+            self, "Via Drill Diameter", "Drill diameter (mm):",
+            self._last_via_drill_mm, 0.05, 5.0, 2
         )
         if not ok:
-            self._set_canvas_mode(CanvasMode.NORMAL)
+            # Stay in ADD_VIA — just refresh status bar (no mode change)
+            self._set_canvas_mode(CanvasMode.ADD_VIA)
             return
 
         x_mm, y_mm = self._px_to_mm(pt)
@@ -623,7 +769,7 @@ class MainWindow(QMainWindow):
             self._set_canvas_mode(CanvasMode.NORMAL)
             return
 
-        self._db.create_object(
+        obj_id = self._db.create_object(
             layer_id=layer_row["id"],
             obj_type="via",
             x_mm=x_mm, y_mm=y_mm,
@@ -631,8 +777,12 @@ class MainWindow(QMainWindow):
             verified=1,
             properties={"drill_mm": drill, "manual": True},
         )
+        self._last_via_drill_mm = drill
+        self._last_placed_object_id = obj_id
+        self._mode_place_count += 1
         self._reload_active_layer()
-        self._set_canvas_mode(CanvasMode.NORMAL)
+        # Refresh status bar with updated count, stay in ADD_VIA
+        self._set_canvas_mode(CanvasMode.ADD_VIA)
 
     def _place_component_rect(self, rect, board: str, layer: str) -> None:
         """Place a component at the given scene rect (after rubber-band complete)."""
@@ -704,13 +854,15 @@ class MainWindow(QMainWindow):
         vl.addLayout(form)
         vl.addWidget(btns)
         if dlg.exec() != QDialog.DialogCode.Accepted:
-            self._set_canvas_mode(CanvasMode.NORMAL)
+            # Stay in ADD_COMPONENT — refresh status bar
+            self._set_canvas_mode(CanvasMode.ADD_COMPONENT)
             return
 
         ref  = ref_edit.text().strip()
         part = part_edit.text().strip()
         if not ref:
-            self._set_canvas_mode(CanvasMode.NORMAL)
+            # Stay in ADD_COMPONENT even if ref was empty
+            self._set_canvas_mode(CanvasMode.ADD_COMPONENT)
             return
 
         board_id = self._db.get_or_create_board(board)
@@ -729,13 +881,19 @@ class MainWindow(QMainWindow):
             object_id=obj_id,
             part_number=part or None,
         )
+        self._last_placed_object_id = obj_id
+        self._mode_place_count += 1
         self._reload_active_layer()
-        self._set_canvas_mode(CanvasMode.NORMAL)
-        self._on_component_selected(obj_id)
+        # Stay in ADD_COMPONENT, refresh status bar with updated count
+        self._set_canvas_mode(CanvasMode.ADD_COMPONENT)
+
+    def _place_text(self, pt: QPointF, board: str, layer: str) -> None:
+        """Place a text_label at *pt* in continuous ADD_TEXT mode."""
         from PyQt6.QtWidgets import QInputDialog as _QID
         text, ok = _QID.getText(self, "Text Label", "Label text:")
         if not ok or not text.strip():
-            self._set_canvas_mode(CanvasMode.NORMAL)
+            # Stay in ADD_TEXT — just refresh status bar
+            self._set_canvas_mode(CanvasMode.ADD_TEXT)
             return
 
         x_mm, y_mm = self._px_to_mm(pt)
@@ -745,15 +903,369 @@ class MainWindow(QMainWindow):
             self._set_canvas_mode(CanvasMode.NORMAL)
             return
 
-        self._db.create_object(
+        obj_id = self._db.create_object(
             layer_id=layer_row["id"],
             obj_type="text_label",
             x_mm=x_mm, y_mm=y_mm,
             label=text.strip(),
             verified=1,
         )
+        self._last_placed_object_id = obj_id
+        self._mode_place_count += 1
         self._reload_active_layer()
+        # Stay in ADD_TEXT, refresh status bar with updated count
+        self._set_canvas_mode(CanvasMode.ADD_TEXT)
+
+    # ── Trace placement ────────────────────────────────────────────────────
+
+    _TRACE_SNAP_RADIUS_MM = 2.0   # snap to via/pad within this radius
+
+    def _enter_trace_mode(self) -> None:
+        """Ask for trace width (once per session entry) then enter ADD_TRACE mode."""
+        from PyQt6.QtWidgets import QInputDialog as _QID
+        w, ok = _QID.getDouble(
+            self, "Trace Width", "Trace width (mm):",
+            self._trace_width_mm, 0.01, 10.0, 3
+        )
+        if not ok:
+            return
+        self._trace_width_mm = w
+        self._set_canvas_mode(CanvasMode.ADD_TRACE)
+
+    def _snap_to_via_or_pad(
+        self, x_mm: float, y_mm: float, layer_id: int
+    ) -> tuple[float, float, int | None]:
+        """Return (snapped_x, snapped_y, obj_id) — obj_id is None if no snap.
+
+        Snaps to vias, pads, and pins (all point-like connection objects).
+        """
+        r = self._TRACE_SNAP_RADIUS_MM
+        rows = self._db.conn().execute(
+            """SELECT id, x_mm, y_mm FROM objects
+               WHERE layer_id=? AND type IN ('via','pad','pin')
+                 AND ABS(x_mm - ?) < ? AND ABS(y_mm - ?) < ?""",
+            (layer_id, x_mm, r, y_mm, r),
+        ).fetchall()
+        if not rows:
+            return x_mm, y_mm, None
+        best = min(rows, key=lambda rw: (rw["x_mm"] - x_mm) ** 2 + (rw["y_mm"] - y_mm) ** 2)
+        return best["x_mm"], best["y_mm"], best["id"]
+
+    def _px_per_mm_for_active_layer(self) -> float:
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            return 20.0
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row or not layer_row["calibration"]:
+            return 20.0
+        import json as _json
+        return _json.loads(layer_row["calibration"]).get("px_per_mm", 20.0)
+
+    def _trace_click(self, pt: QPointF, board: str, layer: str) -> None:
+        """Handle a click in ADD_TRACE mode."""
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+
+        x_mm, y_mm = self._px_to_mm(pt)
+        sx, sy, snap_id = self._snap_to_via_or_pad(x_mm, y_mm, layer_row["id"])
+
+        if not self._trace_points:
+            # First click — must be on a via, pad, or pin
+            if snap_id is None:
+                self._status.showMessage(
+                    "ADD TRACE — first point must be on a via, pad, or pin  |  Esc to finish"
+                )
+                return
+            self._trace_points = [(sx, sy)]
+            self._trace_start_obj_id = snap_id
+            self._trace_end_obj_id   = None
+            self._draw_trace_anchor_dot(sx, sy)
+            self._set_canvas_mode(CanvasMode.ADD_TRACE)
+            return
+
+        # Subsequent click — add waypoint (snap if near via/pad, otherwise free)
+        last_x, last_y = self._trace_points[-1]
+        if abs(sx - last_x) < 1e-6 and abs(sy - last_y) < 1e-6:
+            return  # duplicate point, ignore
+
+        self._trace_points.append((sx, sy))
+        self._trace_end_obj_id = snap_id  # None if not snapped
+
+        # Solidify the last committed segment as a permanent preview item
+        self._solidify_last_segment()
+        self._set_canvas_mode(CanvasMode.ADD_TRACE)
+
+    def _solidify_last_segment(self) -> None:
+        """Add a solid (non-dashed) preview line for the last committed segment."""
+        from PyQt6.QtWidgets import QGraphicsLineItem as _GLI
+        if len(self._trace_points) < 2:
+            return
+        sc = self._viewer.scene()
+        if sc is None:
+            return
+        px_per_mm = self._px_per_mm_for_active_layer()
+        x1, y1 = self._trace_points[-2]
+        x2, y2 = self._trace_points[-1]
+        line = _GLI(x1 * px_per_mm, y1 * px_per_mm, x2 * px_per_mm, y2 * px_per_mm)
+        pen = QPen(THEME.trace_preview_color, 2)
+        pen.setCosmetic(True)
+        line.setPen(pen)
+        line.setZValue(98)
+        sc.addItem(line)
+        self._trace_preview_items.append(line)
+
+    def _commit_trace(self) -> None:
+        """Validate and commit the in-progress trace on Enter."""
+        if len(self._trace_points) < 2:
+            self._status.showMessage(
+                "ADD TRACE — need at least a start point + one more click  |  Esc to cancel"
+            )
+            return
+        if self._trace_end_obj_id is None:
+            self._status.showMessage(
+                "ADD TRACE — last point must be on a via, pad, or pin before committing  |  Esc to cancel"
+            )
+            return
+
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            return
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+
+        sx, sy = self._trace_points[0]
+        props = {
+            "waypoints":  [[x, y] for x, y in self._trace_points],
+            "start_obj":  self._trace_start_obj_id,
+            "end_obj":    self._trace_end_obj_id,
+            "width":      self._trace_width_mm,
+            # keep start/end for backward-compat with single-segment readers
+            "start":      [sx, sy],
+            "end":        list(self._trace_points[-1]),
+        }
+        obj_id = self._db.create_object(
+            layer_id=layer_row["id"],
+            obj_type="trace",
+            x_mm=sx, y_mm=sy,
+            verified=1,
+            properties=props,
+        )
+        self._last_placed_object_id = obj_id
+        self._mode_place_count += 1
+
+        # Clear state for next trace
+        self._clear_trace_preview()
+        self._trace_points = []
+        self._trace_start_obj_id = None
+        self._trace_end_obj_id   = None
+
+        self._reload_active_layer()
+        self._set_canvas_mode(CanvasMode.ADD_TRACE)
+
+    def _draw_trace_anchor_dot(self, x_mm: float, y_mm: float) -> None:
+        """Place/move the start anchor dot at (x_mm, y_mm)."""
+        from PyQt6.QtGui import QBrush as _QBrush
+        from PyQt6.QtWidgets import QGraphicsEllipseItem as _GEI
+        sc = self._viewer.scene()
+        if sc is None:
+            return
+        r_px = 6
+        px_per_mm = self._px_per_mm_for_active_layer()
+        cx, cy = x_mm * px_per_mm, y_mm * px_per_mm
+        if self._trace_anchor_dot is not None:
+            try:
+                sc.removeItem(self._trace_anchor_dot)
+            except Exception:
+                pass
+        dot = _GEI(cx - r_px, cy - r_px, r_px * 2, r_px * 2)
+        dot.setPen(QPen(THEME.trace_anchor_color, 2))
+        dot.setBrush(_QBrush(QColor(THEME.trace_anchor_color.red(),
+                                    THEME.trace_anchor_color.green(),
+                                    THEME.trace_anchor_color.blue(), 140)))
+        dot.setZValue(100)
+        sc.addItem(dot)
+        self._trace_anchor_dot = dot
+
+    def _update_trace_preview(self, pt: QPointF) -> None:
+        """Update the dashed live segment from the last point to the cursor."""
+        from PyQt6.QtGui import QBrush as _QBrush
+        from PyQt6.QtWidgets import (
+            QGraphicsLineItem as _GLI,
+            QGraphicsEllipseItem as _GEI,
+        )
+        sc = self._viewer.scene()
+        if sc is None:
+            return
+
+        px_per_mm = self._px_per_mm_for_active_layer()
+        x_mm, y_mm = self._px_to_mm(pt)
+
+        # Snap ring for hover feedback
+        board, layer = self._active_board, self._active_layer
+        snap_id: int | None = None
+        sx, sy = x_mm, y_mm
+        if board and layer:
+            board_id  = self._db.get_or_create_board(board)
+            layer_row = self._db.get_layer(board_id, layer)
+            if layer_row:
+                sx, sy, snap_id = self._snap_to_via_or_pad(x_mm, y_mm, layer_row["id"])
+
+        if self._trace_snap_ring is not None:
+            try:
+                sc.removeItem(self._trace_snap_ring)
+            except Exception:
+                pass
+            self._trace_snap_ring = None
+
+        if snap_id is not None:
+            r_px = 10
+            cx, cy_s = sx * px_per_mm, sy * px_per_mm
+            ring = _GEI(cx - r_px, cy_s - r_px, r_px * 2, r_px * 2)
+            ring.setPen(QPen(THEME.trace_snap_ring_color, 2))
+            ring.setBrush(_QBrush(QColor(0, 0, 0, 0)))
+            ring.setZValue(99)
+            sc.addItem(ring)
+            self._trace_snap_ring = ring
+            end_x, end_y = sx * px_per_mm, sy * px_per_mm
+        else:
+            end_x, end_y = pt.x(), pt.y()
+
+        # Remove old live-segment line (last item in preview_items if it's the dashed one)
+        if (self._trace_preview_items
+                and getattr(self._trace_preview_items[-1], "_is_live", False)):
+            old = self._trace_preview_items.pop()
+            try:
+                sc.removeItem(old)
+            except Exception:
+                pass
+
+        if not self._trace_points:
+            return
+
+        lx, ly = self._trace_points[-1]
+        line = _GLI(lx * px_per_mm, ly * px_per_mm, end_x, end_y)
+        pen  = QPen(THEME.trace_preview_color, 1)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        line.setPen(pen)
+        line.setZValue(98)
+        line._is_live = True   # type: ignore[attr-defined]
+        sc.addItem(line)
+        self._trace_preview_items.append(line)
+
+    def _clear_trace_preview(self) -> None:
+        """Remove all transient trace preview graphics items."""
+        sc = self._viewer.scene()
+        for item in self._trace_preview_items:
+            if sc is not None:
+                try:
+                    sc.removeItem(item)
+                except Exception:
+                    pass
+        self._trace_preview_items = []
+        for attr in ("_trace_anchor_dot", "_trace_snap_ring"):
+            item = getattr(self, attr, None)
+            if item is not None and sc is not None:
+                try:
+                    sc.removeItem(item)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+    # ── Photo enhancement ──────────────────────────────────────────────────
+
+    def _on_photo_enhancement(self, params: dict) -> None:
+        """Apply live enhancement to the active layer scene photo."""
+        key = (self._active_board, self._active_layer)
+        ls = self._layer_scenes.get(key)
+        if ls is None:
+            return
+        ls.apply_photo_enhancement(
+            brightness=params.get("brightness", 0),
+            contrast=params.get("contrast", 1.0),
+            gamma=params.get("gamma", 1.0),
+            sharpen=params.get("sharpen", False),
+            invert=params.get("invert", False),
+        )
+
+    # ── Pin placement ─────────────────────────────────────────────────────
+
+    def _enter_add_pin_mode(self, component_object_id: int) -> None:
+        """Enter ADD_PIN mode for the given component object."""
+        if component_object_id == -1:
+            # -1 is the "just reload" sentinel from _delete_selected_pin
+            self._reload_active_layer()
+            return
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            return
+        self._pin_target_object_id = component_object_id
+        self._pending_pin_items = []
+        self._set_canvas_mode(CanvasMode.ADD_PIN)
+
+    def _add_pending_pin(self, pt: QPointF) -> None:
+        """Add a temporary pin preview dot at scene position *pt*."""
+        from PyQt6.QtGui import QBrush as _Brush
+        from PyQt6.QtWidgets import QGraphicsEllipseItem as _Ellipse
+        r = 4.0
+        pc = THEME.pin_color
+        dot = _Ellipse(pt.x() - r, pt.y() - r, r * 2, r * 2)
+        dot.setPen(QPen(pc, 1))
+        dot.setBrush(_Brush(QColor(pc.red(), pc.green(), pc.blue(), 180)))
+        dot.setZValue(10)
+        self._viewer.scene().addItem(dot)
+        self._pending_pin_items.append((dot, pt))
+        # Update status bar counter
+        self._set_canvas_mode(CanvasMode.ADD_PIN)
+
+    def _confirm_pin_placement(self) -> None:
+        """Save all pending pin dots to the DB and exit ADD_PIN mode."""
+        board, layer = self._require_board_and_layer()
+        if not board or not layer:
+            self._cancel_pin_placement()
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        if not self._pending_pin_items or self._pin_target_object_id is None:
+            self._cancel_pin_placement()
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            self._cancel_pin_placement()
+            self._set_canvas_mode(CanvasMode.NORMAL)
+            return
+
+        cal       = json.loads(layer_row["calibration"] or "{}")
+        px_per_mm = cal.get("px_per_mm", 20.0)
+        layer_id  = layer_row["id"]
+
+        saved = 0
+        for _dot, pt in self._pending_pin_items:
+            x_mm = pt.x() / px_per_mm
+            y_mm = pt.y() / px_per_mm
+            self._db.add_pin(layer_id, self._pin_target_object_id, x_mm, y_mm)
+            saved += 1
+
+        self._log.append(f"  Saved {saved} pin(s) for object {self._pin_target_object_id}")
+        self._cancel_pin_placement()   # remove temp dots
+        self._canvas_mode = CanvasMode.NORMAL   # avoid re-triggering cancel in _set_canvas_mode
         self._set_canvas_mode(CanvasMode.NORMAL)
+        self._reload_active_layer()
+
+    def _cancel_pin_placement(self) -> None:
+        """Remove all temporary pin preview items from the scene."""
+        for dot, _pt in self._pending_pin_items:
+            self._viewer.scene().removeItem(dot)
+        self._pending_pin_items = []
+        self._pin_target_object_id = None
 
     def _on_selection_changed(self):
         items = self._viewer.scene().selectedItems()
@@ -774,6 +1286,14 @@ class MainWindow(QMainWindow):
         # Highlight the selected object on the canvas
         if ls:
             ls.highlight_object(obj_id)
+
+        # Check if this is a pin object — show pin panel + parent component
+        obj_row = self._db.conn().execute(
+            "SELECT type FROM objects WHERE id=?", (obj_id,)
+        ).fetchone()
+        if obj_row and obj_row["type"] == "pin":
+            self._inspector.show_pin(obj_id)
+            return
 
         # Find the component linked to this object
         row = self._db.conn().execute(
@@ -804,7 +1324,7 @@ class MainWindow(QMainWindow):
         if not board:
             return
 
-        board_dir = COMPONENTS_DIR / board
+        board_dir = self._db.get_board_abs_dir(board)
         images = find_all_images(board_dir)
         if not images:
             QMessageBox.warning(self, "No images",
@@ -1099,7 +1619,7 @@ class MainWindow(QMainWindow):
                 pass
             self._edge_preview_item = None
 
-        pen = QPen(QColor(0, 255, 220))   # cyan
+        pen = QPen(THEME.footprint_xhair_color)
         pen.setStyle(Qt.PenStyle.DashLine)
         pen.setWidth(3)
         pen.setCosmetic(True)
@@ -1249,7 +1769,7 @@ class MainWindow(QMainWindow):
             part_number = props.get("part_number") or props.get("ref", "") or "?"
 
         # Default folder: the board's own datasheets/ directory
-        default_folder = COMPONENTS_DIR / board / "datasheets"
+        default_folder = self._db.get_board_abs_dir(board) / "datasheets"
         if not default_folder.is_dir():
             default_folder = REPO_ROOT
 
@@ -1279,7 +1799,7 @@ class MainWindow(QMainWindow):
     def _find_datasheet(self, object_id: int, part_number: str, mode: str) -> None:
         """Open the DatasheetFindDialog for *object_id* in the given *mode*."""
         board = self._active_board or ""
-        board_dir = COMPONENTS_DIR / board / "datasheets"
+        board_dir = self._db.get_board_abs_dir(board) / "datasheets"
 
         dlg = DatasheetFindDialog(
             part_number,
@@ -1634,7 +2154,7 @@ class MainWindow(QMainWindow):
         self._log.append(f"Generating KiCad PCB for {board} …")
         self._log.set_busy(True)
 
-        output = COMPONENTS_DIR / board / f"{board}.kicad_pcb"
+        output = self._db.get_board_abs_dir(board) / f"{board}.kicad_pcb"
         cmd = [
             sys.executable, "-m", "toolkit.analysis.kicad",
             "--board", board,
@@ -1730,7 +2250,7 @@ class MainWindow(QMainWindow):
     def _open_board_dir(self):
         if not self._active_board:
             return
-        path = COMPONENTS_DIR / self._active_board
+        path = self._db.get_board_abs_dir(self._active_board)
         subprocess.Popen(["xdg-open", str(path)])
 
     def _pick_active_layer_image(self):
@@ -1743,7 +2263,7 @@ class MainWindow(QMainWindow):
 
     def _pick_layer_image(self, board_name: str, layer_name: str):
         """Open the image picker for a specific board/layer."""
-        board_dir = COMPONENTS_DIR / board_name
+        board_dir = self._db.get_board_abs_dir(board_name)
         if not board_dir.is_dir():
             QMessageBox.warning(self, "Board not found",
                                 f"Directory not found:\n{board_dir}")
@@ -1794,6 +2314,29 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No layer active",
                                     "Select a board and layer first.")
 
+    def _on_layer_added(self, board: str, layer_name: str) -> None:
+        """Called after a new layer was created via the tree context menu."""
+        self._log.append(f"Layer '{layer_name}' added to '{board}'.")
+        self._status.showMessage(f"Added layer {board}/{layer_name}")
+
+    def _on_layer_deleted(self, board: str, layer_name: str) -> None:
+        """Called after a layer was deleted via the tree context menu."""
+        key = (board, layer_name)
+        if key in self._layer_scenes:
+            scene = self._layer_scenes.pop(key)
+            scene.set_all_visible(False)
+        if self._active_board == board and self._active_layer == layer_name:
+            self._active_layer = None
+            self._db.set_state("active_layer", "")
+            self._status.showMessage(f"Board: {board}")
+        self._log.append(f"Layer '{layer_name}' deleted from '{board}'.")
+
+    def _on_objects_shifted(self, board: str, layer_name: str) -> None:
+        """Reload the canvas if the shifted layer is currently displayed."""
+        if self._active_board == board and self._active_layer == layer_name:
+            self._reload_active_layer()
+        self._log.append(f"Objects shifted on '{board} / {layer_name}'.")
+
     def _edit_layer(self, board_name: str, layer_name: str):
         """Open the layer editor dialog and refresh state on save."""
         dlg = EditLayerDialog(self._db, board_name, layer_name, parent=self)
@@ -1826,7 +2369,7 @@ class MainWindow(QMainWindow):
           • components/<board>/calibration.json  (for CLI tool compatibility)
           • r1mx.db  layers table                (single source of truth)
         """
-        board_dir = COMPONENTS_DIR / board_name
+        board_dir = self._db.get_board_abs_dir(board_name)
         if not board_dir.is_dir():
             QMessageBox.warning(self, "Board not found",
                                 f"Directory not found:\n{board_dir}")
@@ -1906,6 +2449,12 @@ class MainWindow(QMainWindow):
             if key in self._layer_scenes:
                 del self._layer_scenes[key]
             self._open_layer(board_name, layer_name)
+
+    def _toggle_lcd_dock(self, checked: bool) -> None:
+        if checked:
+            self._lcd_dock.show()
+        else:
+            self._lcd_dock.hide()
 
     def _show_about(self):
         QMessageBox.about(
