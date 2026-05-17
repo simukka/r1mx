@@ -39,6 +39,10 @@
 #include "sysemu/sysemu.h"
 #include "sysemu/reset.h"
 #include "net/net.h"
+#include "qemu/main-loop.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <fcntl.h>
 
 /* ---------------------------------------------------------------------------
  * PLB address map (from PLB table at firmware offset 0xdfbbc8, re_reference §6)
@@ -82,6 +86,137 @@
  */
 #define IRQ_UARTLITE    0
 #define IRQ_ETHLITE     1
+
+/* ---------------------------------------------------------------------------
+ * FPGA fabric TCP bridge (port 17186)
+ *
+ * Every write to an FPGA peripheral (0xe0000000-0xe3ffffff) is forwarded to
+ * any connected TCP client as a 16-byte binary record:
+ *
+ *   bytes  0-3   magic "RFPG"
+ *   bytes  4-7   guest physical address (big-endian uint32)
+ *   bytes  8-11  value written (big-endian uint32)
+ *   byte   12    access size in bytes (1, 2, or 4)
+ *   bytes  13-15 reserved (zero)
+ *
+ * The StatusLCDWidget in toolkit/gui/widgets/status_lcd.py connects to this
+ * port and uses RFPG records to track FPGA register writes for display debug.
+ * When no client is connected, writes are silently discarded.
+ * --------------------------------------------------------------------------- */
+#define LCD_TCP_PORT     17186
+
+typedef struct R1mxLcdBridge {
+    int  listen_fd;   /* server socket (O_NONBLOCK), -1 if unavailable */
+    int  client_fd;   /* accepted client, -1 if disconnected           */
+} R1mxLcdBridge;
+
+static R1mxLcdBridge g_lcd_bridge = { .listen_fd = -1, .client_fd = -1 };
+
+/* Called by QEMU event loop when the listening socket has an incoming conn. */
+static void lcd_bridge_accept(void *opaque)
+{
+    R1mxLcdBridge *br = opaque;
+    int fd = accept(br->listen_fd, NULL, NULL);
+    if (fd < 0) {
+        return;
+    }
+    /* Drop existing client and replace with new one. */
+    if (br->client_fd >= 0) {
+        close(br->client_fd);
+    }
+    br->client_fd = fd;
+    /* Enable TCP_NODELAY so small packets are sent immediately. */
+    {
+        int one = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    }
+}
+
+/* Initialise the listening socket; errors are non-fatal (bridge disabled). */
+static void lcd_bridge_init(R1mxLcdBridge *br)
+{
+    struct sockaddr_in addr;
+    int fd, one = 1;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port        = htons(LCD_TCP_PORT);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
+        listen(fd, 1) < 0) {
+        close(fd);
+        return;
+    }
+
+    br->listen_fd = fd;
+    qemu_set_fd_handler(fd, lcd_bridge_accept, NULL, br);
+}
+
+/* Send a 16-byte RFPG packet for one MMIO write; drops silently on error. */
+static void lcd_bridge_send(R1mxLcdBridge *br,
+                            uint32_t addr, uint64_t val, unsigned size)
+{
+    uint8_t pkt[16];
+    if (br->client_fd < 0) {
+        return;
+    }
+    pkt[0] = 'R'; pkt[1] = 'F'; pkt[2] = 'P'; pkt[3] = 'G';
+    pkt[4]  = (addr >> 24) & 0xff;
+    pkt[5]  = (addr >> 16) & 0xff;
+    pkt[6]  = (addr >>  8) & 0xff;
+    pkt[7]  =  addr        & 0xff;
+    pkt[8]  = (val  >> 24) & 0xff;
+    pkt[9]  = (val  >> 16) & 0xff;
+    pkt[10] = (val  >>  8) & 0xff;
+    pkt[11] =  val         & 0xff;
+    pkt[12] = (uint8_t)size;
+    pkt[13] = pkt[14] = pkt[15] = 0;
+
+    if (send(br->client_fd, pkt, sizeof(pkt), MSG_NOSIGNAL) < 0) {
+        close(br->client_fd);
+        br->client_fd = -1;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * FPGA fabric catch-all MMIO region (0xe0000000 - 0xe3ffffff, 64 MB)
+ *
+ * Absorbs accesses to FPGA peripherals not yet individually modelled so that
+ * the firmware does not trigger Machine Check Exceptions on those addresses.
+ * Reads return 0; writes are forwarded to the LCD TCP bridge.
+ * Priority -2000 keeps this region BELOW all named devices mapped in the same
+ * address range (XIntc at 0xe0800000, XUartLite at 0xe0600000, etc.).
+ * --------------------------------------------------------------------------- */
+static uint64_t fpga_catchall_read(void *opaque, hwaddr offset, unsigned size)
+{
+    (void)opaque; (void)offset; (void)size;
+    return 0;
+}
+
+static void fpga_catchall_write(void *opaque, hwaddr offset,
+                                uint64_t val, unsigned size)
+{
+    R1mxLcdBridge *br = opaque;
+    lcd_bridge_send(br, (uint32_t)(0xe0000000u + offset), val, size);
+}
+
+static const MemoryRegionOps fpga_catchall_ops = {
+    .read       = fpga_catchall_read,
+    .write      = fpga_catchall_write,
+    .endianness = DEVICE_BIG_ENDIAN,
+    .valid = {
+        .min_access_size = 1,
+        .max_access_size = 4,
+    },
+};
 
 /* Machine state ----------------------------------------------------------- */
 
@@ -221,6 +356,23 @@ static void r1mx_init(MachineState *machine)
     /* NOR flash and boot ROM (we load firmware directly; no real flash model) */
     create_unimplemented_device("nor-flash",  NOR_FLASH_BASE, NOR_FLASH_SIZE);
     create_unimplemented_device("boot-rom",   BOOT_ROM_BASE,  BOOT_ROM_SIZE);
+
+    /* --- FPGA fabric catch-all (64 MB at 0xe0000000-0xe3ffffff) ----------
+     * Silently absorbs reads/writes to FPGA peripherals not individually
+     * modelled above (LCD DMA, colorimetry, CPLD GPIO, etc.) so the firmware
+     * does not trigger Machine Check Exceptions on those addresses.
+     * Priority -2000 keeps this region below all named devices mapped in the
+     * same range (XIntc, XUartLite, XEmacLite, histograms, etc.).
+     * Writes are forwarded to the LCD TCP bridge on port 17186. */
+    {
+        MemoryRegion *fpga = g_new(MemoryRegion, 1);
+        memory_region_init_io(fpga, NULL, &fpga_catchall_ops, &g_lcd_bridge,
+                              "r1mx.fpga-fabric", 64 * MiB);
+        memory_region_add_subregion_overlap(sysmem, 0xe0000000u, fpga, -2000);
+    }
+
+    /* --- LCD TCP bridge (port 17186) ------------------------------------- */
+    lcd_bridge_init(&g_lcd_bridge);
 
     (void)env; /* suppress unused-variable warning if no further env use */
 }

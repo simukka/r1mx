@@ -64,6 +64,11 @@ if [[ ! -d "$DEST" ]]; then
   # causing transient mtspr SLER encoding that would otherwise abort QEMU
   patch -p1 < "${PATCH_DIR}/0005-silence-sler-abort.patch"
 
+  # FPGA fabric catch-all MMIO region + LCD TCP bridge on port 17186
+  # Absorbs all unmodelled FPGA peripheral accesses (prevents MCE crashes)
+  # and forwards writes to StatusLCDWidget via TCP for display pipeline debug
+  patch -p1 < "${PATCH_DIR}/0006-fpga-catchall-tcp-bridge.patch"
+
   # Copy new machine file (not patchable - it is entirely new)
   cp "${PATCH_DIR}/src/hw/ppc/r1mx_virtex4.c" "${DEST}/hw/ppc/r1mx_virtex4.c"
   echo "   hw/ppc/r1mx_virtex4.c installed"

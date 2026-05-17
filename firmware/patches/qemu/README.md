@@ -7,12 +7,13 @@ These files modify **QEMU 8.2.2** to emulate the RED ONE MX hardware
 
 ```
 src/
-  hw/ppc/r1mx_virtex4.c     — new: custom r1mx-virtex4 machine (249 lines)
+  hw/ppc/r1mx_virtex4.c     — new: custom r1mx-virtex4 machine (416 lines)
 0001-r1mx-virtex4-machine.patch          — hw/ppc/meson.build: register r1mx_virtex4.c
 0002-ppc32-tlb-vaddr-truncation.patch    — upstream bug fix: ppc_cpu_tlb_fill
 0003-ppc32-crosspage-addr-truncation.patch — upstream bug fix: mmu_lookup
 0004-ppc405-fsl-instructions.patch       — PPC405 FSL (Fast Simplex Link) instruction support
 0005-silence-sler-abort.patch            — silence SLER abort caused by firmware boot countdown
+0006-fpga-catchall-tcp-bridge.patch      — FPGA fabric catch-all MMIO + LCD TCP bridge (port 17186)
 ```
 
 ## Quick start
@@ -160,4 +161,42 @@ QEMU has no LE memory region support to protect, and the firmware does not rely 
 
 Without this patch the emulator aborts immediately after usrInit returns.
 With this patch, VxWorks boots fully to the WDB task (0x37c440) and runs stably.
+
+### `0006-fpga-catchall-tcp-bridge.patch`
+
+**FPGA fabric catch-all MMIO region and LCD TCP bridge** (`hw/ppc/r1mx_virtex4.c`).
+
+#### FPGA fabric catch-all (0xe0000000-0xe3ffffff, 64 MB)
+
+The RED ONE MX FPGA fabric exposes over 200 peripheral IP cores across
+the `0xe0xxxxxx`-`0xe2xxxxxx` PLB address range (confirmed from `sysPhysMemDesc`
+table at firmware offset `0xdfbbd0`). Previously, only the handful of cores
+individually modelled (XIntc, XUartLite, XEmacLite, histogram cores, etc.) had
+MMIO regions; any firmware access to an unmodelled address triggered a Machine
+Check Exception (MCE) that crashed or stalled the boot sequence.
+
+A 64 MB `MemoryRegion` backed by `fpga_catchall_ops` is added at `0xe0000000`
+with priority `-2000`. Named devices mapped at higher priority in the same range
+continue to receive their accesses normally; all other reads return `0` and all
+other writes are handled silently (and forwarded to the TCP bridge below).
+
+#### LCD TCP bridge (port 17186)
+
+QEMU opens a non-blocking TCP server on `localhost:17186` (adjacent to the WDB
+agent on UDP `17185`). When the `StatusLCDWidget` in `toolkit/gui/widgets/status_lcd.py`
+connects, every FPGA write received by the catch-all region is forwarded as a
+16-byte **RFPG** packet:
+
+```
+bytes  0-3   magic "RFPG"
+bytes  4-7   guest physical address (big-endian uint32)
+bytes  8-11  value written (big-endian uint32)
+byte   12    access size in bytes (1, 2, or 4)
+bytes  13-15 reserved (zero)
+```
+
+This allows the toolkit to observe FPGA register writes in real time and identify
+which addresses the LCD DMA controller uses once the firmware's display pipeline
+runs (after the root task descriptor bug at `0x020390d0` is resolved). If no client
+is connected, writes are silently discarded; a socket bind failure is also non-fatal.
 

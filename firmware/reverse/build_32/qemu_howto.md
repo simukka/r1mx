@@ -51,7 +51,7 @@ cd ~/src/RED/r1mx
 
 This script:
 1. Downloads QEMU 8.2.2 (SHA-256 verified) to `~/src/qemu-r1mx/`
-2. Applies 5 patches from `firmware/patches/qemu/`
+2. Applies 6 patches from `firmware/patches/qemu/`
 3. Configures and builds `ppc-softmmu` only
 
 Output binary: `~/src/qemu-r1mx/build/qemu-system-ppc`
@@ -81,6 +81,7 @@ cd ~/src/qemu-r1mx/build && ninja qemu-system-ppc
 | `0003` | `accel/tcg/cputlb.c` | Fix PPC32 cross-page address overflow (upstream bug) |
 | `0004` | `target/ppc/translate.c` | Add PPC405 FSL instruction support (FPGA comms) |
 | `0005` | `target/ppc/helper_regs.c` | Silence SLER abort from firmware boot countdown |
+| `0006` | `hw/ppc/r1mx_virtex4.c` | FPGA catch-all MMIO (prevent MCE crashes) + LCD TCP bridge (port 17186) |
 
 See `firmware/patches/qemu/README.md` for full descriptions.
 
