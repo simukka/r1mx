@@ -11,9 +11,9 @@ This page documents all known production and pre-production builds.
 
 <div class="callout callout--info">
   Firmware files for production builds are preserved in the
-  <a href="https://github.com/simook/r1mx/tree/main/firmware/builds">r1mx firmware archive</a>.
+  <a href="https://github.com/simukka/r1mx/tree/main/firmware/builds">r1mx firmware archive</a>.
   The decryption key and extraction method are documented in
-  <a href="https://github.com/simook/r1mx/blob/main/firmware/README.md">firmware/README.md</a>.
+  <a href="https://github.com/simukka/r1mx/blob/main/firmware/README.md">firmware/README.md</a>.
 </div>
 
 ---

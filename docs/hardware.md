@@ -7,7 +7,7 @@ permalink: /hardware/
 
 The RED ONE MX houses four primary PCB boards, one sensor board, and several supporting boards,
 all precision-machined into an aluminum alloy body. This page summarizes the known hardware
-architecture based on the ongoing [r1mx reverse engineering project](https://github.com/simook/r1mx).
+architecture based on the ongoing [r1mx reverse engineering project](https://github.com/simukka/r1mx).
 
 <figure class="figure">
   <img src="{{ '/assets/images/red-one-overview.png' | relative_url }}"
@@ -19,7 +19,7 @@ architecture based on the ongoing [r1mx reverse engineering project](https://git
 <div class="callout callout--warn">
   <strong>Work in progress:</strong> The r1mx project is actively reverse engineering each board.
   Information here reflects current findings and will be updated as research progresses.
-  See the <a href="https://github.com/simook/r1mx">GitHub repository</a> for the latest schematics,
+  See the <a href="https://github.com/simukka/r1mx">GitHub repository</a> for the latest schematics,
   component lists, and board images.
 </div>
 
@@ -194,7 +194,7 @@ The r1mx project has fully documented the SSD interface.
 
 Full research including datasheets, interface mapping, firmware analysis, and replacement
 options is documented in
-[ssd_drive/README.md](https://github.com/simook/r1mx/blob/main/ssd_drive/README.md).
+[ssd_drive/README.md](https://github.com/simukka/r1mx/blob/main/ssd_drive/README.md).
 
 ---
 
@@ -212,5 +212,5 @@ broadcast and cinema equipment makers during this era.
 The r1mx project is actively building out schematics, component lists, and repair guides.
 If you have a RED ONE MX and want to contribute measurements, photos, or findings:
 
-- Open an issue or pull request on [GitHub](https://github.com/simook/r1mx)
+- Open an issue or pull request on [GitHub](https://github.com/simukka/r1mx)
 - All board images, component measurements, and reverse engineering artifacts are welcome

@@ -16,7 +16,7 @@ and industry press, with notes where camera role is confirmed.
 <div class="callout callout--info">
   <strong>Shot something on a RED ONE MX?</strong> Feature films, documentaries, shorts,
   music videos, commercials, YouTube productions - all welcome.
-  <a href="https://github.com/simook/r1mx/issues/new?template=made-on-r1.md&title=Made+on+R1:+[Your+Title]" target="_blank" rel="noopener">
+  <a href="https://github.com/simukka/r1mx/issues/new?template=made-on-r1.md&title=Made+on+R1:+[Your+Title]" target="_blank" rel="noopener">
     Open a GitHub issue
   </a>
   to add your work to this list. Include the title, year, your role, and any notes about
@@ -425,7 +425,7 @@ and industry press, with notes where camera role is confirmed.
   <strong>This section needs you.</strong> Short films, music videos, commercial and corporate
   productions shot on RED ONE MX cameras exist in the thousands but go undocumented. If you
   shot something on a RED ONE MX, add it here.
-  <a href="https://github.com/simook/r1mx/issues/new?template=made-on-r1.md&title=Made+on+R1:+[Your+Title]" target="_blank" rel="noopener">
+  <a href="https://github.com/simukka/r1mx/issues/new?template=made-on-r1.md&title=Made+on+R1:+[Your+Title]" target="_blank" rel="noopener">
     Open a GitHub issue
   </a>
   with your title, year, a short description, and your role. Music videos, commercial reels,
@@ -459,4 +459,4 @@ information:
 
 *Thumbnail images link to official trailers on YouTube. Data on this page is based on public
 sources. If any entry is inaccurate, please
-[open a correction issue](https://github.com/simook/r1mx/issues/new) on GitHub.*
+[open a correction issue](https://github.com/simukka/r1mx/issues/new) on GitHub.*

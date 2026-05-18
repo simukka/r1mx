@@ -36,7 +36,7 @@ project has incorporated these findings and is developing updated files.
 <div class="callout callout--warn">
   This is a complex build requiring soldering, 3D printing, and careful mechanical fitting.
   The r1mx project is actively refining the design files. Before committing to a full build,
-  check the <a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">r1mx repository</a>
+  check the <a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">r1mx repository</a>
   for the latest design revision.
 </div>
 
@@ -172,7 +172,7 @@ See the [Firmware Reference]({{ '/firmware' | relative_url }}) page for details.
   <div class="guide-step-num">1</div>
   <div class="guide-step-body">
     <strong>Download the current design files from the r1mx repository.</strong>
-    <p>Visit <a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">github.com/simook/r1mx</a>
+    <p>Visit <a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">github.com/simukka/r1mx</a>
     and download the REDMAG module design files from the <code>ssd_drive/</code> directory.
     Review the README for the current revision status before ordering parts or starting a print.</p>
   </div>
@@ -267,4 +267,4 @@ See the [Contributing Guide]({{ '/guides/contributing' | relative_url }}) for ho
 
 - [Firmware Reference]({{ '/firmware' | relative_url }}) - SSD compatibility and firmware 32.1 development
 - [Components Reference]({{ '/components' | relative_url }}) - original REDMAG specifications
-- [r1mx Repository](https://github.com/simook/r1mx) - design files, Gerbers, BOM
+- [r1mx Repository](https://github.com/simukka/r1mx) - design files, Gerbers, BOM

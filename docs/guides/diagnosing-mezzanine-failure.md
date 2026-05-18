@@ -153,7 +153,7 @@ If you see that pattern, the mezzanine connector traces are the most likely caus
     This documentation is valuable for:</p>
     <ul>
       <li>Planning the trace repair</li>
-      <li>Contributing findings to the <a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">r1mx project</a></li>
+      <li>Contributing findings to the <a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">r1mx project</a></li>
       <li>Getting help from the community (post photos to <a href="https://reduser.net/forums/red-one.22/" target="_blank" rel="noopener">REDuser.net RED ONE forum</a>)</li>
     </ul>
   </div>

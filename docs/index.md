@@ -105,7 +105,7 @@ base that RED never published.
   </p>
   <div class="btn-row" style="justify-content:flex-start; margin-bottom:0.5rem;">
     <a class="btn btn--red" href="{{ '/roadmap' | relative_url }}">See the Roadmap</a>
-    <a class="btn btn--outline" href="https://github.com/sponsors/simook" target="_blank" rel="noopener">Sponsor the Project</a>
+    <a class="btn btn--outline" href="https://github.com/sponsors/simukka" target="_blank" rel="noopener">Sponsor the Project</a>
   </div>
 </div>
 

@@ -35,12 +35,12 @@ documentation on this site.
 
 | Resource | Link |
 |---|---|
-| GitHub Repository | [github.com/simook/r1mx](https://github.com/simook/r1mx) |
-| README (project overview) | [README.md](https://github.com/simook/r1mx/blob/main/README.md) |
-| SSD Drive Research | [ssd_drive/README.md](https://github.com/simook/r1mx/blob/main/ssd_drive/README.md) |
-| Firmware Archive | [firmware/](https://github.com/simook/r1mx/tree/main/firmware) |
-| Board Component Images | [components/](https://github.com/simook/r1mx/tree/main/components) |
-| Open Issues | [github.com/simook/r1mx/issues](https://github.com/simook/r1mx/issues) |
+| GitHub Repository | [github.com/simukka/r1mx](https://github.com/simukka/r1mx) |
+| README (project overview) | [README.md](https://github.com/simukka/r1mx/blob/main/README.md) |
+| SSD Drive Research | [ssd_drive/README.md](https://github.com/simukka/r1mx/blob/main/ssd_drive/README.md) |
+| Firmware Archive | [firmware/](https://github.com/simukka/r1mx/tree/main/firmware) |
+| Board Component Images | [components/](https://github.com/simukka/r1mx/tree/main/components) |
+| Open Issues | [github.com/simukka/r1mx/issues](https://github.com/simukka/r1mx/issues) |
 
 ---
 
@@ -52,7 +52,7 @@ documentation on this site.
 | [Xilinx Virtex-4 Overview](https://www.xilinx.com/) | FPGA used for sensor data pipeline and REDCODE encoding |
 | [VxWorks (Wind River)](https://www.windriver.com/products/vxworks) | RTOS running on the RED ONE MX |
 | [Silicon Image SiI3512](https://www.siliconmotion.com/) | 2-port SATA PCI host controller datasheet |
-| [Toshiba HG3 SSD (THNSNC256GBSJ)](https://github.com/simook/r1mx/tree/main/ssd_drive/datasheets) | Identified REDMAG drive datasheet (in repository) |
+| [Toshiba HG3 SSD (THNSNC256GBSJ)](https://github.com/simukka/r1mx/tree/main/ssd_drive/datasheets) | Identified REDMAG drive datasheet (in repository) |
 
 ---
 
@@ -64,7 +64,7 @@ These papers informed the reverse engineering methodology used in the r1mx proje
 |---|---|
 | [PCB Reverse Engineering (ISTFA 2015)](https://dforte.ece.ufl.edu/wp-content/uploads/sites/65/2020/08/ISTFA_2015_PCB-RE-final.pdf) | University of Florida ECE |
 | [PCB Deconstruction Techniques](http://www.grandideastudio.com/wp-content/uploads/pcb_deconstruction_techniques_slides.pdf) | Grand Idea Studio |
-| [SMD Databook 2007](https://github.com/simook/r1mx/tree/main/references) | SMD component reference (in repository) |
+| [SMD Databook 2007](https://github.com/simukka/r1mx/tree/main/references) | SMD component reference (in repository) |
 
 ---
 

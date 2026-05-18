@@ -32,7 +32,7 @@ and lenses) is an optional add-on. This page catalogs all known accessories from
 Images recovered from the Wayback Machine (web.archive.org) circa 2010-2011.
 Most RED product images from this era were not crawled by the archiver; only the camera body and RED ROCKET images survived.
 Click any thumbnail to view the full image.
-If you have original RED ONE era product photos, [open an issue](https://github.com/simook/r1mx/issues) to contribute them.
+If you have original RED ONE era product photos, [open an issue](https://github.com/simukka/r1mx/issues) to contribute them.
 
 <p class="photo-archive-note">* = image source confirmed from Wayback Machine archive. Click to view full size.</p>
 
@@ -221,7 +221,7 @@ on the camera body.
 > **Repair note:** The camera validates the drive model string at boot against a hardcoded
 > approved list. Replacement drives must match an approved model string or the firmware
 > must be patched. See the [Hardware Reference](/hardware) and the
-> [r1mx SSD research](https://github.com/simook/r1mx/blob/main/ssd_drive/README.md) for details.
+> [r1mx SSD research](https://github.com/simukka/r1mx/blob/main/ssd_drive/README.md) for details.
 
 ---
 

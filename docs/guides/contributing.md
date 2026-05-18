@@ -166,7 +166,7 @@ Link to related guides or pages on this site:
 
 ## Submitting
 
-1. Fork [github.com/simook/r1mx](https://github.com/simook/r1mx)
+1. Fork [github.com/simukka/r1mx](https://github.com/simukka/r1mx)
 2. Add your guide file to `docs/guides/`
 3. Add a link to your guide in `docs/guides.md` (copy an existing `guide-list-item` block and change `planned` to `available`)
 4. Open a pull request with a brief description of what you documented

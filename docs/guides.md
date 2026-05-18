@@ -239,6 +239,6 @@ The fastest way to help this project is to write a guide for a procedure you hav
 
 - Copy the [guide template]({{ '/guides/contributing' | relative_url }})
 - Add your steps (photos can be added later - placeholder blocks are built in)
-- Open a pull request at [github.com/simook/r1mx](https://github.com/simook/r1mx)
+- Open a pull request at [github.com/simukka/r1mx](https://github.com/simukka/r1mx)
 
 No coding knowledge required. If you can write a numbered list, you can write a guide.
