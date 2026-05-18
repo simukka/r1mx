@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Repair Guides | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Repair Guides | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Repair Guides" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Repair Guides" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Repair Guides","url":"http://0.0.0.0:4000/r1mx/guides/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content">
+  
+  <header class="page-header">
+    <h1 class="page-title">Repair Guides</h1>
+    <p class="page-subtitle">Step-by-step guides for maintaining, diagnosing, and repairing the RED ONE MX</p>
+  </header>
+  
+  <div class="page-body">
+    <p>Community repair guides for the RED ONE MX, inspired by iFixit. Guides range from “tighten
+a loose screw” to “repair a broken trace under a microscope.” Every guide has a difficulty
+rating, time estimate, and tools list.</p>
+
+<p>Guides marked <strong>Available</strong> are complete. <strong>Planned</strong> guides are on the roadmap - write one
+by following the <a href="/r1mx/guides/contributing">Contributing Guide</a>.
+Anyone can write a guide (including AI agents), but a human will need to take the photos.</p>
+
+<div class="callout callout--warn">
+  <strong>Safety:</strong> The RED ONE MX contains capacitors that can hold charge after
+  power-off. Always power down fully and wait at least 60 seconds before opening the body.
+  Use ESD precautions when handling any PCB.
+</div>
+
+<hr />
+
+<div class="guide-community-q">
+  <h3>Common questions from REDuser.net - each maps to a guide below</h3>
+  <ul>
+    <li>"Camera powers on but the menu monitor stays white" - lens data cable pinched</li>
+    <li>"No HD-SDI, HDMI, audio, and CF/SSD all failed at the same time" - mezzanine connector</li>
+    <li>"SSD shows as INCOMPATIBLE" - firmware drive allowlist</li>
+    <li>"Fan is rattling or very loud" - fan bearing failure or debris</li>
+    <li>"Camera won't boot after a battery swap" - power board connector / voltage sag</li>
+    <li>"Colors look wrong after a firmware update" - black shading calibration not run</li>
+    <li>"Camera freezes when plugging in an accessory while powered" - known boot sensitivity; power down first</li>
+    <li>"Finding a tech who still services RED ONE" - see Resources page</li>
+  </ul>
+</div>
+
+<hr />
+
+<h2 id="maintenance">Maintenance</h2>
+
+<p>Simple tasks that require no disassembly. Do these on a regular schedule to prevent failures.</p>
+
+<ul class="guide-list">
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Tightening body screws and Torx hardware</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Cleaning the PL mount interface</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Inspecting and cleaning V-mount battery contacts</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Inspecting and cleaning the iVDR / REDMAG connector</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Cleaning the CF card reader contacts</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Cleaning the cooling fan (external access)</span>
+    <span class="guide-list-time">15 min - Planned</span>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="/r1mx/guides/fan-bearing-oiling" style="display:contents; text-decoration:none;">
+      <span class="guide-pill medium">Medium</span>
+      <span class="guide-list-title" style="color:var(--text);">Fan bearing oiling (fix rattling fan without full replacement)</span>
+      <span class="guide-list-time">30-60 min - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+</ul>
+
+<hr />
+
+<h2 id="media-and-storage">Media and Storage</h2>
+
+<ul class="guide-list">
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Formatting a CF card in-camera</span>
+    <span class="guide-list-time">5 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Creating a firmware upgrade CF card</span>
+    <span class="guide-list-time">10 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Installing and swapping a REDMAG SSD module</span>
+    <span class="guide-list-time">5 min - Planned</span>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="/r1mx/guides/redmag-ssd-module" style="display:contents; text-decoration:none;">
+      <span class="guide-pill hard">Hard</span>
+      <span class="guide-list-title" style="color:var(--text);">Building a community REDMAG SSD replacement module</span>
+      <span class="guide-list-time">2-4 hrs - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">Diagnosing "media not recognized" and INCOMPATIBLE errors</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+</ul>
+
+<hr />
+
+<h2 id="firmware-and-calibration">Firmware and Calibration</h2>
+
+<ul class="guide-list">
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Upgrading firmware: full step-by-step procedure</span>
+    <span class="guide-list-time">30 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Downgrading firmware safely</span>
+    <span class="guide-list-time">30 min - Planned</span>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="/r1mx/guides/black-shading-calibration" style="display:contents; text-decoration:none;">
+      <span class="guide-pill easy">Easy</span>
+      <span class="guide-list-title" style="color:var(--text);">Black shading calibration (required after every firmware change)</span>
+      <span class="guide-list-time">15 min - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Reading and recording build number and sensor info</span>
+    <span class="guide-list-time">5 min - Planned</span>
+  </li>
+</ul>
+
+<hr />
+
+<h2 id="diagnosis">Diagnosis</h2>
+
+<p>Use these guides to identify the root cause before attempting a repair.</p>
+
+<ul class="guide-list">
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">No-boot diagnosis flowchart</span>
+    <span class="guide-list-time">30 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">White menu screen on boot: lens data cable inspection</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="/r1mx/guides/diagnosing-mezzanine-failure" style="display:contents; text-decoration:none;">
+      <span class="guide-pill medium">Medium</span>
+      <span class="guide-list-title" style="color:var(--text);">Diagnosing simultaneous multi-output failure (mezzanine connector)</span>
+      <span class="guide-list-time">20-30 min - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">SSD not recognized: diagnosis and fix options</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">Diagnosing overheating and fan failure</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">Camera freezes or hangs during operation</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">No power after REDMAG swap: connector and power delivery check</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+</ul>
+
+<hr />
+
+<h2 id="repairs">Repairs</h2>
+
+<p>These guides require partial or full disassembly. Read the relevant diagnosis guide first.</p>
+
+<ul class="guide-list">
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">Replacing the cooling fan</span>
+    <span class="guide-list-time">45 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill medium">Medium</span>
+    <span class="guide-list-title">Swapping the PL lens mount</span>
+    <span class="guide-list-time">30 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill easy">Easy</span>
+    <span class="guide-list-title">Replacing the V-mount battery plate</span>
+    <span class="guide-list-time">20 min - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill hard">Hard</span>
+    <span class="guide-list-title">Repairing broken traces near the mezzanine connector</span>
+    <span class="guide-list-time">2-4 hrs - Planned</span>
+  </li>
+  <li class="guide-list-item planned">
+    <span class="guide-pill hard">Hard</span>
+    <span class="guide-list-title">Cleaning or replacing the iVDR connector</span>
+    <span class="guide-list-time">1-2 hrs - Planned</span>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="/r1mx/guides/nvram-battery-replacement" style="display:contents; text-decoration:none;">
+      <span class="guide-pill medium">Medium</span>
+      <span class="guide-list-title" style="color:var(--text);">Replacing the NVRAM backup battery (ML2020)</span>
+      <span class="guide-list-time">45-90 min - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+</ul>
+
+<hr />
+
+<h2 id="contribute-a-guide">Contribute a Guide</h2>
+
+<p>The fastest way to help this project is to write a guide for a procedure you have already done.</p>
+
+<ul>
+  <li>Copy the <a href="/r1mx/guides/contributing">guide template</a></li>
+  <li>Add your steps (photos can be added later - placeholder blocks are built in)</li>
+  <li>Open a pull request at <a href="https://github.com/simook/r1mx">github.com/simook/r1mx</a></li>
+</ul>
+
+<p>No coding knowledge required. If you can write a numbered list, you can write a guide.</p>
+
+  </div>
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

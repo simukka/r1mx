@@ -1,0 +1,10 @@
+[*] Debug mode — halting at PC=0x0, GDB stub on :1234
+[*] In a second terminal, run:
+      r2 -a ppc -b 32 -e cfg.bigendian=true \
+         -D gdb gdb://localhost:1234 \
+         -i scripts/r2_debug.r2
+
+[*] RED ONE MX QEMU Boot — Build 32 v32.0.3 [PATCHED]
+[*] Firmware: /home/simukka/src/RED/r1mx/firmware/reverse/build_32/extracted/software.patched.bin
+[*] Launching: qemu-system-ppc -machine bamboo -m 256M -nographic -device loader,file=/home/simukka/src/RED/r1mx/firmware/reverse/build_32/extracted/software.patched.bin,addr=0x0,force-raw=on -device loader,cpu-num=0,data=0x0,data-len=4,data-be=on -S -gdb tcp::1234
+

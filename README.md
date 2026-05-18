@@ -117,6 +117,27 @@ Connects to the CPU_SENSOR (name?) board via a 240 position high-speed mezzanine
 #### Bottom
 ![bottom](audio_pci_board/bottom.JPG)
 
+## SSD Drive (REDMAG 256GB)
+
+The RED ONE MX records to a **REDMAG 256GB SSD** — a custom housing containing a
+standard 2.5-inch SATA SSD connected via a 26-pin iVDR connector.
+
+**Identified drive:** Toshiba HG3 Series `THNSNC256GBSJ`
+- Interface: SATA II (3 Gbit/s), 5V only
+- NAND: Toshiba 32nm MLC (TH58TEG series, Toggle Mode)
+- Controller: Toshiba TC58 "Type C" (proprietary)
+- Sequential read/write: 220 / 180 MB/s
+
+**Camera interface:** Silicon Image SiI3512 (2-port SATA PCI controller on AUDIO_PCI board)
+→ iVDR 26-pin connector (Amphenol 10033998-002LF) → SSD board → standard SATA drive
+
+**Firmware validation:** The camera reads the drive's ATA model string at boot and checks
+it against a hardcoded approved-drive list. Replacement drives must either match an approved
+model string or the firmware must be patched.
+
+See [`ssd_drive/README.md`](ssd_drive/README.md) for the full research summary including
+datasheets, interface mapping, firmware analysis, and replacement options.
+
 ## UI Board
 Provides the physical control interface for camera operators.
 
@@ -188,6 +209,99 @@ and AUDIO_PCI board has broken traces on the CPU_IO board.
 2. https://www.linkedin.com/in/thao-ho-b3984330
 3. https://www.xilinx.com/member/forms/download/xef.html?filename=EDK91.zip
 4. https://www.xilinx.com/member/10x_and_prior_regids.html
+
+# Tooling
+
+## BOM Extraction
+
+Extracts component text from PCB photographs using EasyOCR:
+
+```bash
+source .venv/bin/activate
+python -m toolkit.analysis.scan          # all boards
+python -m toolkit.analysis.scan --board cpu_io_board  # single board
+```
+
+Output: `bom_master.csv` (727 entries with pixel positions across all boards)
+
+## Datasheet RAG + MCP Server
+
+A local AI pipeline that lets agents query component datasheets using natural language.
+
+**Architecture:**
+- **Embeddings:** `fastembed` with `BAAI/bge-small-en-v1.5` (runs in-process, ~0.25s/32 chunks CPU)
+- **Vector DB:** ChromaDB (Docker, port 8000)
+- **LLM:** `mistral:7b` via ollama (Docker, port 11434)
+- **Interface:** MCP stdio server
+
+**Quick start:**
+
+```bash
+# 1. Start services
+docker compose up -d
+
+# 2. Pull LLM models (first run only)
+docker compose run --rm --profile init init-models
+
+# 3. Index all datasheets (57 PDFs, ~1929 chunks, takes ~5 min)
+source .venv/bin/activate
+python -m toolkit.datasheets.index
+
+# 4. Fetch missing datasheets (searches alldatasheet.com, DDG, Wayback Machine)
+python -m toolkit.datasheets.fetch
+
+# 5. Check index status
+python -m toolkit.datasheets.index --status
+```
+
+**MCP Tools:**
+
+| Tool | Description |
+|---|---|
+| `search_datasheets(query, top_k=5)` | Semantic search across all indexed chunks |
+| `lookup_component(reference, board?)` | Look up a reference designator (e.g. "U7") in BOM + datasheets |
+| `ask_component(question)` | Full RAG Q&A via mistral:7b |
+| `list_datasheets()` | List all indexed PDFs with chunk counts |
+
+**Claude Desktop configuration** (`~/.config/claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "r1mx-datasheets": {
+      "command": "/home/simukka/src/RED/r1mx/.venv/bin/python",
+      "args": ["/home/simukka/src/RED/r1mx/toolkit/datasheets/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Example queries:**
+- *"What is the I2C address of the PCA9698?"*
+- *"What sample rates does the DAC23 support?"*
+- *"How do I configure the SiI3512 for AHCI mode?"*
+- *"What are the power supply requirements for the ISP1562?"*
+
+**Note:** 24 of 57 existing PDFs are image-only scans (no extractable text). These include
+the Xilinx Virtex-4 overview, SiI3512 datasheet, and XC2C256 CPLD datasheet — all
+important for firmware RE. Use `pdfimages` + tesseract to OCR these manually if needed.
+
+## PCB Layout Extraction (experimental)
+
+Scripts for reverse-engineering copper layer geometry from board photographs:
+
+```bash
+# Step 1: Calibrate pixel/mm scale from a known reference distance
+python -m toolkit.analysis.calibrate --board cpu_io_board
+
+# Step 2: Segment copper, detect vias/pads, vectorise traces
+python -m toolkit.analysis.layers --board cpu_io_board
+
+# Step 3: Generate KiCad .kicad_pcb file (must use system Python)
+/usr/bin/python3 -m toolkit.analysis.kicad --board cpu_io_board
+```
+
+
 
 ### About me
 I'm the proud owner of several RED ONE MX digital cinema cameras.

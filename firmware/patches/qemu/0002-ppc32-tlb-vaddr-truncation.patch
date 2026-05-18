@@ -1,0 +1,37 @@
+From: r1mx <r1mx@r1mx>
+Subject: [PATCH 2/3] target/ppc: truncate vaddr to target_ulong in ppc_cpu_tlb_fill
+
+For 32-bit PPC, ppc_cpu_tlb_fill receives eaddr as vaddr (uint64_t).
+TARGET_PAGE_MASK is (int32_t)(-4096) which sign-extends to 64 bits in
+mixed-type arithmetic:
+
+    0x100000000 & 0xFFFFFFFFFFFFF000 == 0x100000000  (WRONG for PPC32)
+
+The value 0x100000000 arises when the PPC32 program counter wraps:
+0xFFFFFFFC + 4 = 0x100000000 in 64-bit arithmetic, even though the
+CPU register truncates to 0x00000000.  Without the cast, the TLB entry
+for page 0 receives xlat_section = iotlb - 0x100000000 = a large negative
+value, causing a SIGSEGV in notdirty_write when the dirty-page bitmap is
+accessed at a bogus host address.
+
+Fix: cast eaddr to target_ulong (uint32_t for PPC32) before masking so
+0x100000000 becomes 0x00000000 and the TLB entry for page 0 is correct.
+
+--- a/target/ppc/mmu_helper.c
++++ b/target/ppc/mmu_helper.c
+@@ -1381,8 +1381,15 @@ bool ppc_cpu_tlb_fill(CPUState *cs, vaddr eaddr, int size,
+     if (ppc_xlate(cpu, eaddr, access_type, &raddr,
+                   &page_size, &prot, mmu_idx, !probe)) {
+-        tlb_set_page(cs, eaddr & TARGET_PAGE_MASK, raddr & TARGET_PAGE_MASK,
+-                     prot, mmu_idx, 1UL << page_size);
++        /*
++         * For 32-bit PPC, eaddr is a vaddr (uint64_t) but must be
++         * truncated to target_ulong (uint32_t) before masking.  Without
++         * the cast, TARGET_PAGE_MASK sign-extends from int32_t to 64-bit
++         * so 0x100000000 & mask = 0x100000000 instead of 0x00000000.
++         */
++        tlb_set_page(cs, (target_ulong)eaddr & TARGET_PAGE_MASK,
++                     raddr & TARGET_PAGE_MASK,
++                     prot, mmu_idx, 1UL << page_size);
+         return true;
+     }

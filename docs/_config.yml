@@ -1,0 +1,47 @@
+title: "RED ONE MX: Repair & Maintenance Reference"
+description: "Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras."
+baseurl: "/r1mx"
+url: "https://simook.github.io"
+author: "r1mx contributors"
+repository: "simook/r1mx"
+
+# No gem-based theme; fully custom layout
+theme: null
+
+# Collections / defaults
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+
+# Navigation
+nav:
+  - title: "Overview"
+    url: "/"
+  - title: "Specifications"
+    url: "/specs"
+  - title: "Components"
+    url: "/components"
+  - title: "Hardware"
+    url: "/hardware"
+  - title: "Firmware"
+    url: "/firmware"
+  - title: "Guides"
+    url: "/guides"
+  - title: "Roadmap"
+    url: "/roadmap"
+  - title: "Made on R1"
+    url: "/made-on-r1"
+  - title: "Resources"
+    url: "/resources"
+
+# Markdown / syntax
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+plugins:
+  - jekyll-seo-tag

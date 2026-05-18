@@ -1,0 +1,40 @@
+# GUI
+PyQt6>=6.6
+
+# Core image processing
+opencv-python>=4.9
+pillow>=10.0
+numpy>=1.26
+scikit-image>=0.22     # skeletonize() and medial-axis for trace center-lines
+
+# OCR engines
+easyocr>=1.7          # Primary: best accuracy, handles arbitrary text orientations
+pytesseract>=0.3.13   # Fallback: zero-download, uses system tesseract
+
+# PCB layout extraction
+svgpathtools>=1.6     # Parse potrace SVG output → path coordinates
+svgwrite>=1.4         # Write SVG files for debugging / Inkscape review
+# potrace: installed system-wide (/usr/bin/potrace) — used via subprocess
+# pcbnew: KiCad 9 Python API — available in venv via .venv/lib/python3.13/site-packages/kicad.pth
+
+# Progress and output
+tqdm>=4.66
+matplotlib>=3.7       # Interactive calibration GUI (ginput point picker)
+
+# HTTP + HTML parsing + datasheet RAG pipeline
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+chromadb>=1.0
+mcp>=1.0
+fastembed>=0.3          # fast in-process CPU embeddings (BAAI/bge-small-en-v1.5)
+
+# PaddleOCR (alternative high-accuracy engine)
+# NOTE: PaddlePaddle 3.x has a known oneDNN/PIR bug on some CPU configs with Python 3.13.
+# Kept here for future use once upstream fixes the issue.
+# paddlepaddle>=3.0.0
+# paddleocr>=2.9.0
+
+# Optional: SAM2 for better copper layer segmentation (~180 MB model download)
+# Install with: pip install git+https://github.com/facebookresearch/sam2.git
+# Requires torch (already pulled in by easyocr)
