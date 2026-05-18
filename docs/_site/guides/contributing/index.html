@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contributing a Guide | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Contributing a Guide | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Contributing a Guide" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/contributing/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/contributing/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Contributing a Guide" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Contributing a Guide","url":"http://0.0.0.0:4000/r1mx/guides/contributing/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">META</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">Contributing a Guide</h1>
+    <p class="page-subtitle">How to write a repair guide for the RED ONE MX - template and instructions</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-easy">Easy</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">30-60 minutes</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <span class="guide-stat-value">None required</span>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>Anyone can write a guide for this project: experienced repair technicians, camera owners
+who have worked through a problem, or AI agents working from documentation. The format is
+designed so that guides can be published as <strong>text-only drafts</strong> and photos added later
+by anyone who has the camera in hand.</p>
+
+<p>Every guide in this project follows the same structure so readers know what to expect.</p>
+
+<hr />
+
+<h2 id="guide-format">Guide Format</h2>
+
+<h3 id="front-matter-required">Front Matter (required)</h3>
+
+<p>Copy this block to the top of your guide file:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nn">---</span>
+<span class="na">layout</span><span class="pi">:</span> <span class="s">guide</span>
+<span class="na">title</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Your</span><span class="nv"> </span><span class="s">Guide</span><span class="nv"> </span><span class="s">Title"</span>
+<span class="na">subtitle</span><span class="pi">:</span> <span class="s2">"</span><span class="s">One</span><span class="nv"> </span><span class="s">sentence</span><span class="nv"> </span><span class="s">describing</span><span class="nv"> </span><span class="s">what</span><span class="nv"> </span><span class="s">this</span><span class="nv"> </span><span class="s">guide</span><span class="nv"> </span><span class="s">covers</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">why</span><span class="nv"> </span><span class="s">it</span><span class="nv"> </span><span class="s">matters"</span>
+<span class="na">difficulty</span><span class="pi">:</span> <span class="s">Easy</span>          <span class="c1"># Easy | Medium | Hard</span>
+<span class="na">time</span><span class="pi">:</span> <span class="s2">"</span><span class="s">20</span><span class="nv"> </span><span class="s">minutes"</span>        <span class="c1"># realistic estimate including setup and cleanup</span>
+<span class="na">tools</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">Tool name (e.g. Torx T6 screwdriver)</span>
+  <span class="pi">-</span> <span class="s">Another tool</span>
+<span class="na">parts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">Part name and part number if known</span>
+  <span class="pi">-</span> <span class="s">Leave this list empty ([]) if no parts are needed</span>
+<span class="na">category</span><span class="pi">:</span> <span class="s">maintenance</span>     <span class="c1"># maintenance | media | firmware | diagnosis | repair</span>
+<span class="na">status</span><span class="pi">:</span> <span class="s">available</span>         <span class="c1"># available | draft</span>
+<span class="na">permalink</span><span class="pi">:</span> <span class="s">/guides/your-guide-slug/</span>
+<span class="nn">---</span>
+</code></pre></div></div>
+
+<p><strong>Difficulty guide:</strong></p>
+<ul>
+  <li><strong>Easy</strong> - No disassembly, no soldering, low risk of damage if instructions are followed</li>
+  <li><strong>Medium</strong> - Partial disassembly or requires care; mistake could damage something</li>
+  <li><strong>Hard</strong> - Full disassembly, soldering, microscope work, or high risk of further damage</li>
+</ul>
+
+<hr />
+
+<h3 id="overview-section-required">Overview Section (required)</h3>
+
+<p>Start with a short paragraph explaining:</p>
+
+<ol>
+  <li>What the guide covers</li>
+  <li>When to use it (what symptoms or situations call for this procedure)</li>
+  <li>What the outcome will be</li>
+</ol>
+
+<hr />
+
+<h3 id="safety--before-you-start-include-if-relevant">Safety / Before You Start (include if relevant)</h3>
+
+<p>Use a callout block for any safety warnings:</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"callout callout--warn"</span><span class="nt">&gt;</span>
+  Warning text here.
+<span class="nt">&lt;/div&gt;</span>
+</code></pre></div></div>
+
+<p>Use <code class="language-plaintext highlighter-rouge">callout--info</code> for informational notes, <code class="language-plaintext highlighter-rouge">callout--warn</code> for cautions.</p>
+
+<hr />
+
+<h3 id="steps-required">Steps (required)</h3>
+
+<p>Each step uses this HTML block:</p>
+
+<div class="language-html highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"guide-step"</span><span class="nt">&gt;</span>
+  <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"guide-step-num"</span><span class="nt">&gt;</span>1<span class="nt">&lt;/div&gt;</span>
+  <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"guide-step-body"</span><span class="nt">&gt;</span>
+    <span class="nt">&lt;strong&gt;</span>Short action title.<span class="nt">&lt;/strong&gt;</span>
+    <span class="nt">&lt;p&gt;</span>Detailed explanation of what to do, what to watch for, and any warnings
+    specific to this step.<span class="nt">&lt;/p&gt;</span>
+  <span class="nt">&lt;/div&gt;</span>
+<span class="nt">&lt;/div&gt;</span>
+</code></pre></div></div>
+
+<p>Increment the number for each step. Keep each step focused on a single action.</p>
+
+<hr />
+
+<h3 id="photo-placeholders-use-when-you-cannot-take-a-photo">Photo Placeholders (use when you cannot take a photo)</h3>
+
+<p>Where a photo would help, add this block:</p>
+
+<div class="language-html highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"photo-needed"</span><span class="nt">&gt;</span>
+  <span class="nt">&lt;span</span> <span class="na">class=</span><span class="s">"photo-icon"</span><span class="nt">&gt;</span>📷<span class="nt">&lt;/span&gt;</span>
+  Photo needed: describe exactly what the photo should show
+<span class="nt">&lt;/div&gt;</span>
+</code></pre></div></div>
+
+<p>Be specific. “Photo of board” is not useful. “Close-up of J7 connector on CPU_IO board,
+showing the 180-position mezzanine socket from above” is useful.</p>
+
+<hr />
+
+<h3 id="attribution-required-if-based-on-external-sources">Attribution (required if based on external sources)</h3>
+
+<p>If your guide is based on a REDuser.net thread, forum post, or another person’s work,
+add an attribution block immediately after the section it relates to:</p>
+
+<div class="language-html highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"guide-attribution"</span><span class="nt">&gt;</span>
+  <span class="nt">&lt;strong&gt;</span>Source:<span class="nt">&lt;/strong&gt;</span> Based on findings by <span class="nt">&lt;strong&gt;</span>username<span class="nt">&lt;/strong&gt;</span> at
+  <span class="nt">&lt;a</span> <span class="na">href=</span><span class="s">"https://reduser.net/threads/..."</span> <span class="na">target=</span><span class="s">"_blank"</span> <span class="na">rel=</span><span class="s">"noopener"</span><span class="nt">&gt;</span>thread title<span class="nt">&lt;/a&gt;</span>
+  (REDuser.net, YYYY). Used with thanks.
+<span class="nt">&lt;/div&gt;</span>
+</code></pre></div></div>
+
+<p>Always credit the original author. If you found information across multiple threads,
+add an attribution block per source or list them all in a “Sources” section at the end.</p>
+
+<hr />
+
+<h3 id="troubleshooting-table-optional-but-encouraged">Troubleshooting Table (optional but encouraged)</h3>
+
+<p>A table of things that can go wrong:</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code>| Problem | Likely cause | Fix |
+|---|---|---|
+| Camera does X | Reason | Action to take |
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="see-also-optional">See Also (optional)</h3>
+
+<p>Link to related guides or pages on this site:</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gu">## See Also</span>
+<span class="p">
+-</span> <span class="p">[</span><span class="nv">Related guide title</span><span class="p">](</span><span class="sx">/r1mx/guides/related-slug</span><span class="p">)</span>
+<span class="p">-</span> <span class="p">[</span><span class="nv">Hardware Reference</span><span class="p">](</span><span class="sx">/r1mx/hardware</span><span class="p">)</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="file-naming-and-location">File Naming and Location</h2>
+
+<ul>
+  <li>Place your file in <code class="language-plaintext highlighter-rouge">docs/guides/</code> directory</li>
+  <li>Use lowercase kebab-case for the filename: <code class="language-plaintext highlighter-rouge">replacing-the-cooling-fan.md</code></li>
+  <li>Set <code class="language-plaintext highlighter-rouge">permalink: /guides/your-slug/</code> in front matter to match</li>
+</ul>
+
+<hr />
+
+<h2 id="submitting">Submitting</h2>
+
+<ol>
+  <li>Fork <a href="https://github.com/simook/r1mx">github.com/simook/r1mx</a></li>
+  <li>Add your guide file to <code class="language-plaintext highlighter-rouge">docs/guides/</code></li>
+  <li>Add a link to your guide in <code class="language-plaintext highlighter-rouge">docs/guides.md</code> (copy an existing <code class="language-plaintext highlighter-rouge">guide-list-item</code> block and change <code class="language-plaintext highlighter-rouge">planned</code> to <code class="language-plaintext highlighter-rouge">available</code>)</li>
+  <li>Open a pull request with a brief description of what you documented</li>
+</ol>
+
+<hr />
+
+<h2 id="complete-example">Complete Example</h2>
+
+<p>See <a href="/r1mx/guides/black-shading-calibration">Black Shading Calibration</a>
+for a complete example of a finished guide using this format.</p>
+
+<hr />
+
+<h2 id="notes-for-ai-agents">Notes for AI Agents</h2>
+
+<p>If you are an AI agent writing a guide:</p>
+
+<ul>
+  <li>Do not invent procedures. Only document what is confirmed by the r1mx project, the
+RED ONE Operation Guide, or cited REDuser.net threads.</li>
+  <li>Add photo placeholder blocks for every step that involves a physical action.</li>
+  <li>Write attribution blocks for every source used.</li>
+  <li>Set <code class="language-plaintext highlighter-rouge">status: draft</code> in front matter. A human should review before setting <code class="language-plaintext highlighter-rouge">status: available</code>.</li>
+  <li>Do not use em dashes in any content. Use <code class="language-plaintext highlighter-rouge">:</code>, <code class="language-plaintext highlighter-rouge">;</code>, <code class="language-plaintext highlighter-rouge">,</code>, or <code class="language-plaintext highlighter-rouge">-</code> instead.</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

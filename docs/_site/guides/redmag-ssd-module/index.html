@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>REDMAG SSD Replacement Module | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>REDMAG SSD Replacement Module | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="REDMAG SSD Replacement Module" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/redmag-ssd-module/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/redmag-ssd-module/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="REDMAG SSD Replacement Module" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"REDMAG SSD Replacement Module","url":"http://0.0.0.0:4000/r1mx/guides/redmag-ssd-module/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">MEDIA</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">REDMAG SSD Replacement Module</h1>
+    <p class="page-subtitle">Community-designed replacement for the original RED iVDR SSD module, using modern SSD drives.</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-hard">Hard</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">2-4 hours (first build)</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+          <li>3D printer (FDM, 0.2mm layer height recommended)</li>
+          
+          <li>Soldering iron (fine tip)</li>
+          
+          <li>Flux (no-clean)</li>
+          
+          <li>Small flathead screwdriver</li>
+          
+          <li>Calipers (for fit verification)</li>
+          
+          <li>CA adhesive (cyanoacrylate, for assembly)</li>
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <ul class="guide-tools-list">
+          
+          <li>Custom PCB (Gerber files in r1mx repository)</li>
+          
+          <li>Amphenol 10079510 iVDR connector (replacement for EOL 10033998-002LF)</li>
+          
+          <li>M.2 NVMe SSD (compatible drive, see notes below)</li>
+          
+          <li>M.2 to mSATA or SATA adapter (per chosen PCB design)</li>
+          
+          <li>3D printed enclosure (STEP/STL files in r1mx repository)</li>
+          
+          <li>M2 or M3 hardware (screws and inserts, per BOM)</li>
+          
+        </ul>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>Original RED iVDR SSD REDMAG modules used spinning hard drives or early SSDs that are
+now end-of-life. The iVDR connector itself (Amphenol 10033998-002LF) is also discontinued.
+This guide documents a community-designed replacement module that uses a modern M.2 SSD
+inside a 3D-printed enclosure with a replacement iVDR connector.</p>
+
+<p>This design was pioneered by <strong>Troy Grundstad</strong> and documented on REDuser.net. The r1mx
+project has incorporated these findings and is developing updated files.</p>
+
+<div class="callout callout--warn">
+  This is a complex build requiring soldering, 3D printing, and careful mechanical fitting.
+  The r1mx project is actively refining the design files. Before committing to a full build,
+  check the <a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">r1mx repository</a>
+  for the latest design revision.
+</div>
+
+<div class="guide-attribution">
+  <strong>Source:</strong> Original design and images by <strong>Troy Grundstad</strong> at
+  <a href="https://reduser.net/threads/diy-redmag-ssd-replacement-module.3773957/" target="_blank" rel="noopener">DIY REDMAG SSD Replacement Module</a>
+  (REDuser.net, thread 3773957, Stavanger, Norway).
+  Design concept continued and extended by the r1mx project.
+</div>
+
+<hr />
+
+<h2 id="background-the-ivdr-standard">Background: The iVDR Standard</h2>
+
+<p>REDMAG modules use the <strong>iVDR</strong> (Information Versatile Disc for Removable usage) interface,
+which is a hot-swappable storage interface standard developed in the early 2000s for
+consumer electronics. RED ONE used iVDR as a removable storage bay.</p>
+
+<p>The original Amphenol iVDR connector (10033998-002LF) is end-of-life. The replacement
+connector is the <strong>Amphenol 10079510</strong>, which has a compatible footprint and pinout.</p>
+
+<hr />
+
+<h2 id="design-evolution">Design Evolution</h2>
+
+<p>Troy Grundstad’s original build documents the full design process from CAD model to
+finished module:</p>
+
+<div class="thumb-grid">
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-cad-model.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-cad-model.jpg" alt="CAD model of REDMAG enclosure" />
+    </a>
+    <div class="thumb-label">CAD model of the replacement enclosure</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-3dprint-rough.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-3dprint-rough.jpg" alt="First rough 3D print test fit" />
+    </a>
+    <div class="thumb-label">First rough 3D print, test fitting</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-prototype-pcb.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-prototype-pcb.jpg" alt="Prototype PCB with iVDR connector" />
+    </a>
+    <div class="thumb-label">Prototype PCB with iVDR connector soldered</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-pcb-connectors.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-pcb-connectors.jpg" alt="PCB connector detail" />
+    </a>
+    <div class="thumb-label">PCB connector detail</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-pcb-v2.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-pcb-v2.jpg" alt="Revised PCB v2 layout" />
+    </a>
+    <div class="thumb-label">Revised PCB v2</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-original-18in.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-original-18in.jpg" alt="Original REDMAG module for reference" />
+    </a>
+    <div class="thumb-label">Original REDMAG module (18-pin iVDR shown)</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-enclosure-logo.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-enclosure-logo.jpg" alt="Final enclosure with r1mx branding" />
+    </a>
+    <div class="thumb-label">Final enclosure with logo panel</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-v1-finished-1.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-v1-finished-1.jpg" alt="Finished v1 module" />
+    </a>
+    <div class="thumb-label">Finished v1 module</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-v1-finished-2.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-v1-finished-2.jpg" alt="Finished v1 module side view" />
+    </a>
+    <div class="thumb-label">V1 module, side view</div>
+  </div>
+  <div class="thumb-item">
+    <a href="/r1mx/assets/images/guides/redmag-v1-finished-3.jpg" target="_blank">
+      <img src="/r1mx/assets/images/guides/redmag-v1-finished-3.jpg" alt="Finished v1 module connector end" />
+    </a>
+    <div class="thumb-label">V1 module, connector end</div>
+  </div>
+</div>
+
+<p><em>Images: Troy Grundstad / REDuser.net thread 3773957. Used with attribution.</em></p>
+
+<hr />
+
+<h2 id="the-ssd-side-module-requirement">The SSD Side Module Requirement</h2>
+
+<p>To use a REDMAG SSD module, the camera must have the <strong>SSD Side Module</strong> installed.
+The SSD Side Module is the physical casing that provides the REDMAG bay and facilitates
+the iVDR connector interface. It replaces the CF Module or Hard Drive Module on the
+camera’s left side.</p>
+
+<p>This module is not a failure point - it is simply the required physical bay for REDMAG
+operation. If your camera currently uses a CF Module or RED DRIVE, you will need the
+SSD Side Module before a REDMAG will function.</p>
+
+<p>The r1mx project is developing open-source replacement designs for the SSD Side Module
+enclosure. See the <a href="/r1mx/firmware">Firmware and Storage</a> page for current status.</p>
+
+<hr />
+
+<h2 id="ssd-compatibility-notes">SSD Compatibility Notes</h2>
+
+<p>Not all M.2 SSDs work with the RED ONE MX. The camera was designed for ATA/SATA storage
+and has specific timing and model-string requirements.</p>
+
+<p>Key findings from the r1mx research:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Drive type</th>
+      <th>Compatibility</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Original Toshiba HG3 SSD (from RED)</td>
+      <td>Confirmed working</td>
+      <td>Hard to source; typically sourced from dead modules</td>
+    </tr>
+    <tr>
+      <td>Other SATA SSDs with ATA model string reprogramming</td>
+      <td>May work</td>
+      <td>Firmware patch (build 32.1, in development) aims to remove this restriction</td>
+    </tr>
+    <tr>
+      <td>NVMe SSDs via M.2 adapter</td>
+      <td>Not currently compatible</td>
+      <td>SATA only interface</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The r1mx firmware project (build 32.1) is specifically targeting expanded SSD compatibility.
+See the <a href="/r1mx/firmware">Firmware Reference</a> page for details.</p>
+
+<hr />
+
+<h2 id="build-steps">Build Steps</h2>
+
+<div class="guide-step">
+  <div class="guide-step-num">1</div>
+  <div class="guide-step-body">
+    <strong>Download the current design files from the r1mx repository.</strong>
+    <p>Visit <a href="https://github.com/simook/r1mx" target="_blank" rel="noopener">github.com/simook/r1mx</a>
+    and download the REDMAG module design files from the <code>ssd_drive/</code> directory.
+    Review the README for the current revision status before ordering parts or starting a print.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">2</div>
+  <div class="guide-step-body">
+    <strong>Order the PCB and source components.</strong>
+    <p>The Gerber files can be uploaded to any PCB fabricator (JLCPCB, PCBWay, OSH Park, etc.).
+    Order the Amphenol 10079510 iVDR connector from Mouser or Digi-Key. The iVDR connector
+    is the most critical component - verify the part number before ordering.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">3</div>
+  <div class="guide-step-body">
+    <strong>Print the enclosure.</strong>
+    <p>Print with PETG or ABS for heat resistance (PLA may soften in a warm camera bag or
+    in-camera). A 0.2mm layer height provides sufficient detail for the connector cutout
+    and slot tolerances. Print with at least 3 perimeters and 40% infill for rigidity.</p>
+    <p>Print a test fit piece first before committing to a full enclosure print. The iVDR
+    connector cutout dimensions are critical.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">4</div>
+  <div class="guide-step-body">
+    <strong>Solder the iVDR connector to the PCB.</strong>
+    <p>The Amphenol 10079510 is a fine-pitch surface mount connector. Apply flux liberally
+    to the pads. Tack two corner pins first to align the connector, then solder across all pins.
+    Inspect under magnification for solder bridges. Clean flux residue with isopropyl alcohol.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">5</div>
+  <div class="guide-step-body">
+    <strong>Install the SSD on the PCB and assemble into the enclosure.</strong>
+    <p>Following the PCB layout, install the M.2 SSD or adapter. Assemble the PCB into the
+    3D printed enclosure per the assembly notes in the repository. Verify that the iVDR
+    connector is correctly aligned with the enclosure cutout before final assembly.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">6</div>
+  <div class="guide-step-body">
+    <strong>Test fit in the SSD Side Module before final assembly.</strong>
+    <p>Insert the module into the SSD Side Module bay (on the camera) without the enclosure
+    screws fully tightened. Verify it seats fully and the iVDR connector engages. Look for
+    any interference in the bay. Adjust the print or enclosure dimensions if needed before
+    fully assembling.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">7</div>
+  <div class="guide-step-body">
+    <strong>Test with the camera.</strong>
+    <p>Insert the assembled module into the camera. Power on and check the media menu.
+    If the drive is detected, attempt a format and test recording. If the drive shows as
+    "INCOMPATIBLE", the drive model string may need to be reprogrammed. See the
+    <a href="/r1mx/firmware">Firmware Reference</a> for current compatibility research.</p>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Problem</th>
+      <th>Possible cause</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Module not detected at all</td>
+      <td>iVDR connector not seated / soldering issue</td>
+      <td>Check connector seating; inspect solder joints</td>
+    </tr>
+    <tr>
+      <td>Drive shows “INCOMPATIBLE”</td>
+      <td>SSD model string not on RED approved list</td>
+      <td>Reprogram model string (advanced); or wait for firmware 32.1</td>
+    </tr>
+    <tr>
+      <td>Module fits loosely in bay</td>
+      <td>Print tolerance too loose</td>
+      <td>Reprint enclosure with slightly reduced tolerances</td>
+    </tr>
+    <tr>
+      <td>Camera freezes when module inserted</td>
+      <td>Power issue or connector short</td>
+      <td>Check for solder bridges; test with different SSD</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="contributing">Contributing</h2>
+
+<p>This guide is actively being updated as the r1mx project develops the design files.
+If you have built a module, your photos, measurements, and notes are valuable.
+See the <a href="/r1mx/guides/contributing">Contributing Guide</a> for how to submit.</p>
+
+<hr />
+
+<h2 id="see-also">See Also</h2>
+
+<ul>
+  <li><a href="/r1mx/firmware">Firmware Reference</a> - SSD compatibility and firmware 32.1 development</li>
+  <li><a href="/r1mx/components">Components Reference</a> - original REDMAG specifications</li>
+  <li><a href="https://github.com/simook/r1mx">r1mx Repository</a> - design files, Gerbers, BOM</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

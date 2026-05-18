@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NVRAM Battery Replacement | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>NVRAM Battery Replacement | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="NVRAM Battery Replacement" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/nvram-battery-replacement/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/nvram-battery-replacement/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="NVRAM Battery Replacement" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"NVRAM Battery Replacement","url":"http://0.0.0.0:4000/r1mx/guides/nvram-battery-replacement/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">REPAIR</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">NVRAM Battery Replacement</h1>
+    <p class="page-subtitle">Fix the battery that causes time resets and lost settings on every boot.</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-medium">Medium</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">45-90 minutes</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+          <li>Torx T6 screwdriver</li>
+          
+          <li>Torx T8 screwdriver</li>
+          
+          <li>Phillips PH0 screwdriver</li>
+          
+          <li>Soldering iron (fine tip, 300-350 C)</li>
+          
+          <li>Solder wick / desoldering braid</li>
+          
+          <li>Rosin flux (no-clean)</li>
+          
+          <li>Multimeter</li>
+          
+          <li>Tweezers</li>
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <ul class="guide-tools-list">
+          
+          <li>Panasonic ML2020 rechargeable coin cell (3V, Li-Mn) - NOT CR2020</li>
+          
+        </ul>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>The RED ONE MX uses a small rechargeable lithium-manganese coin cell to maintain NVRAM
+(non-volatile memory) when the main battery is removed. This cell keeps the real-time clock
+and persistent settings alive between shoots.</p>
+
+<p>When this cell dies, the camera loses all memory of settings and resets its clock to a
+default time (typically 1:00 AM) on every boot.</p>
+
+<p>The cell is soldered directly to the power board - it is <strong>not</strong> in a socket. Replacement
+requires partial disassembly and basic soldering skills.</p>
+
+<div class="callout callout--warn">
+  The correct part is the <strong>Panasonic ML2020</strong> - a rechargeable (secondary) cell.
+  Do not substitute a CR2020 primary cell. The charging circuit on the power board is designed
+  for a rechargeable cell; installing a primary cell may overheat or rupture it.
+</div>
+
+<div class="guide-attribution">
+  <strong>Source:</strong> Battery identified by <strong>Kyle Simukka</strong> at
+  <a href="https://reduser.net/threads/dead-nvram-battery-in-red-one-mx-ml2020.188312/" target="_blank" rel="noopener">Dead NVRAM battery in RED ONE MX - ML2020</a>
+  (REDuser.net, 2020).
+</div>
+
+<hr />
+
+<h2 id="symptoms">Symptoms</h2>
+
+<p>This guide applies if you observe <strong>all three</strong> of these symptoms:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symptom</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Clock resets to a fixed time on every boot</td>
+      <td>Typically resets to 1:00 AM or a date in 2001/2009</td>
+    </tr>
+    <tr>
+      <td>All custom menu settings lost after power cycle</td>
+      <td>White balance, ISO, project settings, etc.</td>
+    </tr>
+    <tr>
+      <td>Camera otherwise functions normally</td>
+      <td>Boots, records, outputs video correctly</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>If the camera also fails to boot, see the
+<a href="/r1mx/guides">No-Boot Diagnosis</a> guide first (planned).</p>
+
+<hr />
+
+<h2 id="part-sourcing">Part Sourcing</h2>
+
+<p>The Panasonic ML2020 is widely available from electronics distributors:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Supplier</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Mouser Electronics</td>
+      <td>Search “ML2020” - stocked as Panasonic ML2020/F2N or similar</td>
+    </tr>
+    <tr>
+      <td>Digi-Key</td>
+      <td>Same part family, multiple package variants</td>
+    </tr>
+    <tr>
+      <td>eBay</td>
+      <td>Available in bulk packs from Japan - verify “ML” not “CR” before ordering</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The cell costs $2-5 USD. Order 2-3 in case of installation issues.</p>
+
+<hr />
+
+<h2 id="steps">Steps</h2>
+
+<div class="guide-step">
+  <div class="guide-step-num">1</div>
+  <div class="guide-step-body">
+    <strong>Confirm the diagnosis before disassembling.</strong>
+    <p>Boot the camera with a charged main battery. Note the current time shown in the menu.
+    Remove the main battery for 30 seconds. Reinstall and boot again. If the clock has reset,
+    the NVRAM battery is dead or nearly dead. Proceed with replacement.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: Camera menu showing the time/date settings page
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">2</div>
+  <div class="guide-step-body">
+    <strong>Fully discharge the main battery and remove all power from the camera.</strong>
+    <p>Remove the main battery pack. Remove any external power supply (DC input). Allow the
+    camera to sit unpowered for at least 5 minutes before opening.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">3</div>
+  <div class="guide-step-body">
+    <strong>Remove the rear panel to access the internal boards.</strong>
+    <p>The RED ONE MX rear panel is held by Torx T8 screws around the perimeter. Remove all
+    screws and carefully separate the panel. The various cable harnesses are short; do not
+    force the panel away from the body. Set it aside in a safe location.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: Rear panel with Torx screw locations marked
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">4</div>
+  <div class="guide-step-body">
+    <strong>Locate the power board and the ML2020 cell.</strong>
+    <p>The power board is identifiable by the large power input connector and the cluster of
+    power management ICs. The ML2020 coin cell is a small round silver cell (20mm diameter,
+    2mm thick) soldered with its positive terminal marked "+" on the board silkscreen.</p>
+    <p>The cell is typically located near the edge of the power board, away from the high-density
+    component areas. It is soldered through two small through-hole solder points or with
+    surface-mount clips depending on board revision.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: Close-up of power board showing ML2020 location. Contribution welcome - see <a href="/r1mx/guides/contributing">Contributing Guide</a>.
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">5</div>
+  <div class="guide-step-body">
+    <strong>Measure the old cell voltage before removing it.</strong>
+    <p>Use a multimeter to measure the voltage across the cell in-circuit (positive probe to +,
+    negative probe to -). A healthy ML2020 reads 2.8-3.0V. If you read below 2.5V, the cell
+    is confirmed dead. If you read 0V, it may be shorted or completely exhausted.</p>
+    <p>Record the voltage for your notes. This is useful for debugging if symptoms persist
+    after replacement.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">6</div>
+  <div class="guide-step-body">
+    <strong>Remove the old cell using desoldering braid.</strong>
+    <p>Apply flux to the solder joints. Use desoldering braid and the soldering iron to remove
+    the solder from each joint. Once the solder is cleared, the cell should lift out freely.
+    Do not apply excessive heat. The cell is small and will heat up quickly; work in short
+    bursts to avoid damage to the surrounding pads.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">7</div>
+  <div class="guide-step-body">
+    <strong>Install the new ML2020 cell, observing polarity.</strong>
+    <p>Verify the "+" marking on the board before placing the new cell. Place the ML2020 with
+    the positive side (marked "+" on the cell itself) matching the board silkscreen. Apply a
+    small amount of fresh solder to each joint. The joints should be smooth and shiny.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">8</div>
+  <div class="guide-step-body">
+    <strong>Verify installation with a multimeter.</strong>
+    <p>Measure voltage across the new cell before reassembling. A new ML2020 should read
+    3.0V or very close to it. If you read near 0V, the polarity may be reversed - check and
+    correct before proceeding.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">9</div>
+  <div class="guide-step-body">
+    <strong>Reassemble and test.</strong>
+    <p>Reinstall the rear panel. Install the main battery and boot the camera. Set the correct
+    time and date in the camera menu. Remove the battery for 30 seconds. Reinstall and boot.
+    If the clock has retained the correct time, the replacement was successful.</p>
+    <p>Allow the camera to run for a full charge cycle so the charging circuit can top off the
+    new cell. The ML2020 will charge from the main battery while the camera is powered on.</p>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Problem</th>
+      <th>Possible cause</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Clock still resets after replacement</td>
+      <td>Cell installed with reversed polarity</td>
+      <td>Remove and reinstall, checking + marking</td>
+    </tr>
+    <tr>
+      <td>Clock still resets after replacement</td>
+      <td>Cold solder joint</td>
+      <td>Reheat both joints with fresh flux</td>
+    </tr>
+    <tr>
+      <td>Camera does not boot after reassembly</td>
+      <td>Loose connector or cable disturbed during reassembly</td>
+      <td>Open rear panel and check all cable harnesses</td>
+    </tr>
+    <tr>
+      <td>Measured voltage on new cell is 0V</td>
+      <td>Reversed polarity shorted cell</td>
+      <td>Replace cell - a shorted Li-Mn cell should be safely discarded</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="see-also">See Also</h2>
+
+<ul>
+  <li><a href="/r1mx/guides/black-shading-calibration">Black Shading Calibration</a> - recommended after any settings loss</li>
+  <li><a href="/r1mx/hardware">Hardware Reference</a> - power board documentation</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

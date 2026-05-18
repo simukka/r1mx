@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Black Shading Calibration | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Black Shading Calibration | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Black Shading Calibration" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/black-shading-calibration/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/black-shading-calibration/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Black Shading Calibration" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Black Shading Calibration","url":"http://0.0.0.0:4000/r1mx/guides/black-shading-calibration/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">FIRMWARE</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">Black Shading Calibration</h1>
+    <p class="page-subtitle">Required after every firmware upgrade or downgrade. Takes 15 minutes and costs nothing.</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-easy">Easy</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">15 minutes</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+          <li>Lens cap (PL-mount body cap or any light-blocking cap)</li>
+          
+          <li>Charged RED BRICK battery or AC adaptor</li>
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <span class="guide-stat-value">None required</span>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>Black shading calibration corrects sensor offset errors by measuring the camera’s output with
+no light reaching the sensor. The camera records a baseline “dark frame” for every pixel and
+uses it to cancel thermal noise and fixed-pattern noise during recording.</p>
+
+<p><strong>When to run it:</strong></p>
+<ul>
+  <li>After every firmware upgrade</li>
+  <li>After every firmware downgrade</li>
+  <li>After any repair that involved the sensor or IMAGE board</li>
+  <li>Whenever you notice unexpected color casts, hot pixels, or unusual noise in shadows</li>
+</ul>
+
+<p>Skipping this step after a firmware change is the single most common cause of degraded image
+quality on the RED ONE MX.</p>
+
+<div class="callout callout--warn">
+  The camera must be at a stable operating temperature before running black shading.
+  Power it on and let it run for at least <strong>10 minutes</strong> before starting.
+  Running calibration on a cold camera produces inaccurate results.
+</div>
+
+<hr />
+
+<h2 id="before-you-start">Before You Start</h2>
+
+<p>Check that you have:</p>
+
+<ul>
+  <li>A fully charged battery or AC power connected (calibration cannot be interrupted)</li>
+  <li>A lens cap that completely blocks all light from reaching the sensor</li>
+  <li>The camera powered on and warmed up for at least 10 minutes</li>
+</ul>
+
+<hr />
+
+<h2 id="steps">Steps</h2>
+
+<div class="guide-step">
+  <div class="guide-step-num">1</div>
+  <div class="guide-step-body">
+    <strong>Format a fresh CF card using the current firmware.</strong>
+    <p>Insert a CF card and format it in-camera via <strong>SYSTEM &gt; FORMAT MEDIA</strong>.
+    This ensures the card filesystem matches the current build and calibration data
+    saves correctly.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: Camera menu showing SYSTEM &gt; FORMAT MEDIA
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">2</div>
+  <div class="guide-step-body">
+    <strong>Fit the lens cap so no light can enter the camera.</strong>
+    <p>Use a PL-mount body cap, a PL lens with its rear cap installed, or wrap the mount
+    with a dark cloth. Even a small amount of ambient light will corrupt the calibration.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: PL body cap fitted to the camera mount
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">3</div>
+  <div class="guide-step-body">
+    <strong>Navigate to the Black Shade menu.</strong>
+    <p>From the camera's home menu, go to:<br />
+    <code>SYSTEM &gt; MAINTENANCE &gt; BLACK SHADE</code></p>
+    <p>If this option is greyed out, the camera may be in a recording-ready state.
+    Press <strong>STOP</strong> first.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: SYSTEM &gt; MAINTENANCE &gt; BLACK SHADE menu path
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">4</div>
+  <div class="guide-step-body">
+    <strong>Confirm the camera and environment are ready, then start calibration.</strong>
+    <p>Select <strong>BLACK SHADE</strong> and confirm when prompted. The process takes
+    approximately 60-90 seconds. Do not:</p>
+    <ul>
+      <li>Remove the battery or disconnect AC power</li>
+      <li>Remove or insert any media</li>
+      <li>Move the camera or remove the lens cap</li>
+      <li>Press any buttons</li>
+    </ul>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">5</div>
+  <div class="guide-step-body">
+    <strong>Wait for "Black Shade Complete" confirmation.</strong>
+    <p>The camera will display a completion message on the rear status display and the
+    RED-LCD / RED-EVF if attached. This confirms the calibration data was written
+    to the CF card successfully.</p>
+  </div>
+</div>
+
+<div class="photo-needed">
+  <span class="photo-icon">📷</span>
+  Photo needed: "Black Shade Complete" message on rear display
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">6</div>
+  <div class="guide-step-body">
+    <strong>Power cycle the camera.</strong>
+    <p>Fully power down (hold power button until shutdown completes) and power back on.
+    The calibration data is loaded from the CF card on boot.</p>
+    <p>Do not remove the CF card between calibration and the next power cycle.</p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">7</div>
+  <div class="guide-step-body">
+    <strong>Verify by shooting a test clip.</strong>
+    <p>Remove the lens cap, fit a lens, and record a short clip in a neutral scene
+    (evenly lit grey card is ideal). Review in post and confirm:</p>
+    <ul>
+      <li>No unexpected color cast in shadows</li>
+      <li>No fixed hot pixels or bright spots</li>
+      <li>Shadow noise looks uniform (not patterned)</li>
+    </ul>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Problem</th>
+      <th>Likely cause</th>
+      <th>Fix</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>BLACK SHADE menu is greyed out</td>
+      <td>Camera in record-ready state</td>
+      <td>Press STOP, then try again</td>
+    </tr>
+    <tr>
+      <td>Calibration starts but camera reboots</td>
+      <td>Power interrupted or battery low</td>
+      <td>Use AC power and retry</td>
+    </tr>
+    <tr>
+      <td>“Calibration Failed” message</td>
+      <td>Light leak through mount, or CF card error</td>
+      <td>Check lens cap seal, reformat CF card, retry</td>
+    </tr>
+    <tr>
+      <td>Colors still wrong after calibration</td>
+      <td>Cold camera during calibration</td>
+      <td>Let camera warm up 10+ minutes, redo calibration</td>
+    </tr>
+    <tr>
+      <td>Hot pixels still visible</td>
+      <td>Calibration data not loaded</td>
+      <td>Power cycle with CF card installed</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="notes">Notes</h2>
+
+<ul>
+  <li>Black shading data is stored on the CF card, not in camera flash memory. Keep the
+calibration CF card in the camera or clearly labelled.</li>
+  <li>Calibration is temperature-sensitive. If the camera will be used in a significantly
+different environment (e.g., moving from an air-conditioned room to outdoor summer heat),
+re-run calibration in the actual shooting environment.</li>
+  <li>Some users report running black shading at the start of each shooting day as standard
+practice. This is not strictly required but eliminates a variable.</li>
+</ul>
+
+<hr />
+
+<h2 id="see-also">See Also</h2>
+
+<ul>
+  <li><a href="/r1mx/firmware">Firmware page</a> - full build history and upgrade instructions</li>
+  <li><a href="/r1mx/guides">Upgrading firmware: full step-by-step procedure</a> - planned guide</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simook/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
