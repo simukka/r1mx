@@ -1,0 +1,7 @@
+{
+  "name": "r1mx-re",
+  "description": "RED ONE MX firmware reverse engineering — Build 32 decompilation, QEMU emulation, and firmware patching workflow",
+  "author": {
+    "name": "simukka"
+  }
+}

@@ -1,0 +1,1 @@
+/home/simukka/src/RED/r1mx/firmware/reverse/build_32/plan.md
