@@ -6,6 +6,10 @@ import json as _json
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QInputDialog,
     QMenu,
     QMessageBox,
@@ -17,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from toolkit.db import DB
 from toolkit.gui.scene import LAYER_COLORS, OBJECT_TYPES
+from toolkit.gui.theme import THEME
 
 _ROLE_KIND   = Qt.ItemDataRole.UserRole          # "board"|"layer"|"objtype"|"entity"
 _ROLE_BOARD  = Qt.ItemDataRole.UserRole + 1      # board name
@@ -44,6 +49,9 @@ class BoardTreePanel(QWidget):
     componentSelected       = pyqtSignal(int)                    # object_id
     removeDataRequested     = pyqtSignal(str, str, str)          # board, layer, type_filter ("" = all)
     scanDatasheetRequested  = pyqtSignal(str, str, int)          # board, layer, object_id
+    addLayerRequested       = pyqtSignal(str, str)               # board, new layer name
+    deleteLayerRequested    = pyqtSignal(str, str)               # board, layer
+    shiftObjectsRequested   = pyqtSignal(str, str)               # board, layer
     # Entity CRUD signals
     entityDeleteRequested   = pyqtSignal(int)                    # object_id
     entityEditRequested     = pyqtSignal(int)                    # object_id
@@ -70,6 +78,27 @@ class BoardTreePanel(QWidget):
 
         self.refresh()
 
+    def _get_expanded_keys(self) -> set[tuple[str, str | None]]:
+        """Return (board, layer_or_None) for every currently expanded item."""
+        expanded: set[tuple[str, str | None]] = set()
+        root = self._tree.invisibleRootItem()
+        for bi in range(root.childCount()):
+            b_item = root.child(bi)
+            board = b_item.data(0, _ROLE_BOARD)
+            if b_item.isExpanded():
+                expanded.add((board, None))
+            for li in range(b_item.childCount()):
+                l_item = b_item.child(li)
+                layer = l_item.data(0, _ROLE_LAYER)
+                if l_item.isExpanded():
+                    expanded.add((board, layer))
+                for oi in range(l_item.childCount()):
+                    ot_item = l_item.child(oi)
+                    if ot_item.isExpanded():
+                        objt = ot_item.data(0, _ROLE_OBJT)
+                        expanded.add((board, f"{layer}::{objt}"))
+        return expanded
+
     def refresh(self, vis_state: dict | None = None):
         """Rebuild tree from DB.
 
@@ -79,6 +108,11 @@ class BoardTreePanel(QWidget):
                     When provided, checkboxes are restored from it.
                     When None, all items default to Checked.
         """
+        # Snapshot expanded state before wiping the tree
+        expanded = self._get_expanded_keys()
+        # If the tree is empty (first build), expand boards by default
+        first_build = self._tree.topLevelItemCount() == 0
+
         self._ignore_check = True
         self._tree.clear()
         vs = vis_state or {}
@@ -114,7 +148,7 @@ class BoardTreePanel(QWidget):
                 l_item.setCheckState(
                     0, Qt.CheckState.Checked if l_checked else Qt.CheckState.Unchecked
                 )
-                color = LAYER_COLORS.get(lname, QColor(150, 150, 150))
+                color = LAYER_COLORS.get(lname, THEME.layer_default_color)
                 l_item.setForeground(0, QBrush(color))
                 l_item.setToolTip(0, f"Source image: {src or '(none)'}\n"
                                      "Right-click → Select image…")
@@ -150,9 +184,16 @@ class BoardTreePanel(QWidget):
                 b_item.addChild(l_item)
 
             self._tree.addTopLevelItem(b_item)
-            b_item.setExpanded(True)
+            # Restore expanded state; default to expanded on first build
+            b_item.setExpanded((bname, None) in expanded or first_build)
             for i in range(b_item.childCount()):
-                b_item.child(i).setExpanded(False)
+                l_item = b_item.child(i)
+                lname_i = l_item.data(0, _ROLE_LAYER)
+                l_item.setExpanded((bname, lname_i) in expanded)
+                for j in range(l_item.childCount()):
+                    ot_item = l_item.child(j)
+                    objt = ot_item.data(0, _ROLE_OBJT)
+                    ot_item.setExpanded((bname, f"{lname_i}::{objt}") in expanded)
 
         self._ignore_check = False
 
@@ -201,7 +242,7 @@ class BoardTreePanel(QWidget):
         if overflow:
             more_item = QTreeWidgetItem([f"  … {len(objs) - _CHILD_CAP} more (use filter)"])
             more_item.setData(0, _ROLE_KIND, "more")
-            more_item.setForeground(0, QBrush(QColor(140, 140, 140)))
+            more_item.setForeground(0, QBrush(THEME.tree_dim_color))
             more_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             parent_item.addChild(more_item)
 
@@ -329,8 +370,13 @@ class BoardTreePanel(QWidget):
             menu.addSeparator()
             edit_act = menu.addAction("Edit layer…")
             edit_act.triggered.connect(lambda checked, _b=board, _l=layer: self.editLayerRequested.emit(_b, _l))
+            menu.addSeparator()
+            del_layer_act = menu.addAction("🗑 Delete layer…")
+            del_layer_act.triggered.connect(
+                lambda checked, _b=board, _l=layer: self._confirm_delete_layer(_b, _l)
+            )
 
-            # "Remove data" if the layer has any objects at all
+            # "Shift all objects" if the layer has any objects
             board_id  = self._db.get_or_create_board(board)
             layer_row = self._db.get_layer(board_id, layer)
             if layer_row:
@@ -339,6 +385,12 @@ class BoardTreePanel(QWidget):
                     (layer_row["id"],),
                 ).fetchone()[0]
                 if count:
+                    menu.addSeparator()
+                    shift_act = menu.addAction(f"↔ Shift all objects…  ({count})")
+                    shift_act.triggered.connect(
+                        lambda checked, _b=board, _l=layer: self._prompt_shift_objects(_b, _l)
+                    )
+
                     menu.addSeparator()
                     rm_act = menu.addAction(f"Remove all data  ({count} objects)…")
                     rm_act.triggered.connect(
@@ -419,6 +471,9 @@ class BoardTreePanel(QWidget):
                 )
 
         elif kind == "board":
+            add_act = menu.addAction("➕ Add layer…")
+            add_act.triggered.connect(lambda checked, _b=board: self._prompt_add_layer(_b))
+            menu.addSeparator()
             act = menu.addAction("Refresh")
             act.triggered.connect(self.refresh)
 
@@ -450,6 +505,92 @@ class BoardTreePanel(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             for oid in object_ids:
                 self.entityDeleteRequested.emit(oid)
+
+    def _prompt_add_layer(self, board: str) -> None:
+        """Prompt for a name and create a new layer on *board*."""
+        name, ok = QInputDialog.getText(
+            self, "Add Layer", f"New layer name for '{board}':"
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        board_id = self._db.get_or_create_board(board)
+        try:
+            self._db.create_layer(int(board_id), name)
+        except ValueError:
+            QMessageBox.warning(
+                self, "Duplicate layer",
+                f"A layer named '{name}' already exists on '{board}'.",
+            )
+            return
+        self.addLayerRequested.emit(board, name)
+        self.refresh(self.get_full_vis_state())
+
+    def _confirm_delete_layer(self, board: str, layer: str) -> None:
+        """Ask for confirmation then delete *layer* from *board*."""
+        reply = QMessageBox.question(
+            self, "Delete layer",
+            f"Delete layer '{layer}' from '{board}'?\n\nAll scanned objects will be lost. This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if layer_row:
+            self._db.delete_layer(layer_row["id"])
+        self.deleteLayerRequested.emit(board, layer)
+        self.refresh(self.get_full_vis_state())
+
+    def _prompt_shift_objects(self, board: str, layer: str) -> None:
+        """Show a dialog to shift all objects on *layer* by a given offset."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Shift objects — {board} / {layer}")
+        form = QFormLayout()
+
+        dx_spin = QDoubleSpinBox()
+        dx_spin.setRange(-9999.0, 9999.0)
+        dx_spin.setDecimals(3)
+        dx_spin.setSuffix(" mm")
+        dx_spin.setValue(0.0)
+        form.addRow("ΔX:", dx_spin)
+
+        dy_spin = QDoubleSpinBox()
+        dy_spin.setRange(-9999.0, 9999.0)
+        dy_spin.setDecimals(3)
+        dy_spin.setSuffix(" mm")
+        dy_spin.setValue(0.0)
+        form.addRow("ΔY:", dy_spin)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+
+        layout = QVBoxLayout(dlg)
+        layout.addLayout(form)
+        layout.addWidget(btns)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        dx = dx_spin.value()
+        dy = dy_spin.value()
+        if dx == 0.0 and dy == 0.0:
+            return
+
+        board_id  = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_id, layer)
+        if not layer_row:
+            return
+
+        count = self._db.shift_layer_objects(layer_row["id"], dx, dy)
+        self.shiftObjectsRequested.emit(board, layer)
+        QMessageBox.information(
+            self, "Shift complete",
+            f"Shifted {count} objects on '{board} / {layer}' by ΔX={dx:+.3f} mm, ΔY={dy:+.3f} mm.",
+        )
 
     def is_layer_visible(self, board: str, layer: str) -> bool:
         """Return the current checkbox state for a layer node."""

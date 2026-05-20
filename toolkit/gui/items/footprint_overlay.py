@@ -31,14 +31,14 @@ from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QGraphicsItem
 
 from toolkit.analysis.pinout import PadDetection, PinoutResult
-
+from toolkit.gui.theme import THEME
 
 # Visual styling
 _PAD_RADIUS_FRAC   = 0.025   # pad radius as fraction of overlay width (fallback)
-_PAD_COLOR         = QColor(255, 200, 0, 220)     # gold
-_PAD_OUTLINE       = QColor(200, 100, 0, 255)
-_PIN_LABEL_COLOR   = QColor(255, 255, 255, 230)
-_OUTLINE_COLOR     = QColor(0, 255, 120, 160)
+_PAD_COLOR         = THEME.fp_pad_color
+_PAD_OUTLINE       = THEME.fp_pad_outline_color
+_PIN_LABEL_COLOR   = THEME.fp_pin_label_color
+_OUTLINE_COLOR     = THEME.fp_outline_color
 _OUTLINE_WIDTH_PX  = 2
 
 

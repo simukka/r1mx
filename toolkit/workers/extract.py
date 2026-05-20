@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QThread
 
 from toolkit.analysis.layers import load_calibration, process_board
-from toolkit.paths import COMPONENTS_DIR
+from toolkit.db import DB
 from toolkit.workers.base import WorkerSignals
 
 class ExtractLayerWorker(QThread):
@@ -25,7 +25,8 @@ class ExtractLayerWorker(QThread):
     def run(self):
         """Extract copper-layer geometry for the active board layer."""
         try:
-            board_dir = COMPONENTS_DIR / self._board_name
+            db = DB()
+            board_dir = db.get_board_abs_dir(self._board_name)
             self.signals.line.emit(f"Extracting {self._board_name} / {self._layer_name} …")
             cal = load_calibration(board_dir)
             layer_cal = cal.get("layers", {}).get(self._layer_name, {})

@@ -9,7 +9,6 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from toolkit.analysis.scan import process_warped_image
 from toolkit.db import DB
-from toolkit.paths import COMPONENTS_DIR
 from toolkit.workers.base import WorkerSignals
 
 class ScanBoardWorker(QThread):
@@ -49,7 +48,7 @@ class ScanBoardWorker(QThread):
             px_per_mm = cal.get("px_per_mm", 20.0)
             source_image = layer_row["source_image"] or ""
 
-            img_path = COMPONENTS_DIR / self._board_name / source_image
+            img_path = db.get_board_abs_dir(self._board_name) / source_image
             if not img_path.exists():
                 self.signals.finished.emit(False, f"Image not found: {img_path}")
                 return

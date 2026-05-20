@@ -289,11 +289,21 @@ def index_pdf(
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def find_pdfs(board_filter: str | None) -> list[tuple[Path, str]]:
-    """Return [(pdf_path, board_name), ...] for all datasheets."""
+def find_pdfs(board_filter: str | None, db=None) -> list[tuple[Path, str]]:
+    """Return [(pdf_path, board_name), ...] for all datasheets.
+
+    When *db* is provided and *board_filter* is set, the board directory is
+    resolved via ``db.get_board_abs_dir()`` so custom directories work.
+    """
     pdfs = []
     if board_filter:
-        search_dirs = [COMPONENTS_DIR / board_filter]
+        if db is not None:
+            try:
+                search_dirs = [db.get_board_abs_dir(board_filter)]
+            except (KeyError, ValueError):
+                search_dirs = [COMPONENTS_DIR / board_filter]
+        else:
+            search_dirs = [COMPONENTS_DIR / board_filter]
     else:
         search_dirs = list(COMPONENTS_DIR.iterdir())
 

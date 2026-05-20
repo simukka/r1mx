@@ -39,6 +39,8 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
 )
 
+from toolkit.gui.theme import THEME
+
 
 # ---------------------------------------------------------------------------
 # Image conversion helpers
@@ -99,9 +101,10 @@ class ImageViewer(QGraphicsView):
         viewer.set_crosshair_visible(True)
     """
 
-    imageClicked  = pyqtSignal(QPointF)   # image-pixel coords (press)
-    imageReleased = pyqtSignal(QPointF)   # image-pixel coords (release)
-    imageMoved    = pyqtSignal(QPointF)   # image-pixel coords (move)
+    imageClicked       = pyqtSignal(QPointF)   # image-pixel coords (press)
+    imageReleased      = pyqtSignal(QPointF)   # image-pixel coords (release)
+    imageMoved         = pyqtSignal(QPointF)   # image-pixel coords (move)
+    imageRightClicked  = pyqtSignal(QPointF)   # image-pixel coords (right-click)
 
     # Fires on every left press regardless of bounds — carries full diagnostic state:
     # (scene_pos, in_bounds, img_w, img_h, capture_mode, rb_anchor_set, zoom_level)
@@ -134,9 +137,9 @@ class ImageViewer(QGraphicsView):
 
         # Crosshair overlay (four line segments) — cosmetic pens so they're
         # always readable at any zoom level.
-        pen = QPen(QColor(0, 255, 255), 1.5)
+        pen = QPen(THEME.crosshair_color, 1.5)
         pen.setCosmetic(True)
-        outline_pen = QPen(QColor(0, 0, 0), 3.5)
+        outline_pen = QPen(THEME.crosshair_outline_color, 3.5)
         outline_pen.setCosmetic(True)
 
         self._xhair_lines: list[QGraphicsLineItem] = []
@@ -213,15 +216,15 @@ class ImageViewer(QGraphicsView):
         if self._rb_shadow is not None:
             self._scene.removeItem(self._rb_shadow)
             self._rb_shadow = None
-        # Two-layer rubber-band: hot-pink dashes on a black shadow for contrast
-        shadow_pen = QPen(QColor(0, 0, 0), 3.5)
+        # Two-layer rubber-band: themed dashes on a black shadow for contrast
+        shadow_pen = QPen(THEME.rubberband_outline_color, 3.5)
         shadow_pen.setCosmetic(True)
         shadow_pen.setStyle(Qt.PenStyle.DashLine)
         self._rb_shadow = self._scene.addRect(
             scene_pt.x(), scene_pt.y(), 0, 0, shadow_pen
         )
         self._rb_shadow.setZValue(19)
-        pen = QPen(QColor(255, 20, 147), 1.5)   # hot pink / deep pink
+        pen = QPen(THEME.rubberband_color, 1.5)
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)
         self._rb_item = self._scene.addRect(
@@ -418,6 +421,15 @@ class ImageViewer(QGraphicsView):
             self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
             event.accept()
             return
+        if event.button() == Qt.MouseButton.RightButton:
+            # Right-click emits imageRightClicked when in-bounds and not capturing
+            if not self._capture_mode:
+                sp = self._scene_pos(event)
+                eff_w, eff_h = self._effective_bounds()
+                if 0 <= sp.x() < eff_w and 0 <= sp.y() < eff_h:
+                    self.imageRightClicked.emit(sp)
+                event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             sp = self._scene_pos(event)
             eff_w, eff_h = self._effective_bounds()
@@ -488,9 +500,9 @@ class ImageViewer(QGraphicsView):
 # Annotation helpers
 # ---------------------------------------------------------------------------
 
-_CORNER_COLOR    = QColor(0, 255, 0)
-_REF_COLOR       = QColor(255, 100, 0)
-_POLYLINE_COLOR  = QColor(0, 200, 255)
+_CORNER_COLOR    = THEME.cal_corner_color
+_REF_COLOR       = THEME.cal_ref_color
+_POLYLINE_COLOR  = THEME.cal_polyline_color
 _LABEL_FONT      = QFont("monospace", 10, QFont.Weight.Bold)
 
 
@@ -498,7 +510,7 @@ def draw_crosshair(
     scene: QGraphicsScene,
     x: float,
     y: float,
-    color: QColor = QColor(0, 255, 255),
+    color: QColor | None = None,
     arm: float = 20,
     gap: float = 4,
     z: float = 10,
@@ -507,9 +519,11 @@ def draw_crosshair(
     Add a static crosshair at (x, y) in scene/image coords.
     Returns the list of line items so the caller can remove them later.
     """
+    if color is None:
+        color = THEME.cal_crosshair_color
     pen = QPen(color, 1.5)
     pen.setCosmetic(False)
-    outline = QPen(QColor(0, 0, 0), 3.5)
+    outline = QPen(THEME.crosshair_outline_color, 3.5)
     outline.setCosmetic(False)
 
     segments = [

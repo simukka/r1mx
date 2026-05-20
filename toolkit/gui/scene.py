@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -28,25 +29,29 @@ from PyQt6.QtWidgets import (
 
 from toolkit.analysis.orientation import inward_triangle_points
 from toolkit.db import DB
+from toolkit.gui.theme import THEME
 from toolkit.gui.viewer import bgr_to_pixmap
 from toolkit.paths import COMPONENTS_DIR
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.JPG', '.JPEG', '.PNG'}
 
+# Object-type registry — (db_key, display_label, colour).
+# Colours come from the active THEME so swapping the theme changes the palette.
 OBJECT_TYPES = [
-    ("photo",        "Photo",          QColor(200, 200, 200)),
-    ("copper_area",  "Copper",         QColor(180, 120,   0)),
-    ("outline",      "Outline",        QColor(  0, 180, 255)),
-    ("via",          "Vias",           QColor(255,  80,  80)),
-    ("pad",          "Pads",           QColor(255, 200,   0)),
-    ("component",    "Components",     QColor(  0, 255, 120)),
-    ("text_label",   "Part Numbers",   QColor(255, 160,  50)),
-    ("trace",        "Traces",         QColor(  0, 120, 255)),
+    ("photo",        "Photo",        THEME.photo_color),
+    ("copper_area",  "Copper",       THEME.copper_color),
+    ("outline",      "Outline",      THEME.outline_color),
+    ("via",          "Vias",         THEME.via_color),
+    ("pad",          "Pads",         THEME.pad_color),
+    ("component",    "Components",   THEME.component_color),
+    ("text_label",   "Part Numbers", THEME.text_label_color),
+    ("trace",        "Traces",       THEME.trace_color),
+    ("pin",          "Pins",         THEME.pin_color),
 ]
 
-LAYER_COLORS = {
-    "top":    QColor(  0, 200, 100),
-    "bottom": QColor(200, 100,   0),
+LAYER_COLORS: dict[str, QColor] = {
+    "top":    THEME.layer_top_color,
+    "bottom": THEME.layer_bottom_color,
 }
 
 class LayerScene:
@@ -58,6 +63,7 @@ class LayerScene:
         self._scene = scene
         self._groups: dict[str, QGraphicsItemGroup] = {}
         self._vignette_item: QGraphicsPathItem | None = None  # spotlight overlay
+        self._original_img: np.ndarray | None = None          # stored for live enhancement
 
         # Create a group per object type (+ "photo")
         for key, _, _ in [("photo", "", None)] + list(OBJECT_TYPES):
@@ -119,9 +125,10 @@ class LayerScene:
 
         # Radial gradient: transparent centre → dark edges
         grad = QRadialGradient(cx, cy, spot_r)
-        grad.setColorAt(0.0, QColor(0, 0, 0,   0))   # fully transparent at centre
-        grad.setColorAt(0.4, QColor(0, 0, 0,   0))   # hold transparent a while
-        grad.setColorAt(1.0, QColor(0, 0, 0, 190))   # dark at the vignette edge
+        vc = THEME.vignette_color
+        grad.setColorAt(0.0, QColor(vc.red(), vc.green(), vc.blue(),   0))
+        grad.setColorAt(0.4, QColor(vc.red(), vc.green(), vc.blue(),   0))
+        grad.setColorAt(1.0, QColor(vc.red(), vc.green(), vc.blue(), THEME.vignette_alpha))
 
         # Extend gradient coverage so the corners of the scene are fully dark
         grad.setSpread(QRadialGradient.Spread.PadSpread)
@@ -147,10 +154,25 @@ class LayerScene:
             self._scene.removeItem(self._vignette_item)
             self._vignette_item = None
 
-    def load_photo(self, board_name: str, layer_name: str, source_image: str, warp_matrix, warped_size):
-        """Load and display the calibrated (warped) board photo."""
+    def load_photo(
+        self,
+        board_name: str,
+        layer_name: str,
+        source_image: str,
+        warp_matrix,
+        warped_size,
+        board_dir: Path | None = None,
+    ):
+        """Load and display the calibrated (warped) board photo.
+
+        Parameters
+        ----------
+        board_dir : resolved absolute path to the board directory.
+                    Falls back to ``COMPONENTS_DIR / board_name`` when not given.
+        """
         import cv2
-        board_dir = COMPONENTS_DIR / board_name
+        if board_dir is None:
+            board_dir = COMPONENTS_DIR / board_name
         img_path = board_dir / source_image
         if not img_path.exists():
             return
@@ -163,10 +185,82 @@ class LayerScene:
             w, h = warped_size
             img = cv2.warpPerspective(img, M, (w, h))
 
+        self._original_img = img.copy()
         pixmap = bgr_to_pixmap(img)
         item = QGraphicsPixmapItem(pixmap)
         item.setZValue(0)
         g = self._groups["photo"]
+        g.addToGroup(item)
+
+    def apply_photo_enhancement(
+        self,
+        brightness: int = 0,
+        contrast: float = 1.0,
+        gamma: float = 1.0,
+        sharpen: bool = False,
+        invert: bool = False,
+    ) -> None:
+        """Apply temporary visual adjustments to the layer photo.
+
+        Operates on a copy of ``_original_img`` — the source file is never
+        modified.  Call with all defaults to restore the original display.
+
+        Parameters
+        ----------
+        brightness : integer offset added to every channel (−100 … +100)
+        contrast   : multiplicative factor centred on mid-grey (0.1 … 3.0)
+        gamma      : gamma correction  (0.2 … 3.0; >1 brightens shadows)
+        sharpen    : apply unsharp-mask sharpening kernel
+        invert     : invert all channels (255 − value)
+        """
+        if self._original_img is None:
+            return
+
+        img = self._original_img.astype(np.int16)
+
+        # 1. Brightness
+        if brightness != 0:
+            img = img + brightness
+
+        # 2. Contrast  (centred on mid-grey = 128)
+        if contrast != 1.0:
+            img = (img.astype(np.float32) - 128.0) * contrast + 128.0
+
+        img = np.clip(img, 0, 255).astype(np.uint8)
+
+        # 3. Gamma via LUT
+        if gamma != 1.0:
+            inv_gamma = 1.0 / max(gamma, 0.01)
+            lut = np.array(
+                [((i / 255.0) ** inv_gamma) * 255 for i in range(256)],
+                dtype=np.uint8,
+            )
+            img = cv2.LUT(img, lut)
+
+        # 4. Sharpen (unsharp mask)
+        if sharpen:
+            kernel = np.array(
+                [[ 0, -1,  0],
+                 [-1,  5, -1],
+                 [ 0, -1,  0]], dtype=np.float32,
+            )
+            img = cv2.filter2D(img, -1, kernel)
+
+        # 5. Invert
+        if invert:
+            img = 255 - img
+
+        pixmap = bgr_to_pixmap(img)
+
+        # Replace the photo group's pixmap item in-place
+        g = self._groups["photo"]
+        for child in list(g.childItems()):
+            if isinstance(child, QGraphicsPixmapItem):
+                child.setPixmap(pixmap)
+                return
+        # No existing item — add a new one
+        item = QGraphicsPixmapItem(pixmap)
+        item.setZValue(0)
         g.addToGroup(item)
 
     def load_objects(self, db: DB, layer_id: int, px_per_mm: float = 20.0):
@@ -196,11 +290,19 @@ class LayerScene:
                 path = QPainterPath()
                 for obj in objects:
                     props = json.loads(obj["properties"] or "{}")
-                    s = props.get("start")
-                    e = props.get("end")
-                    if s and e:
-                        path.moveTo(s[0] * px_per_mm, s[1] * px_per_mm)
-                        path.lineTo(e[0] * px_per_mm, e[1] * px_per_mm)
+                    wpts = props.get("waypoints")
+                    if wpts and len(wpts) >= 2:
+                        # New format: multi-point routed trace
+                        path.moveTo(wpts[0][0] * px_per_mm, wpts[0][1] * px_per_mm)
+                        for p in wpts[1:]:
+                            path.lineTo(p[0] * px_per_mm, p[1] * px_per_mm)
+                    else:
+                        # Legacy format: single start/end segment
+                        s = props.get("start")
+                        e = props.get("end")
+                        if s and e:
+                            path.moveTo(s[0] * px_per_mm, s[1] * px_per_mm)
+                            path.lineTo(e[0] * px_per_mm, e[1] * px_per_mm)
                 pen = QPen(color, 0)        # width=0 → cosmetic hairline
                 pen.setCosmetic(True)
                 path_item = QGraphicsPathItem(path)
@@ -242,10 +344,11 @@ class LayerScene:
         if t == "via":
             r = w / 2
             item = QGraphicsEllipseItem(x - r, y - r, w, h)
-            pen = QPen(color, 1)
+            pen = QPen(THEME.via_outline_color, 1.5)
             pen.setCosmetic(True)
             item.setPen(pen)
-            item.setBrush(QBrush(Qt.GlobalColor.transparent))
+            vc = THEME.via_color
+            item.setBrush(QBrush(QColor(vc.red(), vc.green(), vc.blue(), THEME.via_fill_alpha)))
             item.setZValue(3)
             return item
 
@@ -288,14 +391,31 @@ class LayerScene:
                 tri.setParentItem(item)
 
             return item
-            item = QGraphicsSimpleTextItem(obj["label"])
-            font = QFont("monospace", 5)
-            item.setFont(font)
+
+        if t == "pin":
+            # Small filled circle — 6 px cosmetic diameter
+            r = 3.0
+            item = QGraphicsEllipseItem(-r, -r, r * 2, r * 2)
+            pen = QPen(color, 1)
+            pen.setCosmetic(True)
+            item.setPen(pen)
             item.setBrush(QBrush(color))
-            item.setZValue(5)
+            item.setZValue(7)
             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable)
             item.setData(0, obj["id"])
             item.setPos(x, y)
+
+            # Small label: pin_number if set, else label
+            lbl = obj["label"] or ""
+            if lbl:
+                lbl_item = QGraphicsSimpleTextItem(lbl)
+                font = QFont("monospace", 4)
+                lbl_item.setFont(font)
+                lbl_item.setBrush(QBrush(color))
+                lbl_item.setZValue(8)
+                lbl_item.setParentItem(item)
+                lbl_item.setPos(r + 1, -r)
+
             return item
 
         return None

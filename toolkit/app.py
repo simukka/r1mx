@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
         self._viewer.imageReleased.connect(self._on_canvas_release)
         self._viewer.imageMoved.connect(self._on_canvas_move)
         self._viewer.debugClicked.connect(self._on_debug_click)
+        self._viewer.imageRightClicked.connect(self._on_canvas_right_click)
         self._viewer.scene().selectionChanged.connect(self._on_selection_changed)
         self.setCentralWidget(self._viewer)
 
@@ -713,6 +714,110 @@ class MainWindow(QMainWindow):
             self._place_orientation(pt, board, layer)
         elif self._canvas_mode == CanvasMode.ADD_PIN:
             self._add_pending_pin(pt)
+
+    def _on_canvas_right_click(self, pt: QPointF):
+        """Show a context menu listing all objects at the right-clicked position."""
+        from PyQt6.QtGui import QCursor as _QCursor
+        from PyQt6.QtWidgets import QMenu as _QMenu
+
+        if self._canvas_mode != CanvasMode.NORMAL:
+            return
+
+        board, layer = self._active_board, self._active_layer
+        if not board or not layer:
+            return
+
+        board_row = self._db.get_or_create_board(board)
+        layer_row = self._db.get_layer(board_row["id"], layer)
+        if not layer_row or not layer_row["calibration"]:
+            return
+
+        x_mm, y_mm = self._px_to_mm(pt)
+
+        objects = self._db.objects_at_mm(layer_row["id"], x_mm, y_mm)
+
+        # Filter to only types whose scene group is currently visible
+        key = (board, layer)
+        ls = self._layer_scenes.get(key)
+        if ls:
+            objects = [
+                o for o in objects
+                if ls.group(o["type"]) is None or ls.group(o["type"]).isVisible()
+            ]
+
+        _TYPE_ICONS = {
+            "via":        "⬤",
+            "pad":        "□",
+            "component":  "▣",
+            "text_label": "T",
+            "pin":        "📍",
+        }
+
+        menu = _QMenu(self)
+        menu.setTitle("Objects at cursor")
+
+        if not objects:
+            empty_act = menu.addAction("(no objects at this position)")
+            empty_act.setEnabled(False)
+        else:
+            for obj in objects:
+                obj_type  = obj["type"]
+                obj_label = obj["label"] or f"#{obj['id']}"
+                icon      = _TYPE_ICONS.get(obj_type, "•")
+                x_str     = f"{obj['x_mm']:.2f}" if obj["x_mm"] is not None else "?"
+                y_str     = f"{obj['y_mm']:.2f}" if obj["y_mm"] is not None else "?"
+                text      = f"{icon} {obj_type}: {obj_label}  @ ({x_str}, {y_str} mm)"
+                act       = menu.addAction(text)
+                act.setData(obj["id"])
+
+        chosen = menu.exec(_QCursor.pos())
+        if chosen and chosen.data() is not None:
+            self._select_object_by_id(int(chosen.data()))
+
+    def _select_object_by_id(self, obj_id: int) -> None:
+        """Select an object by DB id.
+
+        Directly drives the inspector and vignette highlight so that the result
+        is identical to clicking on an item in the canvas.  Also sets the scene
+        item as selected (for the visual selection indicator) when a tagged item
+        is found; this is best-effort because items inside a QGraphicsItemGroup
+        may not reliably fire selectionChanged.
+        """
+        scene = self._viewer.scene()
+        key   = (self._active_board, self._active_layer)
+        ls    = self._layer_scenes.get(key)
+
+        # Attempt to find and visually mark the scene item (best-effort)
+        scene.blockSignals(True)
+        try:
+            scene.clearSelection()
+            for item in scene.items():
+                if item.data(0) == obj_id:
+                    item.setSelected(True)
+                    break
+        finally:
+            scene.blockSignals(False)
+
+        # Always drive inspector and highlight directly, mirroring
+        # _on_selection_changed, so the result is correct even when the
+        # scene's selectionChanged signal is blocked or not emitted.
+        if ls:
+            ls.highlight_object(obj_id)
+
+        obj_row = self._db.conn().execute(
+            "SELECT type FROM objects WHERE id=?", (obj_id,)
+        ).fetchone()
+        if obj_row and obj_row["type"] == "pin":
+            self._inspector.show_pin(obj_id)
+            return
+
+        comp_row = self._db.conn().execute(
+            "SELECT id FROM components WHERE object_id=?", (obj_id,)
+        ).fetchone()
+        if comp_row:
+            self._inspector.show_component(comp_row["id"])
+        else:
+            self._inspector.show_object(obj_id)
 
     def _on_canvas_release(self, pt: QPointF):
         if self._canvas_mode == CanvasMode.ADD_COMPONENT:

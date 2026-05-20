@@ -48,20 +48,21 @@ from PyQt6.QtWidgets import (
 )
 
 from toolkit.gui.dialogs.scan_layer import ScanLayerResult
+from toolkit.gui.theme import THEME
 from toolkit.gui.viewer import ImageViewer, bgr_to_pixmap
 
 # ---------------------------------------------------------------------------
-# Overlay colours per scan type
+# Overlay colours per scan type — sourced from active THEME
 # ---------------------------------------------------------------------------
 
 _COLOURS = {
-    "vias":    QColor(255,  80,  80),   # red
-    "pads":    QColor(255, 200,   0),   # amber
-    "traces":  QColor(  0, 140, 255),   # blue
-    "text":    QColor(255, 160,  50),   # orange
-    "outline": QColor(  0, 220, 255),   # cyan
+    "vias":    THEME.scan_via_color,
+    "pads":    THEME.scan_pad_color,
+    "traces":  THEME.scan_trace_color,
+    "text":    THEME.scan_text_color,
+    "outline": THEME.scan_outline_color,
 }
-_MANUAL_COLOUR = QColor(255, 255, 255)  # white for manually added items
+_MANUAL_COLOUR = THEME.scan_manual_color
 
 
 # ---------------------------------------------------------------------------

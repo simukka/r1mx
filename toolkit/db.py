@@ -32,10 +32,14 @@ from toolkit.paths import REPO_ROOT as _REPO, DB_PATH, COMPONENTS_DIR as _COMPON
 _SCHEMA = """
 -- Top-level inventory of PCB boards
 CREATE TABLE IF NOT EXISTS boards (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT UNIQUE NOT NULL,
-    description TEXT,
-    created_at  TEXT DEFAULT (datetime('now'))
+    id           INTEGER PRIMARY KEY,
+    name         TEXT UNIQUE NOT NULL,
+    display_name TEXT,                          -- human-readable label, e.g. "CPU/IO Board"
+    description  TEXT,
+    directory    TEXT,                          -- path to board dir, relative to REPO_ROOT
+    notes        TEXT,
+    updated_at   TEXT,
+    created_at   TEXT DEFAULT (datetime('now'))
 );
 
 -- Physical PCB layers (one row per image / layer combo)
@@ -255,6 +259,20 @@ class DB:
             c.execute(
                 "ALTER TABLE components ADD COLUMN status TEXT DEFAULT 'unknown'"
             )
+        # boards: add directory, display_name, notes, updated_at (added later)
+        existing_board_cols = {r[1] for r in c.execute("PRAGMA table_info(boards)").fetchall()}
+        for col, defn in [
+            ("directory",    "TEXT"),
+            ("display_name", "TEXT"),
+            ("notes",        "TEXT"),
+            ("updated_at",   "TEXT"),
+        ]:
+            if col not in existing_board_cols:
+                c.execute(f"ALTER TABLE boards ADD COLUMN {col} {defn}")
+        # Backfill directory for boards that predate this column
+        c.execute(
+            "UPDATE boards SET directory = 'components/' || name WHERE directory IS NULL"
+        )
         # object_datasheets may not exist in pre-existing databases
         self.migrate_add_object_datasheets()
         # component_pinouts / component_pins were added in a later version
@@ -265,15 +283,117 @@ class DB:
 
     # ── Boards ─────────────────────────────────────────────────────────────
 
-    def get_or_create_board(self, name: str, description: str = "") -> RowRef:
+    def get_board(self, board_id: int) -> sqlite3.Row | None:
+        """Return a board row by id, or None if not found."""
+        return self.conn().execute(
+            "SELECT * FROM boards WHERE id=?", (int(board_id),)
+        ).fetchone()
+
+    def get_board_by_name(self, name: str) -> sqlite3.Row | None:
+        """Return a board row by slug name, or None if not found."""
+        return self.conn().execute(
+            "SELECT * FROM boards WHERE name=?", (name,)
+        ).fetchone()
+
+    def get_board_abs_dir(self, board: int | str) -> Path:
+        """Return the absolute filesystem directory for a board.
+
+        Parameters
+        ----------
+        board : board id (int) or slug name (str)
+
+        Raises
+        ------
+        KeyError  if the board does not exist
+        ValueError if the board row has no ``directory`` set
+        """
+        if isinstance(board, str):
+            row = self.get_board_by_name(board)
+        else:
+            row = self.get_board(board)
+        if row is None:
+            raise KeyError(f"board not found: {board!r}")
+        directory = row["directory"]
+        if not directory:
+            raise ValueError(f"board {board!r} has no directory set")
+        return _REPO / directory
+
+    def create_board(
+        self,
+        name: str,
+        directory: str = "",
+        display_name: str = "",
+        description: str = "",
+        notes: str = "",
+    ) -> RowRef:
+        """Create a new board row and return it.
+
+        Raises ``ValueError`` if a board with the same name already exists.
+        """
+        c = self.conn()
+        if c.execute("SELECT id FROM boards WHERE name=?", (name,)).fetchone():
+            raise ValueError(f"board {name!r} already exists")
+        if not directory:
+            directory = f"components/{name}"
+        cur = c.execute(
+            "INSERT INTO boards(name, directory, display_name, description, notes) VALUES (?,?,?,?,?)",
+            (name, directory, display_name, description, notes),
+        )
+        c.commit()
+        row = c.execute("SELECT * FROM boards WHERE id=?", (cur.lastrowid,)).fetchone()
+        return RowRef(row)
+
+    def update_board(self, board_id: int, **fields) -> None:
+        """Update fields on a board row.
+
+        Allowed keys: ``name``, ``directory``, ``display_name``,
+        ``description``, ``notes``.  ``updated_at`` is set automatically.
+        """
+        _allowed = {"name", "directory", "display_name", "description", "notes"}
+        updates = {k: v for k, v in fields.items() if k in _allowed}
+        if not updates:
+            return
+        updates["updated_at"] = datetime.now().isoformat()
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [int(board_id)]
+        c = self.conn()
+        c.execute(f"UPDATE boards SET {set_clause} WHERE id=?", values)
+        c.commit()
+
+    def delete_board(self, board_id: int) -> None:
+        """Delete a board and all its children (FK cascade: layers → objects → components)."""
+        c = self.conn()
+        c.execute("DELETE FROM boards WHERE id=?", (int(board_id),))
+        c.commit()
+
+    def seed_boards_from_filesystem(self) -> list[str]:
+        """Create board rows for every subdirectory under COMPONENTS_DIR.
+
+        Existing boards are left untouched (idempotent).
+        Returns the list of board names that were newly created.
+        """
+        created: list[str] = []
+        for board_dir in sorted(_COMPONENTS_DIR.iterdir()):
+            if not board_dir.is_dir():
+                continue
+            name = board_dir.name
+            if self.get_board_by_name(name) is None:
+                rel = str(board_dir.relative_to(_REPO))
+                self.create_board(name, directory=rel)
+                created.append(name)
+        return created
+
+    def get_or_create_board(self, name: str, description: str = "", directory: str = "") -> RowRef:
         """Return a board row, creating it when needed."""
         c = self.conn()
         row = c.execute("SELECT * FROM boards WHERE name=?", (name,)).fetchone()
         if row:
             return RowRef(row)
+        if not directory:
+            directory = f"components/{name}"
         cur = c.execute(
-            "INSERT INTO boards(name, description) VALUES (?,?)",
-            (name, description),
+            "INSERT INTO boards(name, description, directory) VALUES (?,?,?)",
+            (name, description, directory),
         )
         c.commit()
         row = c.execute("SELECT * FROM boards WHERE id=?", (cur.lastrowid,)).fetchone()
@@ -348,6 +468,51 @@ class DB:
         return self.conn().execute(
             "SELECT * FROM layers WHERE board_id=? ORDER BY name", (board_id,)
         ).fetchall()
+
+    def get_layer_by_id(self, layer_id: int) -> sqlite3.Row | None:
+        """Return a layer row by its primary key, or None."""
+        return self.conn().execute(
+            "SELECT * FROM layers WHERE id=?", (int(layer_id),)
+        ).fetchone()
+
+    def create_layer(self, board_id: int, name: str) -> RowRef:
+        """Create a new layer for *board_id* with the given *name*.
+
+        Raises ``ValueError`` if a layer with that name already exists on this
+        board.  Returns the new row as a :class:`RowRef`.
+        """
+        c = self.conn()
+        if c.execute(
+            "SELECT id FROM layers WHERE board_id=? AND name=?", (int(board_id), name)
+        ).fetchone():
+            raise ValueError(f"layer {name!r} already exists on board {board_id}")
+        cur = c.execute(
+            "INSERT INTO layers(board_id, name) VALUES (?,?)", (int(board_id), name)
+        )
+        c.commit()
+        row = c.execute("SELECT * FROM layers WHERE id=?", (cur.lastrowid,)).fetchone()
+        return RowRef(row)
+
+    def update_layer(self, layer_id: int, **fields) -> None:
+        """Update mutable fields on a layer row.
+
+        Allowed keys: ``name``, ``source_image``, ``notes``.
+        """
+        _allowed = {"name", "source_image", "notes"}
+        updates = {k: v for k, v in fields.items() if k in _allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [int(layer_id)]
+        c = self.conn()
+        c.execute(f"UPDATE layers SET {set_clause} WHERE id=?", values)
+        c.commit()
+
+    def delete_layer(self, layer_id: int) -> None:
+        """Delete a layer and all its objects (FK cascade → objects → components)."""
+        c = self.conn()
+        c.execute("DELETE FROM layers WHERE id=?", (int(layer_id),))
+        c.commit()
 
     # ── Objects ────────────────────────────────────────────────────────────
 
@@ -696,13 +861,206 @@ class DB:
             "SELECT * FROM objects WHERE id=?", (object_id,)
         ).fetchone()
 
+    def objects_at_mm(
+        self,
+        layer_id: int,
+        x_mm: float,
+        y_mm: float,
+        tolerance_mm: float = 0.5,
+    ) -> list:
+        """Return all objects whose area contains the point (x_mm, y_mm).
+
+        Hit-test geometry per type:
+        - via:         circle — distance from centre <= width_mm / 2
+        - pad/component/text_label: AABB — point inside (x, y, x+w, y+h)
+        - pin:         proximity — within tolerance_mm of centre
+        Traces, outlines, and copper areas are excluded.
+        """
+        return self.conn().execute(
+            """
+            SELECT * FROM objects
+            WHERE layer_id = ?
+              AND type NOT IN ('trace', 'outline', 'copper_area', 'photo')
+              AND (
+                  -- Circle hit: via (centre stored at x_mm, y_mm)
+                  (type = 'via'
+                   AND (? - x_mm) * (? - x_mm) + (? - y_mm) * (? - y_mm)
+                       <= (COALESCE(width_mm, 1.0) / 2.0) * (COALESCE(width_mm, 1.0) / 2.0))
+                  OR
+                  -- AABB hit: pad / component / text_label (top-left at x_mm, y_mm)
+                  (type IN ('pad', 'component', 'text_label')
+                   AND ? BETWEEN x_mm AND x_mm + COALESCE(width_mm, 1.0)
+                   AND ? BETWEEN y_mm AND y_mm + COALESCE(height_mm, 1.0))
+                  OR
+                  -- Proximity hit: pin (centre at x_mm, y_mm)
+                  (type = 'pin'
+                   AND ABS(? - x_mm) <= ?
+                   AND ABS(? - y_mm) <= ?)
+              )
+            ORDER BY type, label
+            """,
+            (
+                layer_id,
+                x_mm, x_mm, y_mm, y_mm,   # via circle params
+                x_mm, y_mm,                # AABB params
+                x_mm, tolerance_mm, y_mm, tolerance_mm,  # pin proximity params
+            ),
+        ).fetchall()
+
     def delete_object(self, object_id: int) -> None:
-        """Delete a single object (cascades to components, object_datasheets)."""
+        """Delete a single object (cascades to components, pins, object_datasheets)."""
         c = self.conn()
         # Explicitly delete the linked components row first for DBs with FK off
         c.execute("DELETE FROM components WHERE object_id=?", (object_id,))
+        # Delete pins that belong to this component (stored as JSON component_id)
+        c.execute(
+            "DELETE FROM objects WHERE type='pin' AND json_extract(properties,'$.component_id')=?",
+            (object_id,),
+        )
         c.execute("DELETE FROM objects WHERE id=?", (object_id,))
         c.commit()
+
+    def shift_layer_objects(
+        self, layer_id: int, dx_mm: float, dy_mm: float
+    ) -> int:
+        """Shift every object on *layer_id* by (dx_mm, dy_mm).
+
+        Handles all object types:
+        - Most types: ``x_mm`` / ``y_mm`` columns updated directly.
+        - ``trace``: ``properties.start`` and ``properties.end`` (JSON arrays
+          ``[x, y]``) updated via SQLite ``json_set``.
+        - ``outline``: ``properties.points`` (list of ``[x, y]``) updated in
+          Python (rare, so a loop is acceptable).
+
+        Returns the total number of objects updated.
+        """
+        if dx_mm == 0.0 and dy_mm == 0.0:
+            return 0
+        c = self.conn()
+
+        # 1. All types except trace and outline — update x_mm / y_mm columns
+        c.execute(
+            """UPDATE objects
+                  SET x_mm = x_mm + ?,
+                      y_mm = y_mm + ?
+                WHERE layer_id = ?
+                  AND type NOT IN ('trace', 'outline')""",
+            (dx_mm, dy_mm, layer_id),
+        )
+
+        # 2. Traces — use SQLite json_set to update start/end without loading
+        #    each row into Python (fast even for 100k+ traces)
+        c.execute(
+            """UPDATE objects
+                  SET properties = json_set(
+                      properties,
+                      '$.start[0]', CAST(json_extract(properties, '$.start[0]') AS REAL) + ?,
+                      '$.start[1]', CAST(json_extract(properties, '$.start[1]') AS REAL) + ?,
+                      '$.end[0]',   CAST(json_extract(properties, '$.end[0]')   AS REAL) + ?,
+                      '$.end[1]',   CAST(json_extract(properties, '$.end[1]')   AS REAL) + ?
+                  )
+                WHERE layer_id = ? AND type = 'trace'""",
+            (dx_mm, dy_mm, dx_mm, dy_mm, layer_id),
+        )
+
+        # 3. Outlines — update the points array in Python
+        outline_rows = c.execute(
+            "SELECT id, properties FROM objects WHERE layer_id = ? AND type = 'outline'",
+            (layer_id,),
+        ).fetchall()
+        for row in outline_rows:
+            props = json.loads(row["properties"] or "{}")
+            pts = props.get("points", [])
+            props["points"] = [[p[0] + dx_mm, p[1] + dy_mm] for p in pts if len(p) >= 2]
+            c.execute(
+                "UPDATE objects SET properties = ? WHERE id = ?",
+                (json.dumps(props), row["id"]),
+            )
+
+        c.commit()
+
+        total: int = c.execute(
+            "SELECT COUNT(*) FROM objects WHERE layer_id = ?", (layer_id,)
+        ).fetchone()[0]
+        return total
+
+    # ── Pin helpers ──────────────────────────────────────────────────────────
+
+    def add_pin(
+        self,
+        layer_id: int,
+        component_object_id: int,
+        x_mm: float,
+        y_mm: float,
+        *,
+        pin_number: str | None = None,
+        label: str | None = None,
+    ) -> int:
+        """Place a manual pin marker on a layer, linked to a component object.
+
+        The pin is stored as a ``"pin"`` type object with
+        ``properties = {"component_id": <component_object_id>}``.
+
+        Parameters
+        ----------
+        layer_id             : destination layer
+        component_object_id  : the object.id of the parent component
+        x_mm, y_mm           : absolute position on the canvas (mm)
+        pin_number           : optional pin number string (e.g. "1", "A2")
+        label                : optional net / signal name (e.g. "VCC")
+
+        Returns
+        -------
+        int — the new object id
+        """
+        display_label = pin_number or label or None
+        return self.create_object(
+            layer_id=layer_id,
+            obj_type="pin",
+            x_mm=x_mm,
+            y_mm=y_mm,
+            label=display_label,
+            verified=1,
+            properties={
+                "component_id": component_object_id,
+                "pin_number": pin_number,
+                "label": label,
+            },
+        )
+
+    def get_pins_for_component(self, component_object_id: int) -> list[sqlite3.Row]:
+        """Return all pin objects linked to *component_object_id*, ordered by id."""
+        return self.conn().execute(
+            """SELECT o.* FROM objects o
+               WHERE o.type = 'pin'
+                 AND json_extract(o.properties, '$.component_id') = ?
+               ORDER BY o.id""",
+            (component_object_id,),
+        ).fetchall()
+
+    def update_pin_object(
+        self,
+        pin_object_id: int,
+        *,
+        pin_number: str | None = ...,  # type: ignore[assignment]
+        label: str | None = ...,       # type: ignore[assignment]
+    ) -> None:
+        """Update the pin_number and/or label fields of a ``"pin"`` objects row.
+
+        Pass ``pin_number=None`` to clear the pin number;
+        omit the argument to leave it unchanged.
+        """
+        obj = self.get_object(pin_object_id)
+        if obj is None:
+            return
+        props = json.loads(obj["properties"] or "{}")
+        _sentinel = ...
+        if pin_number is not _sentinel:   # type: ignore[comparison-overlap]
+            props["pin_number"] = pin_number
+        if label is not _sentinel:        # type: ignore[comparison-overlap]
+            props["label"] = label
+        display_label = props.get("pin_number") or props.get("label") or None
+        self.update_object(pin_object_id, label=display_label, properties=props)
 
     def update_object(self, object_id: int, **fields) -> None:
         """Update arbitrary fields on an object row.
@@ -1405,7 +1763,7 @@ class DB:
 
     def migrate_calibration_json(self, board_name: str) -> bool:
         """Import a calibration.json file into the database. Returns True if imported."""
-        board_dir = _COMPONENTS_DIR / board_name
+        board_dir = self.get_board_abs_dir(board_name) if self.get_board_by_name(board_name) else _COMPONENTS_DIR / board_name
         cal_path = board_dir / "calibration.json"
         if not cal_path.exists():
             return False

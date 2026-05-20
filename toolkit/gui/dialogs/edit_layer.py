@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
 
 from toolkit.db import DB
 from toolkit.gui.dialogs.image_picker import ImagePickerDialog
-from toolkit.paths import COMPONENTS_DIR
 
 class EditLayerDialog(QDialog):
     """
@@ -47,7 +46,7 @@ class EditLayerDialog(QDialog):
 
         self._board_id  = board_id
         self._layer_id  = layer_row["id"] if layer_row else None
-        self._board_dir = COMPONENTS_DIR / board_name
+        self._board_dir = db.get_board_abs_dir(board_name)
 
         cal_data = {}
         if layer_row and layer_row["calibration"]:

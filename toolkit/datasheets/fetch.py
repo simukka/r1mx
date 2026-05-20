@@ -78,7 +78,7 @@ SESSION = requests.Session()
 SESSION.headers.update({
     "User-Agent": (
         "Mozilla/5.0 (compatible; r1mx-datasheet-fetcher/1.0; "
-        "+https://github.com/simook/r1mx)"
+        "+https://github.com/simukka/r1mx)"
     )
 })
 
@@ -460,6 +460,7 @@ def fetch_one(
     force: bool,
     dry_run: bool,
     delay: float,
+    db=None,
 ) -> FetchResult:
     result = FetchResult(board=entry.board, reference=entry.reference, ref_type=entry.ref_type)
 
@@ -467,7 +468,13 @@ def fetch_one(
     if output_dir:
         dest = output_dir / f"{entry.reference}.pdf"
     else:
-        board_dir = COMPONENTS_DIR / entry.board / "datasheets"
+        if db is not None:
+            try:
+                board_dir = db.get_board_abs_dir(entry.board) / "datasheets"
+            except (KeyError, ValueError):
+                board_dir = COMPONENTS_DIR / entry.board / "datasheets"
+        else:
+            board_dir = COMPONENTS_DIR / entry.board / "datasheets"
         dest = board_dir / f"{entry.reference}.pdf"
 
     # Skip if already downloaded
@@ -667,16 +674,22 @@ def main() -> int:
     results_path: Path = args.results_csv or bom_path.parent / "fetch_results.csv"
 
     if args.dry_run:
+        from toolkit.db import DB as _DB
+        _db = _DB()
         log.info("Dry run — would search for %d components:", len(entries))
         for e in entries:
-            dest = (
-                args.output_dir / f"{e.reference}.pdf"
-                if args.output_dir
-                else COMPONENTS_DIR / e.board / "datasheets" / f"{e.reference}.pdf"
-            )
+            if args.output_dir:
+                dest = args.output_dir / f"{e.reference}.pdf"
+            else:
+                try:
+                    dest = _db.get_board_abs_dir(e.board) / "datasheets" / f"{e.reference}.pdf"
+                except (KeyError, ValueError):
+                    dest = COMPONENTS_DIR / e.board / "datasheets" / f"{e.reference}.pdf"
             print(f"  {e.board}/{e.reference}  ({e.ref_type})  →  {dest}")
         return 0
 
+    from toolkit.db import DB as _DB
+    _db = _DB()
     results: list[FetchResult] = []
     stats = {"downloaded": 0, "skipped": 0, "not_found": 0, "failed": 0}
 
@@ -691,6 +704,7 @@ def main() -> int:
                 force=args.force,
                 dry_run=False,
                 delay=args.delay,
+                db=_db,
             )
             results.append(result)
             stats[result.status] = stats.get(result.status, 0) + 1
