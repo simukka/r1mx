@@ -1,7 +1,9 @@
 # R1MX
 *Disclaimer: This repository is for educational purposes only.*
 An honest attempt to reverse engineer the RED ONE camera for failure analysis
-and obsolescence management.  
+and obsolescence management.
+
+**[View the documentation site](https://simukka.github.io/r1mx/)** &nbsp;|&nbsp; Specifications, components, firmware history, and repair guides.
 
 The RED ONE is a digital cinema camera that is known for being the first
 digital camera that is equivalent to "35mm film". It was released in 2007 and
