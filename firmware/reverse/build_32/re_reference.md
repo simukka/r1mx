@@ -1123,7 +1123,7 @@ With `--r1mx` (59/64 patches) and the `r1mx-virtex4` QEMU machine:
 - **usrInit** fully completes — UART output `^^^123456789\r\n` confirmed ✓
 - **kernelInit (0x5a7f30)** called — never returns; starts VxWorks multitasking ✓
 - **usrInit called TWICE** — first from 0x36c3d4 (pre-kernel), second from 0xdde0 (root task) ✓
-- UART output `^^^123456789\r\n` appears TWICE — both usrInit runs complete ✓
+- UART emits `^^^123456789\r\n` ~18,700 times during boot — `fn_DCB0` (the hardware sequencer) is invoked once per subsystem brought up across both `usrInit` passes and all nested initializers; the prints stop entirely once boot completes (observed: serial line count frozen at 18,701 for 45+ s). An earlier note in this section claimed the string appears "TWICE" — that was a misread of the last two lines of the log. ✓
 - VxWorks task stack confirmed: r1=0x4cce6df0 (task stack at ~1.28 GB, above kernel pool) ✓
 - **Scheduler fix (patch #52):** scheduler null-deref bypassed, root task TCB at 0x0ff9bd30 dispatched ✓
 - **Root task fix (patches #53a/b/c):** initial PC set to fn_381a8c prologue, LR slot initialised, fast-exit NOP'd ✓
@@ -1132,7 +1132,7 @@ With `--r1mx` (59/64 patches) and the `r1mx-virtex4` QEMU machine:
 - **RTTI/ctor/WDB patches (patches #55-57):** RTTI loop bypassed, deferred ctors skipped, WDB wait NOPd ✓
 - **rfi skip handler (patch #58):** 0x700 Program Exception handler replaced; faulting instructions skipped cleanly ✓
 - **WDB task (0x37c440) reached autonomously:** system runs without any GDB BP intervention ✓
-- **System stable:** idles at PC=0x10 for 30+ seconds post-boot ✓
+- **System stable post-boot:** QEMU stays alive indefinitely at ~100% CPU with UART silent. The CPU is busy servicing Program exceptions through the patched 0x700 rfi-skip handler (PC samples cluster around 0x700 and the boot-vector range 0x0–0x80), but no `cpu_abort`, no reset cycle, no further serial output. Verified by HW breakpoint at 0x37c440 firing cleanly, then free-running 40+ s with the serial-line count locked at 18,701. (Earlier note claimed "idles at PC=0x10 for 30+ seconds" — PC=0x10 does appear in samples, but it's *traversed*, not parked; the actual idle is the exception-handler steady state described here.) ✓
 - **CURRENT STATE:** WDB task running; waiting for UDP connection on port 17185
 
 **Next open question:** What populates the root task descriptor at 0x020390d0?
@@ -3096,4 +3096,136 @@ The OSD compositing (overlaying `FlashVx` output onto the video signal) happens 
   --> [TODO] Confirm FlashVx::FrameBufferAlloc address
   --> [TODO] Add QEMU framebuffer RAM write trap
   --> [GOAL] Capture FrameBufferBlit = rendered OSD frame pixels
+```
+
+---
+
+## 24. SWF / Splash Screen — Extraction, Decompile, and Modification
+
+### 24.1 Extracted Assets
+
+All assets extracted to `firmware/reverse/build_32/assets/` by `firmware/scripts/extract_assets.py`.
+
+| File | Offset in software.bin | Size | Description |
+|------|------------------------|------|-------------|
+| `swf_gui_1.swf` | `0x9E03BC` | 1,329,944 B | Primary GUI SWF v7 (AS2, 427 classes) |
+| `swf_gui_2.swf` | `0xB24EF8` | 1,346,327 B | Secondary GUI SWF v7 (AS2) |
+| `splash_mx.raw` | `0x942B88` (gzip) | 4,341,760 B raw | Mysterium-X splash (RGBA, 1280×848) |
+| `splash_orig.raw` | `0x9C0EDC` (gzip) | 4,341,760 B raw | RED ONE splash (RGBA, 1280×848) |
+| `splash_mx.gz` | `0x942B88` | 516,909 B | Compressed blob (for patching back) |
+| `splash_orig.gz` | `0x9C0EDC` | 72,360 B | Compressed blob (for patching back) |
+| `splash_mx.png` | — | — | Rendered preview |
+| `splash_orig.png` | — | — | Rendered preview |
+
+**Splash format confirmed:** RGBA 32-bit, 1280×848. Content: RED DIGITAL CINEMA logo + "INITIALIZING..."
+
+**Gzip region sizes:**
+- `splash_mx`: `0x942B88` – `0x9C0EB4` (516,909 bytes)
+- `splash_orig`: `0x9C0EDC` – `0x9D2983` (72,360 bytes)
+
+### 24.2 SWF Architecture
+
+The GUI is **SWF v7 ActionScript 2.0** rendered by **Scaleform GFx** (FlashVx wrapper). The two SWFs
+appear to be two configurations of the same codebase — both contain identical package structure.
+427 AS2 classes decompiled from swf_gui_1, organized into:
+
+- `GUI.GPDB.*` — Camera parameter database (GPDB): connects to firmware via XML socket on VxWorks,
+  reads/writes all camera params (`DEBUG.*`, `UPGRADE.*`, `SENSOR.*`, `SYSTEM.*`, etc.)
+- `GUI.OSD_Components.*` — All UI components: menus, HUD overlays, playback, status LCD, splash
+
+**Boot sequence in ActionScript:**
+
+```
+GPDB() constructed → GPDBCamera connects to 127.0.0.1 (on camera) or specified IP
+  → GuiBoot1: GET_FILE FactoryDefaults.xml
+  → GuiBoot2: GET_PARAM * (all parameters)
+  → GuiBoot3: fire callbacks, call goFnc()
+    → OSD.GoSplash()
+      → attachMovie("SplashScreenMC") → SplashScreenMC.SetGPDB()
+        → check SENSOR.REVISION_NUMBER → show splash_mx or splash_orig
+        → show PIN (SYSTEM.MANUFACTURING.CAMERA_SERIAL_NUMBER)
+        → show version (SYSTEM.VERSION.RED_RELEASE)
+        → BOOT_PROGRESS bar: 1280px wide at 100%
+      → attachMovie("UpgradeMC") → UpgradeMC.SmartUpgrade()
+        → if UPGRADE.AVAILABLE == "true" → show upgrade prompt
+        → if UPGRADE.APPLYUPGRADE set → firmware update begins
+      → OSD.GoCamera() → main camera UI
+```
+
+### 24.3 Key Modifiable Parameters (via ActionScript)
+
+| AS2 code | Param name | Effect |
+|----------|------------|--------|
+| `gpdb.paramGet("SENSOR.REVISION_NUMBER")` | `SENSOR.REVISION_NUMBER` | `true` = show MX splash, `false` = show original |
+| `gpdb.paramGet("UPGRADE.AVAILABLE")` | `UPGRADE.AVAILABLE` | `true` = show upgrade prompt at boot |
+| `gpdb.paramSet("UPGRADE.APPLYUPGRADE","true")` | `UPGRADE.APPLYUPGRADE` | Triggers firmware upgrade |
+| `gpdb.paramGet("SYSTEM.VERSION.RED_RELEASE")` | `SYSTEM.VERSION.RED_RELEASE` | Version string on splash screen |
+| `gpdb.paramGet("SYSTEM.MANUFACTURING.CAMERA_SERIAL_NUMBER")` | — | PIN on splash screen |
+
+### 24.4 SWF Decompile Workflow
+
+```bash
+# One-time setup (Java 21 required):
+wget https://github.com/jindrapetrik/jpexs-decompiler/releases/download/version22.0.0/ffdec_22.0.0.zip
+unzip ffdec_22.0.0.zip -d /tmp/ffdec
+
+# Export all ActionScript (already done):
+java -jar /tmp/ffdec/ffdec.jar -export script \
+    firmware/reverse/build_32/assets/swf_gui_1_as \
+    firmware/reverse/build_32/assets/swf_gui_1.swf
+
+# Open FFDec GUI for interactive editing:
+java -jar /tmp/ffdec/ffdec.jar firmware/reverse/build_32/assets/swf_gui_1.swf
+```
+
+**Edit and repack:**
+1. Open SWF in FFDec GUI (double-click a class → edit AS2 inline)
+2. **File → Save as** → saves modified SWF
+3. Patch back (see §24.5)
+
+### 24.5 Patching Assets Back Into software.bin
+
+**In-place patch (size must not exceed original):**
+
+```python
+import pathlib
+
+def patch_binary(firmware_path, offset, new_bytes, original_size):
+    data = bytearray(pathlib.Path(firmware_path).read_bytes())
+    assert len(new_bytes) <= original_size, \
+        f"New asset ({len(new_bytes)}B) exceeds original ({original_size}B)"
+    data[offset:offset+len(new_bytes)] = new_bytes
+    # Zero-pad if smaller
+    if len(new_bytes) < original_size:
+        data[offset+len(new_bytes):offset+original_size] = bytes(original_size - len(new_bytes))
+    pathlib.Path(firmware_path).write_bytes(data)
+
+# Patch SWF gui 1 (1,329,944 bytes):
+modified_swf = pathlib.Path("firmware/reverse/build_32/assets/swf_gui_1_modified.swf").read_bytes()
+patch_binary("firmware/reverse/build_32/extracted/software.bin",
+             0x9E03BC, modified_swf, 1_329_944)
+
+# Patch splash_mx (gzip blob, 516,909 bytes):
+import gzip
+modified_raw = pathlib.Path("firmware/reverse/build_32/assets/splash_mx_modified.raw").read_bytes()
+new_gz = gzip.compress(modified_raw, compresslevel=9)
+patch_binary("firmware/reverse/build_32/extracted/software.bin",
+             0x942B88, new_gz, 516_909)
+```
+
+**Key constraint:** The gzip-compressed splash size must fit in the original region.
+- `splash_mx` region: 516,909 bytes (`0x942B88` – `0x9C0EB4`)
+- `splash_orig` region: 72,360 bytes (`0x9C0EDC` – `0x9D2983`)
+- Both decompress to 4,341,760 bytes (1280×848 RGBA)
+
+For splash_orig: only 72,360 bytes available → heavily compressed, ~98% reduction.
+A custom image may not compress to the same size — use `splash_orig` (the larger `splash_mx`
+region) for custom splashes to have more headroom.
+
+**After patching, repackage:**
+```bash
+./firmware/scripts/repackage_firmware.sh \
+    --input firmware/reverse/build_32/extracted/software.bin \
+    --build-dir firmware/reverse/build_32/extracted/ \
+    --output /tmp/redone.su
 ```

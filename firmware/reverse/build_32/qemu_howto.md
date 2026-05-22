@@ -129,19 +129,20 @@ cd ~/src/RED/r1mx/firmware
 
 QEMU launches with `-nographic`; the XUartLite console appears on stdout.
 
-**Expected serial output** (first 2-3 seconds):
-```
-^^^123456789
-(VxWorks kernel banner)
-^^^123456789
-(second usrInit pass from root task)
-```
+**Expected serial output** (first ~5 seconds): a long burst of identical
+`^^^123456789` lines — about **18,700** of them — then complete silence.
+Each line is one call to `fn_DCB0` (the hardware sequencer), printed before
+each subsystem brought up across both `usrInit` passes and every nested
+initializer; the count reflects the total subsystem-init invocations, not
+two distinct passes. (An earlier version of this guide claimed only two
+lines appear; that was a misread of the tail of the log.)
 
-The triple `^^^` followed by digits `1`-`9` is the hardware sequencer
-(`fn_DCB0`) printing a progress marker before each subsystem init.
-
-**System is up** when output stops and the process idles. The WDB agent is
-listening on UDP 17185. Press `Ctrl+A X` to quit QEMU.
+**System is up** when the `^^^123456789` torrent stops (count locks at
+~18,701) and the process idles. QEMU stays at ~100% CPU even when idle —
+that's the patched 0x700 rfi-skip handler absorbing Program exceptions
+from unimplemented PPC405 SPRs accessed by the VxWorks idle path, not a
+crash loop. The WDB agent is listening on UDP 17185. Press `Ctrl+A X` to
+quit QEMU.
 
 ---
 
