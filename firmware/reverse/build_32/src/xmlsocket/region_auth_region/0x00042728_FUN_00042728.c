@@ -1,0 +1,79 @@
+/* 0x00042728  FUN_00042728  size=564 bytes */
+
+
+void FUN_00042728(undefined4 param_1,int param_2)
+
+{
+  char acStack_88 [8];
+  undefined1 auStack_80 [16];
+  undefined1 auStack_70 [4];
+  uint uStack_6c;
+  undefined4 uStack_5c;
+  uint uStack_58;
+  undefined1 auStack_50 [4];
+  undefined4 uStack_4c;
+  undefined4 uStack_38;
+  undefined4 uStack_34;
+  char *pcStack_30;
+  undefined4 uStack_2c;
+  undefined1 *puStack_28;
+  undefined1 *puStack_24;
+  undefined4 uStack_1c;
+  int iStack_18;
+  undefined4 uStack_14;
+  int iStack_10;
+  undefined4 uStack_8;
+  int iStack_4;
+  
+  puStack_24 = &stack0xffffff70;
+  uStack_38 = 0x25710c;
+  pcStack_30 = acStack_88;
+  uStack_34 = 0xe9622a;
+  uStack_2c = 0x528cc;
+  puStack_28 = (undefined1 *)register0x00000004;
+  uStack_1c = param_1;
+  iStack_18 = param_2;
+  FUN_003d1214(auStack_50);
+  uStack_4c = 0xffffffff;
+  uStack_14 = FUN_0005e890();
+  FUN_005ea3bc(auStack_70,0xd3b62c);
+  uStack_4c = 4;
+  FUN_005e817c(auStack_80,uStack_14,auStack_70);
+  uStack_4c = 3;
+  iStack_10 = FUN_005e8cd4(auStack_80,&uStack_1c,0xffffffff);
+  uStack_4c = 4;
+  FUN_005e7ed0(auStack_80);
+  if (0xf < uStack_58) {
+    FUN_00245c34(uStack_6c);
+  }
+  uStack_58 = 0xf;
+  uStack_6c = uStack_6c & 0xffffff;
+  uStack_5c = 0;
+  if (iStack_10 != 0) {
+    uStack_4c = 0xffffffff;
+    FUN_0005e784(2,3,0xc,0xd38d1c,0x65cf2c,0x22a,0xd3b664,uStack_1c);
+  }
+  acStack_88[0] = '\x01' - (iStack_18 == 0);
+  uStack_4c = 0xffffffff;
+  uStack_8 = FUN_0005e890();
+  FUN_005ea3bc(auStack_70,0xd3b64c);
+  uStack_4c = 2;
+  FUN_005e817c(auStack_80,uStack_8,auStack_70);
+  uStack_4c = 1;
+  iStack_4 = FUN_005e8510(auStack_80,acStack_88,0xffffffff);
+  uStack_4c = 2;
+  FUN_005e7ed0(auStack_80);
+  if (0xf < uStack_58) {
+    FUN_00245c34(uStack_6c);
+  }
+  uStack_58 = 0xf;
+  uStack_6c = uStack_6c & 0xffffff;
+  uStack_5c = 0;
+  if (iStack_4 != 0) {
+    uStack_4c = 0xffffffff;
+    FUN_0005e784(2,3,0xc,0xd38d1c,0x65cf2c,0x230,0xd3b694,acStack_88[0]);
+  }
+  FUN_003d12b8(auStack_50);
+  return;
+}
+

@@ -1,0 +1,26 @@
+/* 0x00086c34  FUN_00086c34  size=176 bytes */
+
+
+void FUN_00086c34(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  int iVar3;
+  
+  FUN_0013068c(*(undefined4 *)(param_1 + 0x90),*(undefined4 *)(param_1 + 0x60),0x16000,0x160,0x40);
+  iVar3 = 0x5800;
+  iVar2 = *(int *)(param_1 + 0x60);
+  iVar1 = 0;
+  do {
+    *(undefined4 *)(iVar2 + iVar1 * 4) = 0xc0000000;
+    iVar1 = iVar1 + 1;
+    iVar3 = iVar3 + -1;
+  } while (iVar3 != 0);
+  *(undefined4 *)(param_1 + 0x8c) = 0;
+  FUN_0039acec(param_1 + 0x68e8,0,0x6800);
+  FUN_0039acec(param_1 + 0xe8,0,0x6800);
+  FUN_00086ad8(param_1,0,param_2);
+  return;
+}
+

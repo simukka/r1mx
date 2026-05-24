@@ -1,0 +1,41 @@
+/* 0x00398ce8  FUN_00398ce8  size=268 bytes */
+
+
+undefined4 FUN_00398ce8(int param_1)
+
+{
+  int iVar1;
+  undefined2 uVar3;
+  int *piVar2;
+  
+  iVar1 = FUN_00398b98();
+  if (iVar1 == 0) {
+    return 0xffffffff;
+  }
+  if (param_1 == 0) {
+    uVar3 = 4;
+  }
+  else if (param_1 == 1) {
+    uVar3 = 8;
+  }
+  else {
+    if (param_1 != 2) goto LAB_00398d4c;
+    uVar3 = 10;
+  }
+  *(undefined2 *)(iVar1 + 0x18) = uVar3;
+LAB_00398d4c:
+  *(short *)(iVar1 + 0x1a) = (short)param_1;
+  *(int *)(iRam00e9c3e0 + param_1 * 4 + 0xf4) = iVar1;
+  if ((iRam00e27420 == 0) &&
+     (((piVar2 = (int *)FUN_00398e40(), *piVar2 == iVar1 ||
+       (piVar2 = (int *)FUN_00398df4(), *piVar2 == iVar1)) ||
+      (piVar2 = (int *)FUN_00398e8c(), *piVar2 == iVar1)))) {
+    if (iRam00e9c420 == 0) {
+      FUN_0044b118();
+    }
+    FUN_0044b408(0x3a8c9c);
+    iRam00e27420 = 1;
+  }
+  return 0;
+}
+

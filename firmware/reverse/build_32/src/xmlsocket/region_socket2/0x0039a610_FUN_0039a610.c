@@ -1,0 +1,95 @@
+/* 0x0039a610  FUN_0039a610  size=416 bytes */
+
+
+uint FUN_0039a610(byte *param_1,undefined4 *param_2,uint param_3)
+
+{
+  byte bVar1;
+  undefined4 *puVar2;
+  bool bVar3;
+  uint uVar4;
+  int iVar5;
+  uint uVar6;
+  int iVar7;
+  uint uVar8;
+  byte *pbVar9;
+  byte *pbVar10;
+  
+  bVar3 = false;
+  pbVar10 = param_1 + -1;
+  do {
+    pbVar9 = pbVar10;
+    uVar4 = (uint)pbVar9[1];
+    pbVar10 = pbVar9 + 1;
+  } while ((*(byte *)(iRam00e272d8 + uVar4) & 0x28) != 0);
+  pbVar10 = pbVar9 + 2;
+  if (uVar4 == 0x2d) {
+    bVar3 = true;
+  }
+  else if (uVar4 != 0x2b) goto LAB_0039a66c;
+  uVar4 = (uint)*pbVar10;
+  pbVar10 = pbVar9 + 3;
+LAB_0039a66c:
+  if ((((param_3 == 0) || (param_3 == 0x10)) && (uVar4 == 0x30)) &&
+     ((*pbVar10 == 0x78 || (*pbVar10 == 0x58)))) {
+    uVar4 = (uint)pbVar10[1];
+    pbVar10 = pbVar10 + 2;
+    param_3 = 0x10;
+  }
+  if (param_3 == 0) {
+    if (uVar4 == 0x30) {
+      param_3 = 8;
+    }
+    else {
+      param_3 = 10;
+    }
+  }
+  uVar6 = 0xffffffff / param_3;
+  uVar8 = 0;
+  iVar7 = 0;
+  do {
+    bVar1 = *(byte *)(iRam00e272d8 + uVar4);
+    if ((bVar1 & 4) == 0) {
+      if ((bVar1 & 3) == 0) {
+LAB_0039a758:
+        if (iVar7 < 0) {
+          uVar8 = 0xffffffff;
+          puVar2 = (undefined4 *)FUN_00442914();
+          *puVar2 = 0x26;
+        }
+        else if (bVar3) {
+          uVar8 = -uVar8;
+        }
+        if (param_2 != (undefined4 *)0x0) {
+          if (iVar7 != 0) {
+            param_1 = pbVar10 + -1;
+          }
+          *param_2 = param_1;
+        }
+        return uVar8;
+      }
+      if ((bVar1 & 1) == 0) {
+        iVar5 = 0x57;
+      }
+      else {
+        iVar5 = 0x37;
+      }
+      iVar5 = uVar4 - iVar5;
+    }
+    else {
+      iVar5 = uVar4 - 0x30;
+    }
+    if ((int)param_3 <= iVar5) goto LAB_0039a758;
+    if (((iVar7 < 0) || (uVar6 < uVar8)) ||
+       ((uVar8 == uVar6 && ((int)(-1 - param_3 * uVar6) < iVar5)))) {
+      iVar7 = -1;
+    }
+    else {
+      iVar7 = 1;
+      uVar8 = uVar8 * param_3 + iVar5;
+    }
+    uVar4 = (uint)*pbVar10;
+    pbVar10 = pbVar10 + 1;
+  } while( true );
+}
+

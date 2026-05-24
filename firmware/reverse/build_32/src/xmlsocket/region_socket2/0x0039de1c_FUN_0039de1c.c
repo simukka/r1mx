@@ -1,0 +1,34 @@
+/* 0x0039de1c  FUN_0039de1c  size=208 bytes */
+
+
+undefined4 FUN_0039de1c(undefined4 *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  uint uVar3;
+  
+  if (param_2 != 0) {
+    FUN_005accf4(*param_1,0xffffffff);
+    *(undefined4 *)(param_2 + -8) = param_1[2];
+    param_1[2] = param_2 + -8;
+    uVar3 = param_1[5] + 1;
+    param_1[5] = uVar3;
+    if ((param_1[7] == uVar3) && ((uint)param_1[4] < uVar3)) {
+      do {
+        uVar2 = *(undefined4 *)param_1[2];
+        if ((code *)param_1[9] != reset_vector) {
+          (*(code *)param_1[9])((undefined4 *)param_1[2] + 2,param_1[3]);
+        }
+        FUN_0039f108(param_1[2]);
+        iVar1 = param_1[5];
+        param_1[2] = uVar2;
+        param_1[5] = iVar1 - 1U;
+      } while ((uint)param_1[4] < iVar1 - 1U);
+    }
+    FUN_005ad104(*param_1);
+    FUN_005ad104(param_1[1]);
+  }
+  return 0;
+}
+

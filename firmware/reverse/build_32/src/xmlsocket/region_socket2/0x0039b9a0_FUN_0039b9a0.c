@@ -1,0 +1,22 @@
+/* 0x0039b9a0  FUN_0039b9a0  size=164 bytes */
+
+
+undefined4 FUN_0039b9a0(int *param_1,int param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined1 auStack_28 [28];
+  
+  FUN_0039c120(auStack_28,2,uRam00e2758c);
+  iVar1 = FUN_00399bcc(auStack_28);
+  FUN_0039b7f4(*param_1 + iVar1 * -0x3c,param_2);
+  iVar1 = FUN_0039be54(param_2,uRam00e2758c);
+  *(int *)(param_2 + 0x20) = iVar1;
+  if (iVar1 != 0) {
+    iVar2 = FUN_00399bcc(auStack_28);
+    FUN_0039b7f4(*param_1 + iVar2 * -0x3c + iVar1 * 0xe10,param_2);
+  }
+  return 0;
+}
+

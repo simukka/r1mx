@@ -1,0 +1,36 @@
+/* 0x00396b68  FUN_00396b68  size=152 bytes */
+
+
+int FUN_00396b68(undefined2 param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  uint auStack_18 [3];
+  
+  iVar1 = FUN_00450bf0();
+  if (iVar1 == -1) {
+    iVar2 = 0;
+  }
+  else {
+    iVar1 = FUN_00396fdc(param_2,auStack_18);
+    if (iVar1 == 0) {
+      iVar2 = 0;
+    }
+    else {
+      iVar2 = FUN_00398b98();
+      if (iVar2 == 0) {
+        iVar2 = 0;
+      }
+      else {
+        *(ushort *)(iVar2 + 0x18) = (ushort)iVar1;
+        if ((auStack_18[0] & 8) != 0) {
+          *(ushort *)(iVar2 + 0x18) = (ushort)iVar1 | 0x100;
+        }
+        *(undefined2 *)(iVar2 + 0x1a) = param_1;
+      }
+    }
+  }
+  return iVar2;
+}
+

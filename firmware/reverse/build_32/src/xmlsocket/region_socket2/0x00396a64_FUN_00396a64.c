@@ -1,0 +1,50 @@
+/* 0x00396a64  FUN_00396a64  size=260 bytes */
+
+
+undefined4 FUN_00396a64(int param_1)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int iVar3;
+  
+  if ((*(int *)(param_1 + 4) == param_1) && (*(char *)(param_1 + 10) == 'f')) {
+    if (*(ushort *)(param_1 + 0x18) == 0) {
+      puVar1 = (undefined4 *)FUN_00442914();
+      *puVar1 = 9;
+      uVar2 = 0xffffffff;
+    }
+    else {
+      if ((*(ushort *)(param_1 + 0x18) & 8) == 0) {
+        uVar2 = 0;
+      }
+      else {
+        uVar2 = FUN_00396c70();
+      }
+      iVar3 = FUN_00398b00(param_1);
+      if (iVar3 < 0) {
+        uVar2 = 0xffffffff;
+      }
+      if ((*(ushort *)(param_1 + 0x18) & 0x80) != 0) {
+        FUN_0045b580(*(undefined4 *)(param_1 + 0x1c));
+      }
+      if (*(int *)(param_1 + 0x28) != 0) {
+        if (param_1 + 0x38 != *(int *)(param_1 + 0x28)) {
+          FUN_0045b580();
+        }
+        *(undefined4 *)(param_1 + 0x28) = 0;
+      }
+      if (*(int *)(param_1 + 0x3c) != 0) {
+        FUN_0045b580();
+        *(undefined4 *)(param_1 + 0x3c) = 0;
+      }
+      *(undefined2 *)(param_1 + 0x18) = 0;
+      FUN_00398c40(param_1);
+    }
+  }
+  else {
+    uVar2 = 0xffffffff;
+  }
+  return uVar2;
+}
+

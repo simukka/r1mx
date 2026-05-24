@@ -1,0 +1,18 @@
+/* 0x000832bc  FUN_000832bc  size=112 bytes */
+
+
+undefined4 FUN_000832bc(undefined4 param_1,int param_2)
+
+{
+  undefined4 *puVar1;
+  
+  if ((*(char *)(param_2 + 0x1dc) == '\0') && (0 < *(int *)(param_2 + 4))) {
+    puVar1 = (undefined4 *)FUN_00398e40();
+    FUN_0039995c(*puVar1,0xd52788,param_2 + 0x4c);
+    puVar1 = (undefined4 *)FUN_00398e40();
+    FUN_00396d3c(*puVar1);
+  }
+  *(undefined1 *)(param_2 + 0x1dc) = 1;
+  return 0;
+}
+

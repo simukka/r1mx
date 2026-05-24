@@ -1,0 +1,92 @@
+/* 0x00087630  FUN_00087630  size=556 bytes */
+
+
+void FUN_00087630(undefined4 param_1,int param_2,int param_3,uint param_4,undefined4 param_5,
+                 undefined4 param_6)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  uint uVar5;
+  int iVar6;
+  int iVar7;
+  int iVar8;
+  int iVar9;
+  
+  iVar8 = 2;
+  iVar7 = 0;
+  iVar9 = 2;
+  if (2 < param_3) {
+    do {
+      iVar9 = iVar8;
+      if (4 < *(uint *)(param_2 + iVar8 * 4)) break;
+      iVar8 = iVar8 + 1;
+      iVar9 = 2;
+    } while (iVar8 < param_3);
+  }
+  for (iVar8 = param_3 + -3;
+      (iVar6 = 0, 0 < iVar8 && (iVar6 = iVar8, *(uint *)(param_2 + iVar8 * 4) < 5));
+      iVar8 = iVar8 + -1) {
+  }
+  if (iVar9 < iVar6) {
+    iVar2 = iVar6 - iVar9;
+    iVar8 = iVar9;
+    do {
+      iVar1 = iVar8 * 4;
+      iVar8 = iVar8 + 1;
+      if (*(int *)(iVar1 + param_2) == 0) {
+        *(uint *)(iVar1 + param_2) = iVar7 - 1U & (int)~(iVar7 - 1U) >> 0x1f;
+      }
+      iVar7 = *(int *)(iVar1 + param_2);
+      iVar2 = iVar2 + -1;
+    } while (iVar2 != 0);
+  }
+  iVar9 = iVar9 + 1;
+  if (iVar9 < iVar6 + -1) {
+    iVar7 = (iVar6 + -1) - iVar9;
+    do {
+      iVar8 = iVar9 * 4;
+      iVar9 = iVar9 + 1;
+      *(uint *)(iVar8 + param_2) =
+           (uint)(*(int *)(iVar8 + param_2 + -4) + *(int *)(iVar8 + param_2 + 4) +
+                 *(int *)(iVar8 + param_2)) / 3;
+      iVar7 = iVar7 + -1;
+    } while (iVar7 != 0);
+  }
+  if ((int)param_4 < 0) {
+    uVar3 = FUN_0037517c(param_4 & 1 | param_4 >> 1);
+    uVar3 = FUN_00374be8(uVar3,uVar3);
+  }
+  else {
+    uVar3 = FUN_0037517c(param_4);
+  }
+  iVar9 = 0;
+  if (0 < param_3) {
+    do {
+      iVar7 = iVar9 * 4;
+      uVar5 = *(uint *)(iVar7 + param_2);
+      if ((int)uVar5 < 0) {
+        uVar4 = FUN_0037517c(uVar5 & 1 | uVar5 >> 1);
+        uVar4 = FUN_00374be8(uVar4,uVar4);
+      }
+      else {
+        uVar4 = FUN_0037517c(uVar5);
+      }
+      uVar4 = FUN_00374e00(uVar3,uVar4);
+      uVar4 = FUN_00374e00(uVar4,param_6);
+      FUN_00374f8c(uVar4,param_5);
+      uVar5 = FUN_003752b0();
+      if (param_4 < uVar5) {
+        *(undefined4 *)(iVar7 + param_2) = 0x3c;
+      }
+      else {
+        *(uint *)(iVar7 + param_2) = (uVar5 * 0x3c) / param_4;
+      }
+      iVar9 = iVar9 + 1;
+    } while (iVar9 < param_3);
+  }
+  return;
+}
+

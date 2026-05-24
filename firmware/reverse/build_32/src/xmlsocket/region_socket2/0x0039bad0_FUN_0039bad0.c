@@ -1,0 +1,78 @@
+/* 0x0039bad0  FUN_0039bad0  size=340 bytes */
+
+
+/* WARNING: Type propagation algorithm not settling */
+
+void FUN_0039bad0(int param_1)
+
+{
+  undefined4 *puVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  int iVar4;
+  undefined4 uVar5;
+  undefined4 *puVar6;
+  undefined4 *puVar7;
+  int iVar8;
+  int iVar9;
+  undefined4 uStack_3c;
+  int aiStack_38 [6];
+  undefined4 uStack_20;
+  undefined4 uStack_1c;
+  
+  iVar9 = 4;
+  puVar1 = &uStack_3c;
+  puVar2 = (undefined4 *)(param_1 + -4);
+  do {
+    puVar7 = puVar2;
+    puVar6 = puVar1;
+    uVar5 = puVar7[2];
+    puVar6[1] = puVar7[1];
+    puVar6[2] = uVar5;
+    iVar9 = iVar9 + -1;
+    puVar1 = puVar6 + 2;
+    puVar2 = puVar7 + 2;
+  } while (iVar9 != 0);
+  puVar6[3] = puVar7[3];
+  FUN_0039ba7c(aiStack_38 + 1,aiStack_38,0x3c);
+  FUN_0039ba7c(aiStack_38 + 2,aiStack_38 + 1,0x3c);
+  FUN_0039ba7c(aiStack_38 + 3,aiStack_38 + 2,0x18);
+  FUN_0039ba7c(aiStack_38 + 5,aiStack_38 + 4,0xc);
+  iVar9 = FUN_0039b780(aiStack_38[5],aiStack_38[4],aiStack_38[3]);
+  if (iVar9 < 0) {
+    iVar9 = iVar9 + 0x16d;
+    aiStack_38[5] = aiStack_38[5] + -1;
+  }
+  iVar8 = 0;
+  iVar3 = FUN_0039b780(aiStack_38[5],1,0);
+  iVar4 = iVar8;
+  if (iVar3 < iVar9) {
+    do {
+      iVar8 = iVar4 + 1;
+      iVar4 = FUN_0039b780(aiStack_38[5],iVar4 + 2,0);
+      if (iVar9 <= iVar4) break;
+      iVar4 = iVar8;
+    } while (iVar8 < 0xb);
+  }
+  aiStack_38[4] = iVar8;
+  iVar4 = FUN_0039b780(aiStack_38[5],iVar8,0);
+  iVar3 = 4;
+  aiStack_38[3] = iVar9 - iVar4;
+  uStack_20 = 0;
+  uStack_1c = 0;
+  puVar1 = (undefined4 *)(param_1 + -4);
+  puVar2 = &uStack_3c;
+  do {
+    puVar7 = puVar2;
+    puVar6 = puVar1;
+    uVar5 = puVar7[2];
+    puVar6[1] = puVar7[1];
+    puVar6[2] = uVar5;
+    iVar3 = iVar3 + -1;
+    puVar1 = puVar6 + 2;
+    puVar2 = puVar7 + 2;
+  } while (iVar3 != 0);
+  puVar6[3] = puVar7[3];
+  return;
+}
+

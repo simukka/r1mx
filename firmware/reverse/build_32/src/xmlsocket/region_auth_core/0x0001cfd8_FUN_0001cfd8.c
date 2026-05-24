@@ -1,0 +1,35 @@
+/* 0x0001cfd8  FUN_0001cfd8  size=332 bytes */
+
+
+undefined4 FUN_0001cfd8(int param_1,int param_2,int param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  if (param_1 == 0) {
+    FUN_0000e4e0(0xd34c58,0x141);
+  }
+  else {
+    uVar2 = 0x142;
+    if (param_2 != 0) {
+      uVar2 = 0x143;
+      if ((*(int *)(param_1 + 0x1c) == 0x11111111) && (uVar2 = 0x144, -1 < param_3)) {
+        uRam00e9c0ec = 0;
+        uVar2 = FUN_0000e868(*(int *)(param_1 + 0x14) + 0x1007,0x144);
+        FUN_0000e8d8(*(int *)(param_1 + 0x14) + 0x1007,0);
+        *(int *)(param_1 + 0x38) = param_3;
+        *(int *)(param_1 + 0x3c) = param_3;
+        *(int *)(param_1 + 0x34) = param_2;
+        uVar1 = FUN_0001ce70(param_1);
+        FUN_0000e8d8(*(int *)(param_1 + 0x14) + 0x1007,uVar2);
+        return uVar1;
+      }
+    }
+    uRam00e9c0ec = 0;
+    FUN_0000e4e0(0xd34c58,uVar2);
+  }
+  uRam00e9c0ec = 1;
+  return 0;
+}
+

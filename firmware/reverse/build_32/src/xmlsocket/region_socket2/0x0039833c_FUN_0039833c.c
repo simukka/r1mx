@@ -1,0 +1,49 @@
+/* 0x0039833c  FUN_0039833c  size=292 bytes */
+
+
+uint FUN_0039833c(undefined4 param_1)
+
+{
+  int *piVar1;
+  undefined4 *puVar2;
+  uint uVar3;
+  byte *pbVar4;
+  int iVar5;
+  
+  piVar1 = (int *)FUN_00398e40();
+  iVar5 = *(int *)(*piVar1 + 4);
+  piVar1 = (int *)FUN_00398e40();
+  if ((*piVar1 != iVar5) || (piVar1 = (int *)FUN_00398e40(), *(char *)(*piVar1 + 10) != 'f')) {
+    return 0xffffffff;
+  }
+  piVar1 = (int *)FUN_00398e40();
+  iVar5 = *(int *)(*piVar1 + 0x14) + -1;
+  *(int *)(*piVar1 + 0x14) = iVar5;
+  if (iVar5 < 0) {
+    piVar1 = (int *)FUN_00398e40();
+    iVar5 = *(int *)(*piVar1 + 0x14);
+    piVar1 = (int *)FUN_00398e40();
+    if (iVar5 < *(int *)(*piVar1 + 0x24)) {
+      puVar2 = (undefined4 *)FUN_00398e40();
+      uVar3 = FUN_00399508(param_1,*puVar2);
+      return uVar3;
+    }
+    piVar1 = (int *)FUN_00398e40();
+    **(undefined1 **)(*piVar1 + 0xc) = (char)param_1;
+    piVar1 = (int *)FUN_00398e40();
+    if (**(char **)(*piVar1 + 0xc) == '\n') {
+      puVar2 = (undefined4 *)FUN_00398e40();
+      uVar3 = FUN_00399508(10,*puVar2);
+      return uVar3;
+    }
+  }
+  else {
+    piVar1 = (int *)FUN_00398e40();
+    **(undefined1 **)(*piVar1 + 0xc) = (char)param_1;
+  }
+  piVar1 = (int *)FUN_00398e40();
+  pbVar4 = *(byte **)(*piVar1 + 0xc);
+  *(byte **)(*piVar1 + 0xc) = pbVar4 + 1;
+  return (uint)*pbVar4;
+}
+

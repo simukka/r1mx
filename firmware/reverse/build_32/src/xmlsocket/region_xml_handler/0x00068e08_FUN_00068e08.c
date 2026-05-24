@@ -1,0 +1,193 @@
+/* 0x00068e08  FUN_00068e08  size=1760 bytes */
+
+
+/* WARNING: Removing unreachable block (ram,0x00069244) */
+/* WARNING: Removing unreachable block (ram,0x000694a4) */
+/* WARNING: Removing unreachable block (ram,0x00069260) */
+/* WARNING: Removing unreachable block (ram,0x000694b8) */
+/* WARNING: Removing unreachable block (ram,0x00069274) */
+/* WARNING: Removing unreachable block (ram,0x00069280) */
+/* WARNING: Removing unreachable block (ram,0x00069298) */
+/* WARNING: Removing unreachable block (ram,0x0006929c) */
+/* WARNING: Removing unreachable block (ram,0x000692a8) */
+/* WARNING: Removing unreachable block (ram,0x000692b4) */
+/* WARNING: Removing unreachable block (ram,0x000692c8) */
+/* WARNING: Removing unreachable block (ram,0x000692cc) */
+/* WARNING: Removing unreachable block (ram,0x000692e0) */
+/* WARNING: Removing unreachable block (ram,0x000692e4) */
+/* WARNING: Removing unreachable block (ram,0x00068fe8) */
+/* WARNING: Removing unreachable block (ram,0x000693c0) */
+/* WARNING: Removing unreachable block (ram,0x00069004) */
+/* WARNING: Removing unreachable block (ram,0x000693d4) */
+/* WARNING: Removing unreachable block (ram,0x00069018) */
+/* WARNING: Removing unreachable block (ram,0x00069380) */
+/* WARNING: Removing unreachable block (ram,0x00069398) */
+/* WARNING: Removing unreachable block (ram,0x0006939c) */
+/* WARNING: Removing unreachable block (ram,0x00069024) */
+/* WARNING: Removing unreachable block (ram,0x00069030) */
+/* WARNING: Removing unreachable block (ram,0x00069044) */
+/* WARNING: Removing unreachable block (ram,0x00069048) */
+/* WARNING: Removing unreachable block (ram,0x0006905c) */
+/* WARNING: Removing unreachable block (ram,0x00069060) */
+/* WARNING: Heritage AFTER dead removal. Example location: s0xffffff64 : 0x00069088 */
+/* WARNING: Restarted to delay deadcode elimination for space: stack */
+
+void FUN_00068e08(int param_1)
+
+{
+  undefined4 ****ppppuVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  bool bVar5;
+  uint uVar6;
+  undefined1 auStack_a8 [8];
+  undefined1 auStack_a0 [4];
+  undefined4 ***apppuStack_9c [4];
+  uint uStack_8c;
+  uint uStack_88;
+  undefined1 auStack_80 [4];
+  undefined4 uStack_7c;
+  undefined4 uStack_68;
+  undefined4 uStack_64;
+  undefined1 *puStack_60;
+  undefined4 uStack_5c;
+  uint uStack_2c;
+  undefined1 *puStack_18;
+  uint uStack_c;
+  
+  uStack_68 = 0x25710c;
+  puStack_60 = auStack_a8;
+  uStack_64 = 0xe969ee;
+  uStack_5c = 0x79360;
+  FUN_003d1214(auStack_80);
+  FUN_005e8e80(auStack_a0);
+  uVar6 = *(uint *)(param_1 + 0x58);
+  uVar2 = FUN_0039b0f0(uRam00d94d20);
+  uVar3 = 0;
+  if (uVar6 != 0) {
+    iVar4 = param_1 + 0x48;
+    if (0xf < *(uint *)(param_1 + 0x5c)) {
+      iVar4 = *(int *)(param_1 + 0x48);
+    }
+    uVar3 = uVar2;
+    if (uVar6 < uVar2) {
+      uVar3 = uVar6;
+    }
+    uVar3 = FUN_0039ac2c(iVar4,uRam00d94d20,uVar3);
+  }
+  if (((uVar3 == 0) && (uVar3 = (uint)(uVar6 != uVar2), uVar6 < uVar2)) || (uVar3 != 0)) {
+    uStack_7c = 1;
+    iVar4 = FUN_00067684(param_1,auStack_a0);
+    if (iVar4 == 0) goto LAB_00069098;
+    iVar4 = param_1 + 0x28;
+    if (0xf < *(uint *)(param_1 + 0x3c)) {
+      iVar4 = *(int *)(param_1 + 0x28);
+    }
+    uStack_7c = 1;
+    FUN_0005e784(0,3,6,0xd3e720,0x65de9c,0x9a2,0xd3eea4,iVar4);
+    uVar3 = FUN_0039b0f0(ppppuRam00d94d28);
+    ppppuVar1 = apppuStack_9c;
+    if (0xf < uStack_88) {
+      ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+    }
+    if (ppppuRam00d94d28 < ppppuVar1) {
+LAB_000693f8:
+      bVar5 = false;
+    }
+    else {
+      ppppuVar1 = apppuStack_9c;
+      if (0xf < uStack_88) {
+        ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+      }
+      bVar5 = true;
+      if ((undefined4 ****)((int)ppppuVar1 + uStack_8c) <= ppppuRam00d94d28) goto LAB_000693f8;
+    }
+    if (bVar5) {
+      ppppuVar1 = apppuStack_9c;
+      if (0xf < uStack_88) {
+        ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+      }
+      uVar2 = 0xd32cfc - (int)ppppuVar1;
+      if (uStack_8c < uVar2) {
+        uStack_7c = 1;
+        FUN_00250ea4(auStack_a0);
+      }
+      puStack_18 = auStack_a0;
+      uStack_c = uStack_8c - uVar2;
+      if (uVar3 < uStack_8c - uVar2) {
+        uStack_c = uVar3;
+      }
+      uStack_7c = 1;
+      FUN_005f3808(puStack_18,uVar2 + uStack_c,0xffffffff);
+      FUN_005f3808(puStack_18,0,uVar2);
+      goto LAB_00069098;
+    }
+    uStack_7c = 1;
+    iVar4 = FUN_005f0030(auStack_a0,uVar3,0);
+    if (iVar4 == 0) goto LAB_00069098;
+    ppppuVar1 = apppuStack_9c;
+    if (0xf < uStack_88) {
+      ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+    }
+    FUN_0039ac74(ppppuVar1,ppppuRam00d94d28,uVar3);
+  }
+  else {
+    uVar3 = FUN_0039b0f0(ppppuRam00d94d24);
+    ppppuVar1 = apppuStack_9c;
+    if (0xf < uStack_88) {
+      ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+    }
+    if (ppppuRam00d94d24 < ppppuVar1) {
+LAB_00068f68:
+      bVar5 = false;
+    }
+    else {
+      ppppuVar1 = apppuStack_9c;
+      if (0xf < uStack_88) {
+        ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+      }
+      bVar5 = true;
+      if ((undefined4 ****)((int)ppppuVar1 + uStack_8c) <= ppppuRam00d94d24) goto LAB_00068f68;
+    }
+    if (bVar5) {
+      ppppuVar1 = apppuStack_9c;
+      if (0xf < uStack_88) {
+        ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+      }
+      uVar2 = 0xd3ee88 - (int)ppppuVar1;
+      if (uStack_8c < uVar2) {
+        uStack_7c = 1;
+        FUN_00250ea4(auStack_a0);
+      }
+      uStack_2c = uStack_8c - uVar2;
+      if (uVar3 < uStack_8c - uVar2) {
+        uStack_2c = uVar3;
+      }
+      uStack_7c = 1;
+      FUN_005f3808(auStack_a0,uVar2 + uStack_2c,0xffffffff);
+      FUN_005f3808(auStack_a0,0,uVar2);
+      goto LAB_00069098;
+    }
+    uStack_7c = 1;
+    iVar4 = FUN_005f0030(auStack_a0,uVar3,0);
+    if (iVar4 == 0) goto LAB_00069098;
+    ppppuVar1 = apppuStack_9c;
+    if (0xf < uStack_88) {
+      ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+    }
+    FUN_0039ac74(ppppuVar1,ppppuRam00d94d24,uVar3);
+  }
+  ppppuVar1 = apppuStack_9c;
+  if (0xf < uStack_88) {
+    ppppuVar1 = (undefined4 ****)apppuStack_9c[0];
+  }
+  *(undefined1 *)((int)ppppuVar1 + uVar3) = 0;
+LAB_00069098:
+  uStack_7c = 1;
+  FUN_005f08cc(0xd3ee90,auStack_a0,6,0x65deb4);
+  FUN_005e8e00(auStack_a0);
+  FUN_003d12b8(auStack_80);
+  return;
+}
+

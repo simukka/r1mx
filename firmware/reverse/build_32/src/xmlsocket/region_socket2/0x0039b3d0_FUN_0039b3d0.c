@@ -1,0 +1,65 @@
+/* 0x0039b3d0  FUN_0039b3d0  size=280 bytes */
+
+
+uint FUN_0039b3d0(int param_1,undefined4 *param_2,uint param_3,byte *param_4)
+
+{
+  ushort uVar1;
+  bool bVar2;
+  uint uVar3;
+  byte *pbVar4;
+  uint uVar5;
+  uint uVar6;
+  uint uVar7;
+  int iVar8;
+  uint uVar9;
+  
+  bVar2 = false;
+  uVar7 = (uint)*param_4;
+  uVar9 = (uint)*(ushort *)(param_4 + 2);
+  pbVar4 = (byte *)*param_2;
+  uVar5 = 0;
+  while ((uVar7 < 0x10 && (iVar8 = *(int *)(uVar7 * 4 + 0xe2745c), iVar8 != 0))) {
+    uVar1 = *(ushort *)(iVar8 + (uint)*pbVar4 * 2);
+    if (uVar1 == 0) break;
+    uVar7 = uVar1 >> 8 & 0xf;
+    if ((uVar1 & 0x8000) != 0) {
+      uVar9 = uVar9 & 0xff00 | uVar1 & 0xff;
+    }
+    if ((uVar1 & 0x1000) != 0) {
+      uVar9 = uVar9 >> 8 & 0xff | uVar9 << 8;
+    }
+    uVar6 = uVar5;
+    if ((uVar1 & 0x2000) != 0) {
+      uVar3 = uVar9;
+      if ((uVar1 & 0xff) != 0) {
+        uVar3 = (uint)uVar1;
+      }
+      uVar6 = uVar5 + 1;
+      *(char *)(param_1 + uVar5) = (char)uVar3;
+      if (((uVar3 & 0xff) == 0) || (param_3 <= uVar6)) {
+        bVar2 = true;
+      }
+    }
+    if ((uVar1 & 0x4000) != 0) {
+      if (*pbVar4 == 0) {
+        bVar2 = true;
+      }
+      else {
+        pbVar4 = pbVar4 + 1;
+      }
+    }
+    uVar5 = uVar6;
+    if (bVar2) {
+      *param_2 = pbVar4;
+      *param_4 = (byte)uVar7;
+      *(short *)(param_4 + 2) = (short)uVar9;
+      return uVar6;
+    }
+  }
+  *(undefined1 *)(param_1 + uVar5) = 0;
+  *param_2 = pbVar4;
+  *param_4 = 0x10;
+  return uVar5 + 1;
+}
+

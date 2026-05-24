@@ -1,0 +1,34 @@
+/* 0x0012f0fc  FUN_0012f0fc  size=88 bytes */
+
+
+void FUN_0012f0fc(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  int iVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  
+  iVar4 = *(int *)(param_1 + 4);
+  puVar5 = *(undefined4 **)(param_1 + 0xc);
+  iVar2 = 0;
+  if (0 < iVar4) {
+    iVar1 = *(int *)(param_1 + 8);
+    do {
+      iVar3 = 0;
+      if (0 < iVar1) {
+        do {
+          *puVar5 = param_2;
+          iVar1 = *(int *)(param_1 + 8);
+          iVar3 = iVar3 + 1;
+          puVar5 = puVar5 + 1;
+        } while (iVar3 < iVar1);
+        iVar4 = *(int *)(param_1 + 4);
+      }
+      iVar2 = iVar2 + 1;
+    } while (iVar2 < iVar4);
+  }
+  return;
+}
+

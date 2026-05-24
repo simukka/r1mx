@@ -1,0 +1,32 @@
+/* 0x0039b334  FUN_0039b334  size=156 bytes */
+
+
+char * FUN_0039b334(int param_1,undefined4 param_2,int *param_3)
+
+{
+  char *pcVar1;
+  int iVar2;
+  undefined1 *puVar3;
+  
+  if ((param_1 == 0) && (param_1 = *param_3, param_1 == 0)) {
+    pcVar1 = (char *)0x0;
+  }
+  else {
+    iVar2 = FUN_0039b270(param_1);
+    pcVar1 = (char *)(param_1 + iVar2);
+    if (*pcVar1 == '\0') {
+      pcVar1 = (char *)0x0;
+      *param_3 = 0;
+    }
+    else {
+      puVar3 = (undefined1 *)FUN_0039b228(pcVar1,param_2);
+      *param_3 = (int)puVar3;
+      if (puVar3 != (undefined1 *)0x0) {
+        *puVar3 = 0;
+        *param_3 = (int)(puVar3 + 1);
+      }
+    }
+  }
+  return pcVar1;
+}
+

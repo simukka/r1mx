@@ -1,0 +1,73 @@
+/* 0x0002c92c  FUN_0002c92c  size=560 bytes */
+
+
+undefined4 FUN_0002c92c(int *param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int iVar6;
+  undefined1 auStack_190 [4];
+  uint uStack_18c;
+  uint uStack_188;
+  undefined1 auStack_70 [84];
+  
+  iVar6 = *param_1;
+  iVar2 = FUN_0002b4cc(param_1,0xffffffff);
+  uVar5 = 0xffffffff;
+  if (iVar2 == -1) {
+    return 0xffffffff;
+  }
+  uVar3 = 0x38000a;
+  if (param_1[0x11] != 0) {
+    if ((*(byte *)(param_1[1] + 8) & 0x40) == 0) {
+      uVar1 = (uint)(*(byte *)(param_1[1] + 8) >> 7);
+      if (uVar1 != 0) {
+        uVar5 = 0;
+        goto LAB_0002c9b0;
+      }
+      iVar2 = FUN_005accf4(*(undefined4 *)(iVar6 + 0x34),0xffffffff);
+      if (iVar2 == -1) goto LAB_0002c9b0;
+      if ((*(byte *)(param_1[1] + 0x42) & 0x10) == 0) {
+LAB_0002cad8:
+        iVar2 = (**(code **)(*(int *)(iVar6 + 0x2c) + 8))(param_1,0x100,0);
+        if ((iVar2 != -1) &&
+           ((*(byte *)(param_1[1] + 8) = *(byte *)(param_1[1] + 8) | 0x80,
+            *(int *)(param_1[1] + 0xc) == 0 ||
+            (iVar2 = (**(code **)(*(int *)(iVar6 + 0x30) + 8))(param_1,0xffffffff,0), iVar2 != -1)))
+           ) {
+          uVar5 = 0;
+          FUN_005ad104(*(undefined4 *)(iVar6 + 0x34));
+          goto LAB_0002c9b0;
+        }
+      }
+      else {
+        iVar2 = *(int *)(*param_1 + 0x2c);
+        FUN_0039ac74(auStack_70,param_1,0x48);
+        if (*(int *)(param_1[1] + 0x14) != -1) {
+          uStack_18c = uVar1;
+          uStack_188 = uVar1;
+          iVar4 = (**(code **)(iVar2 + 4))(auStack_70,auStack_190,0);
+          if ((iVar4 == -1) ||
+             (iVar4 = (**(code **)(iVar2 + 4))(auStack_70,auStack_190,0), iVar4 == -1))
+          goto LAB_0002cabc;
+          iVar2 = (**(code **)(iVar2 + 4))(auStack_70,auStack_190,0);
+          if ((iVar2 == -1) || (uStack_188 != 0)) goto LAB_0002cad8;
+        }
+        FUN_00442990(0x380008);
+      }
+LAB_0002cabc:
+      FUN_005ad104(*(undefined4 *)(iVar6 + 0x34));
+      goto LAB_0002c9b0;
+    }
+    uVar3 = 0x380015;
+  }
+  FUN_00442990(uVar3);
+LAB_0002c9b0:
+  FUN_0002b518(param_1);
+  return uVar5;
+}
+

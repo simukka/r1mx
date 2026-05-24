@@ -1,0 +1,29 @@
+/* 0x00034424  FUN_00034424  size=176 bytes */
+
+
+void FUN_00034424(int *param_1,int param_2)
+
+{
+  int iVar1;
+  
+  if (*param_1 == 0) {
+    FUN_004975b8();
+    return;
+  }
+  iVar1 = param_1[1];
+  while (iVar1 != 0) {
+    if (*(int *)(iVar1 + 8) < *(int *)(param_2 + 8)) goto LAB_00034484;
+    if (*(int *)(param_2 + 8) == *(int *)(iVar1 + 8)) {
+      if (*(uint *)(iVar1 + 0xc) < *(uint *)(param_2 + 0xc)) goto LAB_00034484;
+      iVar1 = *(int *)(iVar1 + 4);
+    }
+    else {
+      iVar1 = *(int *)(iVar1 + 4);
+    }
+  }
+  iVar1 = 0;
+LAB_00034484:
+  FUN_0049757c(param_1,iVar1);
+  return;
+}
+

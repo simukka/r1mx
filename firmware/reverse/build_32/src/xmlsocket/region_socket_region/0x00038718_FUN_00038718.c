@@ -1,0 +1,32 @@
+/* 0x00038718  FUN_00038718  size=228 bytes */
+
+
+void FUN_00038718(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  undefined4 uStack_18;
+  uint auStack_14 [2];
+  
+  iVar3 = *(int *)(param_1 + 0x30);
+  uStack_18 = 0;
+  if (*(int *)(iVar3 + 0x50) != 0) {
+    iVar2 = (**(code **)(iVar3 + 0x3c))(param_1,&uStack_18,0,1,auStack_14);
+    if (iVar2 != -1) {
+      if (param_2 == 0) {
+        uVar1 = auStack_14[0] & ~*(uint *)(iVar3 + 0x50);
+      }
+      else {
+        uVar1 = *(uint *)(iVar3 + 0x50) | auStack_14[0];
+      }
+      if (uVar1 != auStack_14[0]) {
+        (**(code **)(iVar3 + 0x40))(param_1,&uStack_18,0,1,uVar1,1);
+        return;
+      }
+    }
+  }
+  return;
+}
+

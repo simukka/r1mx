@@ -1,0 +1,31 @@
+/* 0x00086ad8  FUN_00086ad8  size=348 bytes */
+
+
+void FUN_00086ad8(int param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  *(undefined4 *)(param_1 + 0xa4) = param_3;
+  FUN_001d1538(*(undefined4 *)(param_1 + 0xa8));
+  FUN_001d18b0(param_2);
+  FUN_001d18e8(param_3);
+  FUN_001d1920(0);
+  FUN_001d1958(0);
+  FUN_001d1990(0);
+  FUN_001d17cc(3);
+  FUN_001d15bc(*(int *)(param_1 + 0xb0) + 1);
+  FUN_001d1640(*(int *)(param_1 + 0xac) + 1);
+  FUN_001d16c4(*(undefined4 *)(param_1 + 0xb8));
+  FUN_001d1748(*(undefined4 *)(param_1 + 0xb4));
+  FUN_0005e784(3,1,0x17,0xd41584,0x65e5c8,0xa94,0xd41768,*(int *)(param_1 + 0xac) + 1,
+               *(int *)(param_1 + 0xb0) + 1,*(undefined4 *)(param_1 + 0xb4),
+               *(undefined4 *)(param_1 + 0xb8));
+  FUN_00220f68(*(undefined4 *)(param_1 + 0xbc));
+  FUN_00220fe8(*(undefined4 *)(param_1 + 0xc4));
+  FUN_00221068(*(undefined4 *)(param_1 + 0xc0));
+  FUN_002210e8(*(undefined4 *)(param_1 + 200));
+  FUN_0005e784(3,1,0x17,0xd41584,0x65e5c8,0xa9d,0xd41794,*(undefined4 *)(param_1 + 0xbc),
+               *(undefined4 *)(param_1 + 0xc0),*(undefined4 *)(param_1 + 0xc4),
+               *(undefined4 *)(param_1 + 200));
+  return;
+}
+

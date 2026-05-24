@@ -1,0 +1,53 @@
+/* 0x000886dc  FUN_000886dc  size=396 bytes */
+
+
+void FUN_000886dc(int param_1,int param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  uint uVar3;
+  uint uVar4;
+  uint uVar5;
+  
+  uVar3 = 0;
+  uVar4 = 0;
+  do {
+    uVar5 = uVar4 + 1;
+    uVar2 = uVar3;
+    if (*(int *)(param_2 + uVar4 * 4) != 0) {
+      uVar2 = uVar3 + 1;
+      FUN_00088680(param_1,uVar3,uVar4,0,0x3eaaaaab);
+      if (0x7ff < uVar2) goto LAB_00088754;
+    }
+    uVar3 = uVar2;
+    uVar4 = uVar5;
+  } while (uVar5 < 0x41);
+  FUN_000886a4(param_1,param_2,uVar5);
+  iVar1 = 1;
+  for (; uVar3 = uVar2, uVar5 < 0x3da; uVar5 = uVar5 + 1) {
+    if (*(int *)(param_2 + uVar5 * 4) != 0) {
+      FUN_000886a4(param_1,param_2,uVar5);
+      uVar3 = uVar2 + 1;
+      FUN_00088680(param_1,uVar2,uVar5,iVar1,0x3eaaaaab);
+    }
+    uVar2 = uVar3;
+    if (0x7ff < uVar3) goto LAB_00088754;
+    iVar1 = iVar1 + (uint)(uVar5 % 3 == 2);
+  }
+  do {
+    do {
+      uVar4 = uVar5;
+      uVar2 = uVar3;
+      if (0x3ff < uVar4) goto LAB_00088754;
+      uVar5 = uVar4 + 1;
+    } while (*(int *)(param_2 + uVar4 * 4) == 0);
+    uVar2 = uVar3 + 1;
+    FUN_00088680(param_1,uVar3,uVar4,0x134,0x3eaaaaab);
+    uVar3 = uVar2;
+  } while (uVar2 < 0x800);
+LAB_00088754:
+  *(uint *)(param_1 + 0x15bf4) = uVar2;
+  return;
+}
+

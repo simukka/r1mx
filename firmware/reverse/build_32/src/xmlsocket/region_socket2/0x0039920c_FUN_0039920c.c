@@ -1,0 +1,29 @@
+/* 0x0039920c  FUN_0039920c  size=160 bytes */
+
+
+int FUN_0039920c(int param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  char *pcVar3;
+  
+  if (param_1 == 0) {
+    param_1 = 0xfbfb0c;
+  }
+  FUN_0039af30(param_1,0x3a92ac);
+  iVar1 = FUN_0039b0f0(param_1);
+  *(undefined1 *)(param_1 + iVar1 + 5) = 0;
+  pcVar3 = (char *)(param_1 + iVar1 + 5);
+  uVar2 = uRam00e27424 + 1;
+  uRam00e27424 = (ushort)uVar2;
+  iVar1 = 4;
+  do {
+    iVar1 = iVar1 + -1;
+    pcVar3 = pcVar3 + -1;
+    *pcVar3 = ((byte)uVar2 & 7) + 0x30;
+    uVar2 = uVar2 >> 3 & 0x1fff;
+  } while (-1 < iVar1);
+  return param_1;
+}
+

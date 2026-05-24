@@ -1,0 +1,47 @@
+/* 0x0001dc3c  FUN_0001dc3c  size=336 bytes */
+
+
+ushort FUN_0001dc3c(int param_1)
+
+{
+  byte bVar1;
+  ushort uVar2;
+  uint uVar3;
+  int iVar4;
+  
+  uVar2 = 0;
+  if (param_1 == 0) {
+    FUN_0000e4e0(0xd34dc0,0x79);
+  }
+  else {
+    if (*(int *)(param_1 + 0x1c) == 0x11111111) {
+      uVar3 = 0;
+      uRam00e9c0ec = 0;
+      do {
+        if (10 < uVar3) {
+          return uVar2;
+        }
+        while( true ) {
+          iVar4 = uVar3 * 6;
+          if (*(ushort *)(iVar4 + 0xe10658) == 0x100b) {
+            bVar1 = FUN_0001db8c(*(undefined4 *)(param_1 + 0x14));
+          }
+          else {
+            bVar1 = FUN_0000e868(*(int *)(param_1 + 0x14) + (uint)*(ushort *)(iVar4 + 0xe10658));
+          }
+          uVar3 = uVar3 + 1;
+          if ((bVar1 & *(byte *)(iVar4 + 0xe1065a)) == 0) break;
+          uVar2 = uVar2 | *(ushort *)(iVar4 + 0xe10656);
+          if (10 < uVar3) {
+            return uVar2;
+          }
+        }
+      } while( true );
+    }
+    uRam00e9c0ec = 0;
+    FUN_0000e4e0(0xd34dc0,0x7a);
+  }
+  uRam00e9c0ec = 1;
+  return 0;
+}
+

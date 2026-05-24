@@ -1,0 +1,29 @@
+/* 0x0012c818  FUN_0012c818  size=220 bytes */
+
+
+void FUN_0012c818(char *param_1,undefined4 param_2,undefined4 param_3,char param_4)
+
+{
+  FUN_005ea15c(param_1 + 0x14,param_3,0,0xffffffff);
+  param_1[8] = '\0';
+  param_1[9] = '\0';
+  param_1[10] = '\0';
+  param_1[0xb] = '\0';
+  param_1[0x10] = '\0';
+  param_1[0x11] = '\0';
+  param_1[0x12] = '\0';
+  param_1[0x13] = '\0';
+  param_1[0xc] = '\0';
+  param_1[0xd] = '\0';
+  param_1[0xe] = '\0';
+  param_1[0xf] = '\0';
+  param_1[2] = param_4;
+  FUN_0012c1b4(param_1,param_2);
+  if (*param_1 == '\0') {
+    return;
+  }
+  FUN_0005e784(2,1,0xb,0xd4bc0c,0x662804,0xd1,0xd4bf1c,*(undefined4 *)(param_1 + 8),
+               *(undefined4 *)(param_1 + 0xc),*(undefined4 *)(param_1 + 0x10));
+  return;
+}
+

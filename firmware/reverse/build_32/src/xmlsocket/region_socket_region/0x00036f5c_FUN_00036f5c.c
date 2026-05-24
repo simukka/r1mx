@@ -1,0 +1,26 @@
+/* 0x00036f5c  FUN_00036f5c  size=196 bytes */
+
+
+undefined4 FUN_00036f5c(int param_1,undefined4 param_2,int param_3,int param_4,undefined4 *param_5)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  undefined1 uStack_20;
+  undefined1 uStack_1f;
+  undefined1 uStack_1e;
+  undefined1 uStack_1d;
+  
+  iVar1 = (**(code **)(*(int *)(param_1 + 0x30) + 0x44))
+                    (param_1,param_2,0,
+                     *(int *)(*(int *)(param_1 + 0x30) + 0x58) + *(int *)(param_1 + 0x50) * param_3
+                     + ((uint)(param_4 << 2) >> (*(byte *)(param_1 + 0x84) & 0x3f)),
+                     *(ushort *)(param_1 + 0x5c) - 1 & param_4 << 2,&uStack_20,4,0);
+  uVar2 = 0xffffffff;
+  if (iVar1 == 0) {
+    *param_5 = CONCAT13(uStack_1d,CONCAT12(uStack_1e,CONCAT11(uStack_1f,uStack_20)));
+    uVar2 = 0;
+  }
+  return uVar2;
+}
+

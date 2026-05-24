@@ -1,0 +1,167 @@
+/* 0x00397a4c  FUN_00397a4c  size=884 bytes */
+
+
+undefined4 FUN_00397a4c(int param_1,undefined4 *param_2)
+
+{
+  bool bVar1;
+  int *piVar2;
+  int iVar3;
+  int iVar4;
+  uint uVar5;
+  int iVar6;
+  uint uVar7;
+  uint uVar8;
+  uint uVar9;
+  uint uVar10;
+  int *piVar11;
+  
+  if (param_2[2] == 0) {
+    return 0;
+  }
+  if ((((*(ushort *)(param_1 + 0x18) & 8) == 0) || (*(int *)(param_1 + 0x1c) == 0)) &&
+     (iVar3 = FUN_00399600(), iVar3 != 0)) {
+    return 0xffffffff;
+  }
+  piVar11 = (int *)*param_2;
+  iVar3 = *piVar11;
+  uVar10 = piVar11[1];
+  piVar11 = piVar11 + 2;
+  if ((*(ushort *)(param_1 + 0x18) & 2) == 0) {
+    if ((*(ushort *)(param_1 + 0x18) & 1) == 0) {
+      do {
+        if (uVar10 == 0) {
+          piVar2 = piVar11 + -2;
+          do {
+            piVar11 = piVar2;
+            iVar3 = piVar11[2];
+            uVar10 = piVar11[3];
+            piVar2 = piVar11 + 2;
+          } while (uVar10 == 0);
+          piVar11 = piVar11 + 4;
+        }
+        uVar9 = *(uint *)(param_1 + 0x14);
+        if ((*(ushort *)(param_1 + 0x18) & 0x200) == 0) {
+          uVar8 = *(uint *)(param_1 + 0xc);
+          if ((*(uint *)(param_1 + 0x1c) < uVar8) && (uVar9 < uVar10)) {
+            FUN_0036c8ac(iVar3,uVar8,uVar9);
+            *(uint *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + uVar9;
+            iVar4 = FUN_00396d3c(param_1);
+            if (iVar4 != 0) goto LAB_00397d9c;
+          }
+          else if (uVar10 < *(uint *)(param_1 + 0x20)) {
+            FUN_0036c8ac(iVar3,uVar8,uVar10);
+            *(uint *)(param_1 + 0x14) = *(int *)(param_1 + 0x14) - uVar10;
+            *(uint *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + uVar10;
+            uVar9 = uVar10;
+          }
+          else {
+            uVar9 = FUN_00398a48(param_1,iVar3,*(uint *)(param_1 + 0x20));
+            if ((int)uVar9 < 1) goto LAB_00397d9c;
+          }
+        }
+        else {
+          if (uVar10 < uVar9) {
+            uVar9 = uVar10;
+          }
+          FUN_0036c8ac(iVar3,*(undefined4 *)(param_1 + 0xc),uVar9);
+          *(uint *)(param_1 + 0x14) = *(int *)(param_1 + 0x14) - uVar9;
+          *(uint *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + uVar9;
+          uVar9 = uVar10;
+        }
+        uVar10 = uVar10 - uVar9;
+        iVar4 = param_2[2];
+        iVar3 = iVar3 + uVar9;
+        param_2[2] = iVar4 - uVar9;
+      } while (iVar4 - uVar9 != 0);
+    }
+    else {
+      bVar1 = false;
+      uVar9 = 0;
+      do {
+        if (uVar10 == 0) {
+          bVar1 = false;
+          piVar2 = piVar11 + -2;
+          do {
+            piVar11 = piVar2;
+            iVar3 = piVar11[2];
+            uVar10 = piVar11[3];
+            piVar2 = piVar11 + 2;
+          } while (uVar10 == 0);
+          piVar11 = piVar11 + 4;
+        }
+        if (!bVar1) {
+          iVar4 = FUN_0039abf8(iVar3,10,uVar10);
+          uVar9 = uVar10;
+          if (iVar4 != 0) {
+            uVar9 = iVar4 - iVar3;
+          }
+          uVar9 = uVar9 + 1;
+          bVar1 = true;
+        }
+        uVar8 = uVar9;
+        if (uVar10 < uVar9) {
+          uVar8 = uVar10;
+        }
+        uVar5 = *(uint *)(param_1 + 0xc);
+        uVar7 = *(int *)(param_1 + 0x14) + *(int *)(param_1 + 0x20);
+        if ((*(uint *)(param_1 + 0x1c) < uVar5) && ((int)uVar7 < (int)uVar8)) {
+          FUN_0036c8ac(iVar3,uVar5,uVar7);
+          *(uint *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + uVar7;
+          iVar4 = FUN_00396d3c(param_1);
+          uVar8 = uVar7;
+          if (iVar4 != 0) goto LAB_00397d9c;
+        }
+        else if ((int)uVar8 < *(int *)(param_1 + 0x20)) {
+          FUN_0036c8ac(iVar3,uVar5,uVar8);
+          *(uint *)(param_1 + 0x14) = *(int *)(param_1 + 0x14) - uVar8;
+          *(uint *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + uVar8;
+        }
+        else {
+          uVar8 = FUN_00398a48(param_1,iVar3);
+          if ((int)uVar8 < 1) goto LAB_00397d9c;
+        }
+        uVar9 = uVar9 - uVar8;
+        if (uVar9 == 0) {
+          iVar4 = FUN_00396d3c(param_1);
+          if (iVar4 != 0) goto LAB_00397d9c;
+          bVar1 = false;
+        }
+        uVar10 = uVar10 - uVar8;
+        iVar4 = param_2[2];
+        iVar3 = iVar3 + uVar8;
+        param_2[2] = iVar4 - uVar8;
+      } while (iVar4 - uVar8 != 0);
+    }
+  }
+  else {
+    do {
+      if (uVar10 == 0) {
+        piVar2 = piVar11 + -2;
+        do {
+          piVar11 = piVar2;
+          iVar3 = piVar11[2];
+          uVar10 = piVar11[3];
+          piVar2 = piVar11 + 2;
+        } while (uVar10 == 0);
+        piVar11 = piVar11 + 4;
+      }
+      uVar9 = uVar10;
+      if (0x3ff < uVar10) {
+        uVar9 = 0x400;
+      }
+      iVar4 = FUN_00398a48(param_1,iVar3,uVar9);
+      if (iVar4 < 1) {
+LAB_00397d9c:
+        *(ushort *)(param_1 + 0x18) = *(ushort *)(param_1 + 0x18) | 0x40;
+        return 0xffffffff;
+      }
+      uVar10 = uVar10 - iVar4;
+      iVar6 = param_2[2];
+      iVar3 = iVar3 + iVar4;
+      param_2[2] = iVar6 - iVar4;
+    } while (iVar6 - iVar4 != 0);
+  }
+  return 0;
+}
+

@@ -1,0 +1,36 @@
+/* 0x00039524  FUN_00039524  size=304 bytes */
+
+
+undefined4 FUN_00039524(undefined4 param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  FUN_0039cd0c(0x3b14cc);
+  FUN_0039cd0c(0x3b1a98);
+  FUN_0039cd0c(FUN_003b7028);
+  FUN_0039cd0c(0x3b70d8);
+  FUN_0039cd0c(0x3b7238);
+  FUN_0039cd0c(0x3b7518);
+  FUN_0039cd0c(0x3b7788);
+  FUN_0039cd0c(0x3b789c);
+  FUN_0039cd0c(0x3b9bc4);
+  FUN_0039cd0c(0x3b9b54);
+  FUN_0039cd0c(0x3b8870);
+  FUN_0039cd0c(0x3b89c8);
+  FUN_0039cd0c(0x3b2008);
+  FUN_0039cd0c(0x3b9010);
+  FUN_0039cd0c(0x3bd25c);
+  FUN_0039cd0c(0x3bdaf0);
+  iVar1 = FUN_0039cd58(param_1,0xe9c4d8);
+  uVar2 = 0xffffffff;
+  if (iVar1 == 0) {
+    if (param_2 != 0) {
+      FUN_0039cf98(uRam00e9c4d8);
+    }
+    uVar2 = 0;
+  }
+  return uVar2;
+}
+

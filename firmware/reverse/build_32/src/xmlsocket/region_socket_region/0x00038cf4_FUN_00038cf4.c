@@ -1,0 +1,44 @@
+/* 0x00038cf4  FUN_00038cf4  size=368 bytes */
+
+
+uint * FUN_00038cf4(uint *param_1,int param_2,int param_3)
+
+{
+  int iVar1;
+  uint *puVar2;
+  uint *puVar3;
+  
+  puVar3 = (uint *)(param_2 + -4);
+  iVar1 = (**(code **)(param_3 + 8))(puVar3,param_3);
+  if ((iVar1 == 0) &&
+     (((*(uint *)(param_2 + -4) & 0xfc000000) == 0x48000000 ||
+      ((*(uint *)(param_2 + -4) & 0xfc000000) == 0x40000000)))) {
+    if ((*(uint *)(param_2 + -4) & 0xfc000000) == 0x48000000) {
+      puVar2 = (uint *)(*(uint *)(param_2 + -4) & 0x3fffffc);
+      if ((*(uint *)(param_2 + -4) & 0x2000000) != 0) {
+        puVar2 = (uint *)((uint)puVar2 | 0xfc000000);
+      }
+    }
+    else {
+      puVar2 = (uint *)(*(uint *)(param_2 + -4) & 0xfffc);
+      if ((*(uint *)(param_2 + -4) & 0x8000) != 0) {
+        puVar2 = (uint *)((uint)puVar2 | 0xffff0000);
+      }
+    }
+    if ((*puVar3 & 2) == 0) {
+      return (uint *)((int)puVar2 + (int)puVar3);
+    }
+  }
+  else {
+    iVar1 = (**(code **)(param_3 + 8))(param_1 + -iRam00e10880,param_3);
+    puVar2 = param_1;
+    if (iVar1 == 0) {
+      for (puVar3 = param_1;
+          (puVar2 = param_1, param_1 + -iRam00e10880 < puVar3 &&
+          (puVar2 = puVar3, (*puVar3 & 0xffff0000) != 0x94210000)); puVar3 = puVar3 + -1) {
+      }
+    }
+  }
+  return puVar2;
+}
+

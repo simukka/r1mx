@@ -1,0 +1,22 @@
+/* 0x0039e0bc  FUN_0039e0bc  size=140 bytes */
+
+
+undefined4 FUN_0039e0bc(int param_1,int *param_2)
+
+{
+  int iVar1;
+  int *piVar2;
+  
+  iVar1 = *(int *)(param_1 + *param_2 * 4 + 0x18);
+  if (iVar1 != 0) {
+    piVar2 = *(int **)(iVar1 + param_2[1] * 4);
+    if (piVar2 != param_2) {
+      if (piVar2 != (int *)0x0) {
+        FUN_003bcf98();
+      }
+      *(int **)(*(int *)(param_1 + *param_2 * 4 + 0x18) + param_2[1] * 4) = param_2;
+    }
+  }
+  return 0;
+}
+

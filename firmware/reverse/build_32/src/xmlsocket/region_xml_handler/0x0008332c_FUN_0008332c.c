@@ -1,0 +1,29 @@
+/* 0x0008332c  FUN_0008332c  size=184 bytes */
+
+
+void FUN_0008332c(int param_1)
+
+{
+  int iVar1;
+  undefined1 auStack_1f0 [76];
+  undefined1 auStack_1a4 [408];
+  
+  while (iVar1 = FUN_001d9070(*(undefined4 *)(param_1 + 0x9c98),auStack_1f0,0x1e0,0), iVar1 == 0x1e0
+        ) {
+    if (*(int *)(param_1 + 0x9c9c) == 0) {
+      FUN_0012dba4(param_1 + 0x44,auStack_1a4);
+      iVar1 = *(int *)(param_1 + 0x9c9c);
+    }
+    else {
+      FUN_001d9204(*(int *)(param_1 + 0x9c9c),0xffffffff);
+      FUN_0012dba4(param_1 + 0x44,auStack_1a4);
+      iVar1 = *(int *)(param_1 + 0x9c9c);
+    }
+    if (iVar1 != 0) {
+      FUN_001d92bc();
+    }
+    FUN_000832bc(param_1,auStack_1f0);
+  }
+  return;
+}
+

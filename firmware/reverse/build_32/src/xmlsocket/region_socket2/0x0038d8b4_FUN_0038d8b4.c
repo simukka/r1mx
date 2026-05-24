@@ -1,0 +1,78 @@
+/* 0x0038d8b4  FUN_0038d8b4  size=528 bytes */
+
+
+void FUN_0038d8b4(undefined4 *param_1)
+
+{
+  int iVar1;
+  byte in_cr0;
+  byte in_cr1;
+  byte unaff_cr2;
+  byte unaff_cr3;
+  byte unaff_cr4;
+  byte in_cr5;
+  byte in_cr6;
+  byte in_cr7;
+  undefined1 auStack_c8 [8];
+  undefined4 uStack_c0;
+  undefined1 auStack_b0 [4];
+  undefined4 uStack_ac;
+  undefined4 uStack_98;
+  undefined4 uStack_94;
+  undefined1 *puStack_90;
+  undefined4 uStack_8c;
+  undefined1 *puStack_88;
+  undefined1 *puStack_84;
+  undefined4 *puStack_7c;
+  undefined4 *puStack_60;
+  undefined4 *puStack_5c;
+  int *piStack_58;
+  int *piStack_54;
+  uint uStack_4c;
+  
+  puStack_84 = &stack0xffffff30;
+  uStack_4c = (uint)(in_cr0 & 0xf) << 0x1c | (uint)(in_cr1 & 0xf) << 0x18 |
+              (uint)(unaff_cr2 & 0xf) << 0x14 | (uint)(unaff_cr3 & 0xf) << 0x10 |
+              (uint)(unaff_cr4 & 0xf) << 0xc | (uint)(in_cr5 & 0xf) << 8 | (uint)(in_cr6 & 0xf) << 4
+              | (uint)(in_cr7 & 0xf);
+  uStack_98 = 0x25710c;
+  puStack_90 = auStack_c8;
+  uStack_94 = 0xe9bb2c;
+  uStack_8c = 0x39dab0;
+  puStack_88 = (undefined1 *)register0x00000004;
+  puStack_7c = param_1;
+  FUN_003d1214(auStack_b0);
+  *puStack_7c = 0xe0b038;
+  uStack_ac = 5;
+  FUN_0038caec(puStack_7c);
+  puStack_5c = (undefined4 *)puStack_7c[0xe];
+  puStack_60 = puStack_7c;
+  *puStack_7c = 0xe08490;
+  if (puStack_5c != (undefined4 *)0x0) {
+    if ((int *)*puStack_5c != (int *)0x0) {
+      uStack_c0 = 0;
+      uStack_ac = 1;
+      piStack_58 = (int *)*puStack_5c;
+      FUN_002521d8(0);
+      iVar1 = piStack_58[1];
+      if ((iVar1 != 0) && (iVar1 != -1)) {
+        piStack_58[1] = iVar1 + -1;
+      }
+      piStack_54 = piStack_58;
+      if (piStack_58[1] != 0) {
+        piStack_54 = (int *)0x0;
+      }
+      uStack_ac = 1;
+      FUN_0025224c(uStack_c0);
+      if (piStack_54 != (int *)0x0) {
+        (**(code **)(*piStack_54 + 4))(piStack_54);
+      }
+    }
+    FUN_00245c34(puStack_5c);
+  }
+  uStack_ac = 0xffffffff;
+  FUN_00251b4c(puStack_60 + 1);
+  FUN_003d12b8(auStack_b0);
+  return;
+}
+

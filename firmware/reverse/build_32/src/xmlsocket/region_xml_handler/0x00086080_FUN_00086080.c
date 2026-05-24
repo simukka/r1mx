@@ -1,0 +1,25 @@
+/* 0x00086080  FUN_00086080  size=60 bytes */
+
+
+void FUN_00086080(undefined4 param_1,int param_2,int param_3)
+
+{
+  uint uVar1;
+  uint uVar2;
+  int iVar3;
+  
+  uVar2 = 0;
+  iVar3 = 0;
+  if (0 < param_3) {
+    do {
+      uVar1 = *(uint *)(param_2 + iVar3 * 4);
+      iVar3 = iVar3 + 1;
+      if (uVar2 < uVar1) {
+        uVar2 = uVar1;
+      }
+      param_3 = param_3 + -1;
+    } while (param_3 != 0);
+  }
+  return;
+}
+

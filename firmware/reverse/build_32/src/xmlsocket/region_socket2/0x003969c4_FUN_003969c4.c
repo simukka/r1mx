@@ -1,0 +1,18 @@
+/* 0x003969c4  FUN_003969c4  size=112 bytes */
+
+
+undefined4 FUN_003969c4(undefined4 param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  uVar2 = uRam00e27418;
+  if (((param_2 != 0) &&
+      (iVar1 = FUN_0039ad64(param_2,uRam00e27418), uVar2 = uRam00e27418, iVar1 != 0)) &&
+     (iVar1 = FUN_0039ad64(param_2,0x3a6a36), uVar2 = uRam00e27418, iVar1 != 0)) {
+    uVar2 = 0;
+  }
+  return uVar2;
+}
+
