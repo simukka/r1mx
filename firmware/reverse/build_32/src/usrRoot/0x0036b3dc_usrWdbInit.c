@@ -1,0 +1,50 @@
+/* 0x0036b3dc  usrWdbInit  size=488 bytes */
+
+
+undefined4 FUN_0036b3dc(void)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 uStack_18;
+  undefined4 uStack_14;
+  
+  memset(0x100b1e8,0x7c);
+  uRam0100b1e8 = 0x37af48;
+  uRam0100b1ec = 0x37b0c4;
+  uRam0100b234 = 0x37b3c0;
+  FUN_005a1adc(0x100b1e8);
+  iVar1 = 0;
+  if (*pcRam00e0be08 != '\0') {
+    do {
+      iVar2 = iVar1;
+      if (pcRam00e0be08[iVar2] == ')') break;
+      iVar1 = iVar2 + 1;
+    } while (iVar2 + 1 < 0xff);
+    FUN_0039b1d4(0xfbcb60,pcRam00e0be08 + iVar2 + 1,0xff);
+    iVar1 = 0;
+    do {
+      if (*(char *)(iVar1 + 0xfbcb60) == ' ') break;
+      iVar1 = iVar1 + 1;
+    } while (iVar1 < 0xfe);
+  }
+  *(undefined1 *)(iVar1 + 0xfbcb60) = 0;
+  FUN_0059d9b8(0x100b1e8);
+  uRam00e9c4bc = 0x4321;
+  FUN_005a153c(0xfbcee0,5,0xfbd00c,5);
+  iVar1 = FUN_0036ad30(0xfbcb30,&uStack_18,&uStack_14);
+  if (iVar1 == -1) {
+    if (pcRam00e9c400 != reset_vector) {
+      (*pcRam00e9c400)(0xd6c7ec);
+    }
+    return 0xffffffff;
+  }
+  FUN_0059e9c8(0xfbcae4,0xfbcb30,uStack_18,uStack_14,uRam00e9c668);
+  FUN_0059d9cc(0xfbcb30,0xfbcae4,uRam00e9c668);
+  FUN_0059ee18(0xfbcc60,uRam00e269b0);
+  FUN_00599df8();
+  FUN_0059dcb4();
+  uRam00e2644c = 1;
+  return 0;
+}
+

@@ -1,0 +1,1795 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<Panels>
+
+   <Panel id = "Panel_Sensor" label = "SENSOR">
+
+      <Button id = "Sensitivity" label = "SENSITIVITY">
+         <Goto_Panel>Panel_Sensitivity</Goto_Panel>
+      </Button>
+      <Button id = "ColorTemp" label = "COLOR TEMP">
+         <Goto_Panel>Panel_WhiteBalance</Goto_Panel>
+      </Button>
+      <Button id = "Shutter" label = "SHUTTER" hasFocus = "true">
+         <Goto_Panel>Panel_Shutter</Goto_Panel>
+      </Button>
+
+      <Button id = "VariSpeed" label = "VARISPEED">
+         <Goto_Panel>Panel_VariSpeed</Goto_Panel>
+      </Button>
+
+      <Button id = "Timelapse" label = "TIME LAPSE">
+         <Goto_Panel>Panel_TimeLapse</Goto_Panel>
+	 
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Sensitivity" label = "SENSITIVITY">
+
+      <Button id = "EI_Index" label = "ISO RATING" hasFocus = "true"> 
+	 <Selector label = "RATING" prefix = "ISO " continuousUpdate = "true">	
+	    <Parameter name="GUI.PAINT.EXPOSURE.ISO"/>
+	 </Selector>
+      </Button>
+
+
+   </Panel>
+
+
+   <Panel id = "Panel_WhiteBalance" label = "COLOR TEMP">
+
+      <Button id = "AutoWB" label = "AUTO WB" hasFocus = "true">
+	 <Dispatch>WHITE_BALANCE</Dispatch>
+	 
+      </Button>
+      <Button id = "WB_Tungsten" label = "TUNGSTEN">
+         <Dispatch>WHITE_BALANCE</Dispatch>
+      </Button>
+      <Button id = "WB_Daylight" label = "DAYLIGHT">
+         <Dispatch>WHITE_BALANCE</Dispatch>
+      </Button>
+      <Button id = "ManualWB" label = "MANUAL WB">
+	 <Selector label = "COLOR TEMP" suffix = "°K" continuousUpdate = "true">
+	    <Parameter name="PAINT.WHITE_BALANCE.CURRENT"/>
+	 </Selector>
+      </Button>
+      <Button id = "Trim" label = "TRIM">
+         <Goto_Panel>Panel_Trim</Goto_Panel>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_Shutter" label = "SHUTTER">
+
+      <Checkbox id = "Genlock_Request" label = "GENLOCK">
+	 <Parameter name="SYSTEM.DEV.GENLOCK.REQUESTED"/>
+      </Checkbox>
+
+      <Button id = "SHUTTER_MODE" label = "MODE">
+	 <Selector label = "SHUTTER MODE">
+	    <Parameter name="VIDEO.RECORD.SHUTTER_SPEED.MODE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "SHUTTER_SPEED" label = "SPEED" hasFocus = "true">
+	 <Selector label = "SHUTTER SPEED" continuousUpdate = "true">
+	    <Parameter name="GUI.RECORD.SHUTTER_SPEED"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "SHUTTER_Sync" label = "SYNCRO">
+	 <Selector label = "SPEED ADJUST" suffix = "" continuousUpdate = "true">
+	    <Parameter name="VIDEO.RECORD.SHUTTER_SPEED.SYNC_ADJUST"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "SHUTTER_Phase" label = "PHASE">
+	 <Selector label = "PHASE ADJUST" suffix = "°" continuousUpdate = "true">
+	    <Parameter name="VIDEO.RECORD.SHUTTER_PHASE.DEGREES"/>
+	 </Selector>
+
+      </Button>
+   </Panel>
+   <Panel id = "Panel_VariSpeed" label = "VARISPEED">
+
+      <Checkbox id = "VariSpeed_enable" label = "VARISPEED" hasFocus = "true">
+	 <Parameter name="VIDEO.RECORD.VARISPEED.ENABLED"/>
+      </Checkbox>
+
+      <Checkbox id = "RampTrigger" label = "RAMP">
+	 <Parameter name="VIDEO.RECORD.VARISPEED.RAMP.ENABLED"/>
+	 <Selector label = "TRIGGER">
+	    <Parameter name="VIDEO.RECORD.VARISPEED.RAMP.TRIGGER"/>
+	 </Selector>
+      </Checkbox>
+
+      <Button id = "VariSpeed_Rate" label = "FRAMERATE">
+	 <Selector label="FRAMERATE" suffix=" fps" continuousUpdate = "true">
+	    <Parameter name="GUI.RECORD.VARISPEED.FRAME_RATE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Ramp_Duration" label = "TIME">
+	 <Selector label = "DURATION" suffix = " sec" >
+	    <Parameter name="VIDEO.RECORD.VARISPEED.RAMP.RAMP_1.DURATION"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Ramp_EndFRAME_RATE" label = "END RATE">
+	 <Selector label = "END RATE" suffix = " fps">
+	    <Parameter name="GUI.RECORD.VARISPEED.RAMP.END_FRAME_RATE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_TimeLapse" label = "TIMELAPSE">
+
+      <Checkbox id = "TimeLapse_enable" label = "ENABLE" hasFocus = "true">
+	 <Parameter name="GUI.RECORD.TIMELAPSE.ENABLED"/>
+	 <Selector label="TRIGGER MODE">
+	    <Parameter name="GUI.RECORD.TIMELAPSE.TRIGGER_MODE"/>
+	 </Selector>
+      </Checkbox>
+
+      <Button id = "TimeLapse_SHUTTER_SPEED" label = "SPEED">
+	 <Selector label = "SHUTTER SPEED" suffix = " sec" continuousUpdate = "true">
+	    <Parameter name="GUI.RECORD.TIMELAPSE.SHUTTER_SPEED"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "RecordTime" label = "STEP PRINT">
+	 <Selector label="NUM FRAMES " suffix = " frames">
+	    <Parameter name="VIDEO.RECORD.TIMELAPSE.BURST_SIZE"/>
+	 </Selector>
+      </Button>
+      <Button id = "Interval" label = "INTERVAL">
+	 <Selector label="PERIOD " suffix = " sec">
+	    <Parameter name="VIDEO.RECORD.TIMELAPSE.INTERVAL"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "BurstType" label = "BURST TYPE">
+	 <Selector label="FRAMES ARE ">
+	    <Parameter name="VIDEO.RECORD.TIMELAPSE.BURST_TYPE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+	 
+   <Panel id = "Panel_Trim" label = "Trim">
+
+      <Button id = "Tint" label = "TINT">
+	 <Selector label = "OFFSET" continuousUpdate = "true">
+	    <Parameter name="PAINT.TINT.CURRENT"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "STint" label = "S TINT">
+	 <Selector label = "OFFSET" continuousUpdate = "true">
+	    <Parameter name="PAINT.SLAVE.TINT.CURRENT"/>
+	 </Selector>
+      </Button>
+      <Button id = "SWBAL" label = "S WBAL">
+	 <Selector label = "OFFSET"  continuousUpdate = "true"> 
+	    <Parameter name="PAINT.SLAVE.WHITE_BALANCE.CURRENT"/>
+	 </Selector>
+      </Button>
+      <Button id = "SFlut" label = "S FLUT">
+	 <Selector label = "OFFSET" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.SLAVE.SHADOWFLUT"/>
+	 </Selector>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_System" label = "SYSTEM">
+
+      <Button id = "Audio_Setup" label = "SOUND">
+         <Goto_Panel>Panel_Audio_Setup</Goto_Panel>
+      </Button>
+
+      <Button id = "Media" label = "MEDIA">
+         <Goto_Panel>Panel_Magazine</Goto_Panel>
+      </Button>
+
+      <Button id = "Project" label = "PROJECT" hasFocus = "true">
+         <Goto_Panel>Panel_Project</Goto_Panel>
+      </Button>
+
+      <Button id = "Monitoring" label = "MONITOR">
+         <Goto_Panel>Panel_Monitoring</Goto_Panel>
+      </Button>
+
+      <Button id = "Setup" label = "SETUP">
+         <Goto_Panel>Panel_Setup</Goto_Panel>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_Audio_Setup" label = "SOUND">
+
+      <Button id = "RecEnable" label = "REC ENABLE">
+         <Goto_Panel>Panel_Rec_Enable</Goto_Panel>
+      </Button>
+
+      <Button id = "Volume_Master" label = "OUTPUT LEVEL">
+         <Selector label = "VOLUME" suffix = "dB" continuousUpdate = "true">
+	        <Parameter name="AUDIO.HEADPHONE.VOLUME_MASTER"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "Rec48V" label = "48V MIC">
+         <Goto_Panel>Panel_Rec_48V</Goto_Panel>
+      </Button>
+
+   </Panel>
+   <Panel id = "Panel_Rec_Enable" label = "REC ENABLE">
+
+      <Checkbox id = "Enable_1" label = "CHANNEL 1">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_1.ENABLE"/>
+	 <Selector label = "INPUT TYPE" continuousUpdate = "true">
+	    <Parameter name="AUDIO.INPUT.CHANNEL_1.SOURCE"/>
+	 </Selector>
+      </Checkbox>
+      <Checkbox id = "Enable_2" label = "CHANNEL 2">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_2.ENABLE"/>
+	 <Selector label = "INPUT TYPE" continuousUpdate = "true">
+	    <Parameter name="AUDIO.INPUT.CHANNEL_2.SOURCE"/>
+	 </Selector>
+      </Checkbox>
+      <Checkbox id = "Enable_3" label = "CHANNEL 3">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_3.ENABLE"/>
+	 <Selector label = "INPUT TYPE" continuousUpdate = "true">
+	    <Parameter name="AUDIO.INPUT.CHANNEL_3.SOURCE"/>
+	 </Selector>
+      </Checkbox>
+      <Checkbox id = "Enable_4" label = "CHANNEL 4">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_4.ENABLE"/>
+	 <Selector label = "INPUT TYPE" continuousUpdate = "true">
+	    <Parameter name="AUDIO.INPUT.CHANNEL_4.SOURCE"/>
+	 </Selector>
+      </Checkbox>
+   </Panel>
+
+   <Panel id = "Panel_Rec_48V" label = "48V MIC">
+
+      <Checkbox id = "48V_Channel_1" label = "CHANNEL 1">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_1.PHANTOM48V_ENABLE"/>
+      </Checkbox>
+      <Checkbox id = "48V_Channel_2" label = "CHANNEL 2">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_2.PHANTOM48V_ENABLE"/>
+      </Checkbox>
+      <Checkbox id = "48V_Channel_3" label = "CHANNEL 3">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_3.PHANTOM48V_ENABLE"/>
+      </Checkbox>
+      <Checkbox id = "48V_Channel_4" label = "CHANNEL 4">
+	 <Parameter name="AUDIO.INPUT.CHANNEL_4.PHANTOM48V_ENABLE"/>
+      </Checkbox>
+   </Panel>
+
+   <Panel id = "Panel_Media" label = "MEDIA">
+
+
+      <Button id = "Magazine" label = "MAGAZINE" hasFocus = "true">
+	 <Goto_Panel>Panel_Magazine</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Slate" label = "SLATE">
+
+      <Button id = "Slate_Camera" label = "CAMERA">
+	 <Selector label = "SET CAMERA ID">
+	    <Parameter name="PROJECT.SLATE.CAMERA"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Metadata" label = "METADATA">
+
+      <Button id = "MD_Ext_Position" label = "EXT POSITION">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "MD_Ext_Audio" label = "EXT AUDIO">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "MD_Ext_Lens" label = "EXT LENS">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "MD_User_Data" label = "USER DATA XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_Magazine" label = "MEDIA">
+
+      <Checkbox id = "PreRecord" label = "PRE-RECORD">
+	 <Parameter name="GUI.RECORD.PRERECORD.ENABLED"/>
+	 <Selector label = "DURATION" suffix = " sec">
+	    <Parameter name="GUI.RECORD.PRERECORD.DURATION"/>
+	 </Selector>
+      </Checkbox>      
+
+      <Button id = "Magazine_Unmount" label = "UNMOUNT">
+         <Dispatch>UNMOUNT_DIGMAG</Dispatch>
+      </Button>
+
+      <Button id = "Magazine_Format" label = "FORMAT" hasFocus = "true">
+	 <Dispatch>FORMAT_DIGMAG</Dispatch>
+      </Button>
+
+      <Button id = "Magazine_Format_New" label = "CHANGE" hasFocus = "false">
+         <Goto_Panel>Panel_Magazine_New</Goto_Panel>
+      </Button>
+
+      <Button id = "Magazine_Format_Reset" label = "RESET" hasFocus = "false">
+         <Goto_Panel>Panel_Magazine_Reset</Goto_Panel>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_Magazine_New" label = "CHANGE">
+      <Button id = "Panel_Magazine_Set_Btn" label = "FORMAT">
+	 <Dispatch>FORMAT_DIGMAG_NEW</Dispatch>
+      </Button>
+      <Button id = "Panel_Magazine_New_Btn" label = "REEL #" hasFocus = "true">
+	 <Selector label = "NEW #">
+	    <Parameter name="PROJECT.SLATE.FORCE_REEL_NUM"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Magazine_Reset" label = "RESET">
+      <Button id = "Panel_Magazine_Set_Btn" label = "FORMAT">
+	 <Dispatch>FORMAT_DIGMAG_RESET</Dispatch>
+      </Button>
+      <Button id = "Panel_Magazine_Reset_Btn" label = "REEL #" hasFocus = "true">
+	 <Selector label = "RESET #">
+	    <Parameter name="PROJECT.SLATE.FORCE_REEL_RESET_NUM"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Playback" label = "PLAYBACK">
+
+     <Button id = "Panel_Playback_Display" label = "HD-SDI">	
+	 <Selector label="RESOLUTION">
+	    <Parameter name="VIDEO.PLAYBACK.CONFIG.DISPLAY_MODE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Panel_Playback_Look" label = "LOOK">
+	 <Selector label="USE SETTINGS">
+	    <Parameter name="VIDEO.PLAYBACK.CONFIG.LOOK"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Project" label = "PROJECT">
+
+      <Button id = "Status" label = "STATUS">	
+		<Goto_Panel>Panel_Status</Goto_Panel>
+      </Button>
+
+      <Button id = "Slate" label = "SLATE">
+	 <Goto_Panel>Panel_Slate</Goto_Panel>
+      </Button>
+      <Button id = "Proj_Config" label = "CONFIGURE">
+         <Goto_Panel>Panel_New_Project</Goto_Panel>
+      </Button>
+
+      <Button id = "Proj_Timecode" label = "TIMECODE">
+         <Goto_Panel>Panel_Proj_Timecode</Goto_Panel>
+      </Button>
+      <Checkbox id = "Proj_Proxies" label = "QT PROXIES">
+	 <Parameter name="GUI.SOFTKEY.GENERATE_QUICKTIME_PROXIES"/>
+      </Checkbox>
+
+   </Panel>
+
+   <Panel id = "Panel_Status" label = "STATUS">	
+
+      <Button id = "Status_View" label = "VIEW">
+		<Dispatch>VIEW_STATUS</Dispatch>
+      </Button>
+
+      <Button id = "Status_Save" label = "SAVE">
+         <Dispatch>EXPORT_PROJECT_PROFILE</Dispatch>
+      </Button>
+
+      <Button id = "Status_Recall" label = "RECALL">
+	 <Selector label = "RECALL" ItemsParam="SYSTEM.PROFILE.FILE_LIST.PROJECT">
+		<Parameter name="GUI.PROFILE.IMPORT_PATHNAME.PROJECT"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_New_Project" label = "CONFIGURE">
+
+      <Button id = "Proj_Resolution" label = "RESOLUTION">
+	 <Selector label = "RESOLUTION">
+	    <Parameter name="PROJECT.MODE_MATRIX.RESOLUTION"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Proj_Frame_Rate" label = "TIME BASE">
+         <Selector label = "TIME BASE">
+            <Parameter name="GUI.SOFTKEY.MODE_MATRIX.FRAME_RATE"/>
+         </Selector>
+      </Button>
+
+      <Button id = "Proj_Quality" label = "QUALITY">
+	 <Selector label = "QUALITY" >
+	    <Parameter name="PROJECT.MODE_MATRIX.QUALITY"/>
+	 </Selector>
+      </Button>
+
+		
+      <NotFlag id = "Project_Settings_Ok" label = "VALID SETTINGS">
+	 <Parameter name="MEDIA.DIGMAG.PROJECT_SETTINGS_RECORDABLE"/>
+      </NotFlag>
+   </Panel>
+
+
+   <Panel id = "Panel_Proj_Timecode" label = "TIMECODE">
+
+      <Checkbox id = "TC_JamSync" label = "JAM SYNC">
+	 <Parameter name="SYSTEM.DEV.TIMECODE.JAMSYNC.REQUESTED"/>
+      </Checkbox>
+
+      <Checkbox id = "TC_OutEnable" label = "OUTPUT">
+         <Parameter name="SYSTEM.DEV.TIMECODE.OUTPUT.ENABLED"/>
+      </Checkbox>
+
+      <Checkbox id = "TC_Cross" label = "CROSS">
+         <Parameter name="SYSTEM.DEV.TIMECODE.CROSS.ENABLED"/>
+         <Selector label = "MODE">
+            <Parameter name="SYSTEM.DEV.TIMECODE.CROSS.MODE"/>
+         </Selector>
+      </Checkbox>
+
+      <Button id = "Pref_TC" label = "DISPLAY">
+	 <Selector label="FORMAT: " >
+	    <Parameter name="GUI.USER_PREF.TIMECODE_FORMAT"/>
+	 </Selector>
+      </Button>
+
+      <Checkbox id = "Offset" label = "TIMEZONE">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_GMT_OFFSET"/>
+	 <Selector label = "GMT OFFSET" suffix = " hours">
+	    <Parameter name="GUI.SYSTEM_DATE.GMT_OFFSET"/>
+	 </Selector>
+      </Checkbox>
+
+
+
+   </Panel>
+
+   <Panel id = "Panel_Proj_Proxies" label = "PROXIES">
+
+      <Checkbox id = "Proxy_full_scale" label = "FULL SCALE">
+	 <Parameter name="VIDEO.PROXY.GENERATE_FULL_SCALE"/>
+      </Checkbox>
+
+      <Checkbox id = "Proxy_half_scale" label = "1/2 SCALE">
+	 <Parameter name="VIDEO.PROXY.GENERATE_HALF_SCALE"/>
+      </Checkbox>
+
+      <Checkbox id = "Proxy_quarter_scale" label = "1/4 SCALE">
+	 <Parameter name="VIDEO.PROXY.GENERATE_QUARTER_SCALE"/>
+      </Checkbox>
+
+      <Checkbox id = "Proxy_eighth_scale" label = "1/8 SCALE">
+	 <Parameter name="VIDEO.PROXY.GENERATE_EIGHTH_SCALE"/>
+      </Checkbox>
+
+   </Panel>
+
+   <Panel id = "Panel_Proj_Credits" label = "CREDITS">
+
+      <Button id = "Project_Name" label = "PROJECT">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Project_Organization" label = "ORGANIZATION">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Project_Director" label = "DIRECTOR">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Project_Camerman" label = "CAMERMAN">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Project_Editor" label = "EDITOR">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Monitoring" label = "MONITOR">
+
+      <Button id = "Frames" label = "FRAME GUIDE">
+	 <Goto_Panel>Panel_Frame_Guide</Goto_Panel>
+      </Button>
+      <Button id = "Video_ActiveOutput" label = "PREVIEW">
+	 <Selector label="PVW OUTPUT ">
+	    <Parameter name="GUI.MONITOR.ACTIVE_DISPLAY"/>
+	 </Selector>
+      </Button>
+
+      <Checkbox id = "TestPattern" label = "TEST SIGNAL">
+	 <Parameter name="VIDEO.MONITOR.TEST_PATTERN.ENABLED"/>
+	 <Selector label = "TEST SIGNAL">
+	    <Parameter name="VIDEO.MONITOR.TEST_PATTERN.NAME"/>
+	 </Selector>
+      </Checkbox>
+
+      <Button id = "Monitor_RefreshRate" label = "PVW REFRESH">
+	 <Selector label="FRAME RATE" continuousUpdate = "true">
+	    <Parameter name="VIDEO.MONITOR.FRAME_RATE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "EVF_RefreshMode" label = "EVF REFRESH">
+	 <Selector label="MODE">
+	    <Parameter name="SYSTEM.DEV.EVF.REFRESH_MODE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Frame_Guide" label = "FRAME GUIDE">
+
+      <Button id = "FrameGuide" label = "FRAME GUIDE">
+	 <Selector label = "FRAME GUIDE" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.FRAME_GUIDE.ASPECT"/>
+	 </Selector>
+      </Button>
+      <Checkbox id = "FrameColor" label = "ENABLE">
+	 <Parameter name="GUI.OSD.RETICLE.FRAME_GUIDE.ENABLE"/>
+	 <Selector label = "FRAME COLOR" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.FRAME_GUIDE.COLOR"/>
+	 </Selector>
+      </Checkbox>
+      <Button id = "TvSafe" label = "SAFETY">
+	 <Selector label = "SAFETY GUIDE" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.ASPECT"/>
+	 </Selector>
+      </Button>
+      <Checkbox id = "TvSafeColor" label = "ENABLE">
+	 <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE"/>
+	 <Selector label = "TV SAFE COLOR" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.COLOR"/>
+	 </Selector>
+      </Checkbox>
+
+      <Button id = "FrameGuide_Customize" label = "CUSTOM">
+	 <Goto_Panel>Panel_Customize</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Customize" label = "CUSTOM">
+
+      <PanelEvent onEnter = "PANEL_EVENT_ENTER" onExit = "PANEL_EVENT_EXIT" />
+
+		
+      <Button id = "LookAround_Alpha" label = "LOOK AROUND" hasFocus = "true">
+	 <Selector label = "OPACITY" suffix = "%" continuousUpdate = "true">
+	    <Parameter name="GUI.USER_PREF.LOOKAROUND.ALPHA"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "FrameGuide_CustomizeCursors" label = "CURSORS">
+	 <Goto_Panel>Panel_CustomizeCursors</Goto_Panel>
+      </Button>
+
+
+
+      <Button id = "CustomReticle_ACTION" label = "USER ACTION">
+         <Dispatch>CUSTOM_RETICLE_ACTION</Dispatch>
+      </Button>
+
+      <Button id = "CustomReticle_TITLE" label = "USER TITLE">
+         <Dispatch>CUSTOM_RETICLE_TITLE</Dispatch>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_CustomizeCursors" label = "CURSORS">
+
+      <Checkbox id = "CURSORS_CENTER_ENABLE" label = "CENTER">
+	 <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.CENTER_CURSOR.SHOW"/>
+      </Checkbox>
+
+      <Checkbox id = "CURSORS_ACTION_ENABLE" label = "ACTION">
+	 <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.ACTION.SHOW"/>
+	 <Selector label = "STYLE" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.ACTION.STYLE"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "CURSORS_TITLE_ENABLE" label = "TITLE">
+	 <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.TITLE.SHOW"/>
+	 <Selector label = "STYLE" continuousUpdate = "true">
+	    <Parameter name="GUI.OSD.RETICLE.TV_SAFE_AREA.TITLE.STYLE"/>
+	 </Selector>
+      </Checkbox>
+   </Panel>
+
+   <Panel id = "Panel_Viewfinder" label = "VIEWFINDER">
+
+      <Checkbox id = "Video_OutputEffects" label = "FALSE COLOR">
+	 <Parameter name="GUI.MONITOR.OUTPUT_EFFECTS.ENABLED"/>
+	 <Selector label="FALSE COLOR" continuousUpdate = "true">
+	    <Parameter name="GUI.MONITOR.OUTPUT_EFFECTS.MODE"/>
+	 </Selector>
+      </Checkbox>
+
+      <Button id = "ViewFinder_Meters" label = "METERS" hasFocus = "true">
+	 <Goto_Panel>Panel_Meters</Goto_Panel>
+      </Button>
+
+      <Button id = "Frames" label = "ZEBRAS">
+	 <Goto_Panel>Panel_Zebras</Goto_Panel>
+      </Button>
+      <Button id = "ViewFinder_Intensity" label = "INTENSITY">
+	 <Selector label = "INTENSITY" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.CONTRAST_VALUE"/>
+	 </Selector>
+      </Button>
+
+      <Checkbox id = "ViewFinder_OpenGate" label = "OPEN GATE">
+	 <Parameter name="SYSTEM.DEV.EVF.OPEN_GATE_ENABLED"/>
+      </Checkbox>      
+
+
+   </Panel>
+
+   <Panel id = "Panel_Viewfinder1" label = "VIEWFINDER">
+	
+	   <Button id = "ViewFinder_DarkDetail" label = "DARK DETAIL">
+	  <Selector label = "DARK DETAIL" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.DARK_DETAIL.VALUE"/>
+	 </Selector>
+      </Button> 
+
+   </Panel>
+
+   <Panel id = "Panel_Meters" label = "ANALYSIS">
+
+      <Button id = "Meters_HUD" label = "METER" hasFocus = "true">
+	 <Selector label = "ANALYSIS METER">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HUD_METER"/>
+	 </Selector>
+      </Button>
+
+      <Checkbox id = "Meters_IA_Assist" label = "ASSISTS">
+	 <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.ASSIST_METER_ENABLED"/>
+	 <Selector label = "ANALYSIS METER">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.ASSIST_METER"/>
+	 </Selector>
+      </Checkbox>      
+
+   </Panel>
+
+   <Panel id = "Panel_Zebras" label = "ZEBRAS">
+
+      <Button id = "Zebra_1_Config" label = "CONFIGURE 1">
+	 <Goto_Panel>Panel_ConfigZebra_1</Goto_Panel>
+      </Button>
+
+      <Checkbox id = "Zebra_1" label = "ENABLE 1" hasFocus = "true">
+	 <Parameter name="SYSTEM.DEV.EVF.ZEBRA.1_ENABLE"/>
+      </Checkbox>
+      <Button id = "Zebra_2_Config" label = "CONFIGURE 2">
+	 <Goto_Panel>Panel_ConfigZebra_2</Goto_Panel>
+      </Button>
+
+      <Checkbox id = "Zebra_2" label = "ENABLE 2">
+	 <Parameter name="SYSTEM.DEV.EVF.ZEBRA.2_ENABLE"/>
+      </Checkbox>
+   </Panel>
+   <Panel id = "Panel_ConfigZebra_1" label = "ZEBRA 1">
+
+      <Button id = "Zebra_1_Lo_Level" label = "LO IRE">
+	 <Selector label = "LOWER IRE:" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.ZEBRA.1_LOWER_IRE"/>
+	 </Selector>
+      </Button>
+      <Button id = "Zebra_1_Hi_Level" label = "HI IRE">
+	 <Selector label = "UPPER IRE:" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.ZEBRA.1_UPPER_IRE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+   <Panel id = "Panel_ConfigZebra_2" label = "ZEBRA 2">
+
+      <Button id = "Zebra_2_Lo_Level" label = "LO IRE">
+	 <Selector label = "LOWER IRE:" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.ZEBRA.2_LOWER_IRE"/>
+	 </Selector>
+      </Button>
+      <Button id = "Zebra_2_Hi_Level" label = "HI IRE">
+	 <Selector label = "UPPER IRE:" continuousUpdate = "true">
+	    <Parameter name="SYSTEM.DEV.EVF.ZEBRA.2_UPPER_IRE"/>
+	 </Selector>
+      </Button>
+   </Panel>
+
+
+
+   <Panel id = "Panel_VideoOutput" label = "VIDEO OUT">
+
+      <Checkbox id = "Enable_EVF" label = "EVF">
+	 <Parameter name="SYSTEM.DEV.EVF.ENABLED"/>
+      </Checkbox>
+      <Checkbox id = "Enable_LCD" label = "LCD">
+	 <Parameter name="SYSTEM.DEV.LCD.ENABLED"/>
+      </Checkbox>
+      <Checkbox id = "Enable_HD_Preview" label = "HD PREVIEW">
+	 <Parameter name="SYSTEM.DEV.MONITOR_HDMI.ENABLED"/>
+      </Checkbox>
+      <Checkbox id = "Enable_HDSDI" label = "HD-SDI">
+	 <Parameter name="SYSTEM.DEV.HDSDI.ENABLED"/>
+      </Checkbox>
+
+   </Panel>
+
+
+
+   <Panel id = "Panel_Setup" label = "SETUP">
+
+      <Button id = "Preferences" label = "PREFERENCES">
+	 <Goto_Panel>Panel_Preferences</Goto_Panel>
+      </Button>
+
+      <Button id = "Maintenance" label = "MAINTENANCE">
+	 <Goto_Panel>Panel_Maintenance</Goto_Panel>
+      </Button>
+
+      <Button id = "SetDate" label = "SET CLOCK">
+	 <Goto_Panel>Panel_DateTime</Goto_Panel>
+      </Button>
+
+
+	
+
+      <Button id = "RemoteControl" label = "REMOTE">
+	 <Goto_Panel>Panel_Remote</Goto_Panel>
+      </Button>
+
+      <Button id = "ProgramSetup" label = "PROGRAM">
+	 <Goto_Panel>Panel_Program</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Program" label = "PROGRAM">
+	<Button id = "Prg_Position" label = "POSITION">
+	 <Selector label = "CAMPOS">
+	    <Parameter name="GUI.PROGRAM.POSITION"/>
+	 </Selector>
+      </Button>
+	
+      <Button id = "Prg_Hdsdi" label = "HD-SDI">
+	 <Selector label = "RANGE">
+	    <Parameter name="GUI.PROGRAM.HDSDI"/>
+	 </Selector>
+      </Button>
+
+
+      <Button id = "Prg_Video" label = "VIDEO">
+	 <Selector label = "MODE">
+	    <Parameter name="GUI.PROGRAM.VIDEO"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Prg_Feed" label = "FEED">
+	 <Selector label = "FEED">
+	    <Parameter name="GUI.PROGRAM.FEED"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Prg_Tally" label = "TALLY">
+	 <Selector label = "TALLY">
+	    <Parameter name="GUI.PROGRAM.TALLY"/>
+	 </Selector>
+      </Button>
+
+
+   </Panel>
+
+   <Panel id = "Panel_Preferences" label = "PREFERENCES">
+
+      <Button id = "UserProfile" label = "USER PROFILE">
+	 <Goto_Panel>Panel_User</Goto_Panel>
+      </Button>
+
+      <Button id = "Pref_Keymap" label = "KEYMAP">
+	 <Goto_Panel>Panel_Keymap</Goto_Panel>
+      </Button>
+
+      <Button id = "Pref_GPIO" label = "GPIO">
+	 <Goto_Panel>Panel_GPIO</Goto_Panel>
+      </Button>
+
+      <Button id = "Pref_Playback" label = "PLAYBACK" implemented="true">
+	 <Goto_Panel>Panel_Playback</Goto_Panel>
+      </Button>
+
+      <Button id = "Pref_Display" label = "DISPLAY">
+	 <Goto_Panel>Panel_Display</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Display" label = "DISPLAY">
+
+      <Checkbox id = "ShowHudUpper" label = "STATUS">
+	 <Parameter name="GUI.OSD.SHOW.UPPER_HUD"/>
+	 <Selector label="FORMAT AS ">
+	    <Parameter name="GUI.USER_PREF.SHUTTER_SPEED_FORMAT"/>
+	 </Selector>
+      </Checkbox>      
+
+      <Checkbox id = "ShowLensData" label = "LENS DATA">
+	 <Parameter name="GUI.OSD.SHOW.LENS_DATA"/>
+	 <Selector label="UNITS" >
+	    <Parameter name="GUI.USER_PREF.LENS_UNITS"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "ShowEvfLadder" label = "EVF MENU">
+	 <Parameter name="GUI.OSD.SHOW.EVF_FUNCTION_LADDER"/>
+      </Checkbox>      
+
+      <Checkbox id = "ShowHudLower" label = "METERS">
+	 <Parameter name="GUI.OSD.SHOW.LOWER_HUD"/>
+      </Checkbox>      
+
+      <Checkbox id = "ShowGreyRamp" label = "GREY SCALE">
+	 <Parameter name="GUI.OSD.SHOW.GREYRAMP_CHART"/>
+      </Checkbox>      
+
+   </Panel>
+
+   <Panel id = "Panel_Keymap" label = "KEY-MAP">
+      <Checkbox id = "Enable_SideRecord" label = "SIDE RECORD">
+	 <Parameter name="GUI.KEYMAP.SIDE_RECORD.ENABLED"/>
+      </Checkbox>
+
+      <Button id = "Menu_UserKeys" label = "USER KEYS">
+	 <Goto_Panel>Panel_UserKeys</Goto_Panel>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_UserKeys" label = "USER KEYS">
+
+      <Checkbox id = "Define_User1" label = "USER-1">
+	 <Parameter name="GUI.KEYMAP.USER_D.ENABLED"/>
+	 <Selector label="FUNCTION">
+	    <Parameter name="GUI.KEYMAP.USER_D.FUNCTION"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Define_User2" label = "USER-2">
+	 <Parameter name="GUI.KEYMAP.USER_E.ENABLED"/>
+	 <Selector label="FUNCTION">
+	    <Parameter name="GUI.KEYMAP.USER_E.FUNCTION"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Define_User3" label = "USER-3">
+	 <Parameter name="GUI.KEYMAP.EVF_B.ENABLED"/>
+	 <Selector label="FUNCTION">
+	    <Parameter name="GUI.KEYMAP.EVF_B.FUNCTION"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Define_User4" label = "USER-4">
+	 <Parameter name="GUI.KEYMAP.EVF_C.ENABLED"/>
+	 <Selector label="FUNCTION">
+	    <Parameter name="GUI.KEYMAP.EVF_C.FUNCTION"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Define_User5" label = "USER-5">
+	 <Parameter name="GUI.KEYMAP.LCD_A.ENABLED"/>
+	 <Selector label="FUNCTION">
+	    <Parameter name="GUI.KEYMAP.LCD_A.FUNCTION"/>
+	 </Selector>
+      </Checkbox>
+
+   </Panel>
+
+   <Panel id = "Panel_GPIO" label = "GPIO">
+
+      <Checkbox id = "GPIO_Input_1" label = "INPUT A">
+	 <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_1.ENABLED"/>
+	 <Selector label = "FUNCTION">
+	    <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_1.MAPPED_FUNCTION"/>
+	 </Selector>
+      </Checkbox>      
+
+      <Checkbox id = "GPIO_Input_2" label = "INPUT B">
+	 <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_2.ENABLED"/>
+	 <Selector label = "FUNCTION">
+	    <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_2.MAPPED_FUNCTION"/>
+	 </Selector>
+      </Checkbox>      
+
+      <Button id = "GPIO_Output_1" label = "OUTPUT A">
+	 <Selector label = "FUNCTION">
+	    <Parameter name="SYSTEM.DEV.GPIO.CONFIG.OUTPUT_1.TRIGGER"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "GPIO_Output_2" label = "OUTPUT B">
+	 <Selector label = "FUNCTION">
+	    <Parameter name="SYSTEM.DEV.GPIO.CONFIG.OUTPUT_2.TRIGGER"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "GPIO_Polarity" label = "POLARITY">
+	 <Panel label = "POLARITY">
+
+	    <Button id = "GPIO_Polarity_IN_1" label = "GPIO IN 1">
+	       <Selector label = "SIGNAL">
+		  <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_1.POLARITY"/>
+	       </Selector>
+	    </Button>
+	    <Button id = "GPIO_Polarity_IN_2" label = "GPIO IN 2">
+	       <Selector label = "SIGNAL">
+		  <Parameter name="SYSTEM.DEV.GPIO.CONFIG.INPUT_2.POLARITY"/>
+	       </Selector>
+	    </Button>
+	    <Button id = "GPIO_Polarity_OUT_1" label = "GPIO OUT 1">
+	       <Selector label = "SIGNAL">
+		  <Parameter name="SYSTEM.DEV.GPIO.CONFIG.OUTPUT_1.POLARITY"/>
+	       </Selector>
+	    </Button>
+	    <Button id = "GPIO_Polarity_OUT_2" label = "GPIO OUT 2">
+	       <Selector label = "SIGNAL">
+		  <Parameter name="SYSTEM.DEV.GPIO.CONFIG.OUTPUT_2.POLARITY"/>
+	       </Selector>
+	    </Button>
+	 </Panel>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Look" label = "LOOK">
+
+      <Button id = "Clear_LOOK_Doit" label = "CLEAR">
+	 <Dispatch>CLEAR_LOOK_DOIT</Dispatch>
+      </Button>
+
+      <Button id = "Look_Import" label = "IMPORT">
+	 <Selector label="LOOK PROFILE"  ItemsParam="SYSTEM.PROFILE.FILE_LIST.LOOK">
+	    <Parameter name="GUI.PROFILE.IMPORT_PATHNAME.LOOK"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Look_Export" label = "EXPORT">
+         <Dispatch>EXPORT_LOOK_PROFILE</Dispatch>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_User" label = "USER PROFILE">
+
+      <Button id = "Restore_USER_Doit" label = "CLEAR">
+	     <Dispatch>RESTORE_USER_DOIT</Dispatch>
+	  </Button>
+
+      <Button id = "User_Import" label = "IMPORT">
+	 <Selector label="USER PROFILE"  ItemsParam="SYSTEM.PROFILE.FILE_LIST.USER">
+	    <Parameter name="GUI.PROFILE.IMPORT_PATHNAME.USER"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "User_Export" label = "EXPORT">
+         <Dispatch>EXPORT_USER_PROFILE</Dispatch>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Genlock" label = "GENLOCK">
+
+      <Checkbox id = "Sync_External" label = "SYNC INT/EXT">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Checkbox>
+
+      <Button id = "Genlock_HPhase" label = "H PHASE">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Genlock_HPhaseFine" label = "H PHASE FINE">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Checkbox id = "Genlock_External" label = "TC INT/EXT">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Checkbox>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Maintenance" label = "MAINTENANCE">
+
+
+      <Button id = "FanMode" label = "FAN">
+	 <Goto_Panel>Panel_Fan</Goto_Panel>
+      </Button>
+
+      <Button id = "Calibrate_DarkShading" label = "BLK SHADING">
+	 <Panel id = "Panel_BlkShading" label = "BLK SHADING">
+	    <Button id = "CalStart" label = "START">
+	       <Dispatch>USERCAL_START</Dispatch>
+	    </Button>
+	    <Button id = "CalRestore" label = "RESTORE">
+	       <Dispatch>USERCAL_RESTORE</Dispatch>
+	    </Button>
+	 </Panel>
+      </Button>
+
+      <Button id = "RestoreSettings" label = "RESTORE">
+	 <Panel label = "RESTORE">
+
+	    <Button id = "Clear_LOOK_Doit" label = "LOOK">
+	       <Dispatch>RESTORE_LOOK_DOIT</Dispatch>
+	    </Button>
+
+	    <Button id = "Clear_USER_Doit" label = "USER">
+	       <Dispatch>RESTORE_USER_DOIT</Dispatch>
+	    </Button>
+
+	    <Button id = "Clear_SYSTEM_Doit" label = "SYSTEM">
+	       <Dispatch>RESTORE_SYSTEM_DOIT</Dispatch>
+	    </Button>
+
+	 </Panel>
+      </Button>
+      <Button id = "SW_Upload" label = "UPDATE SW">
+	 <Dispatch>UPGRADE_SOFTWARE</Dispatch>
+      </Button>
+
+
+
+      <Button id = "Magazine_FlushLog" label = "WRITE LOG">	
+         <Dispatch>FLUSH_LOG</Dispatch>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_DateTime" label = "SET CLOCK">
+
+      <Button id = "SysClock_Date" label = "DATE">
+	 <Goto_Panel>Panel_Date</Goto_Panel>
+      </Button>
+
+      <Button id = "SysClock_Time" label = "TIME">
+	 <Goto_Panel>Panel_Time</Goto_Panel>
+      </Button>
+
+      <Button id = "Date_SetTime" label = "SET CLOCK">
+	 <Dispatch>SET_CLOCK</Dispatch>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_Time" label = "SET TIME">
+      <Checkbox id = "Hour" label = "HOUR">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_HOUR"/>
+	 <Selector label = "GMT HOUR">
+	    <Parameter name="GUI.SYSTEM_DATE.HOUR"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Minute" label = "MINUTE">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_MINUTE"/>
+	 <Selector label = "GMT MINUTE">
+	    <Parameter name="GUI.SYSTEM_DATE.MINUTE"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Second" label = "SECOND">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_SECOND"/>
+	 <Selector label = "SECOND">
+	    <Parameter name="GUI.SYSTEM_DATE.SECOND"/>
+	 </Selector>
+      </Checkbox>
+   </Panel>
+
+   <Panel id = "Panel_Date" label = "SET DATE">
+
+      <Checkbox id = "Year" label = "YEAR">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_YEAR"/>
+	 <Selector label = "GMT YEAR">
+	    <Parameter name="GUI.SYSTEM_DATE.YEAR"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Month" label = "MONTH">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_MONTH"/>
+	 <Selector label = "GMT MONTH">
+	    <Parameter name="GUI.SYSTEM_DATE.MONTH"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "Day" label = "DAY">
+	 <Parameter name="GUI.SYSTEM_DATE.MODIFY_DAY"/>
+	 <Selector label = "GMT DAY">
+	    <Parameter name="GUI.SYSTEM_DATE.DAY"/>
+	 </Selector>
+      </Checkbox>
+
+   </Panel>
+
+   <Panel id = "Panel_Remote" label = "REMOTE">
+
+      <Button id = "RemotePort" label = "REMOTE PORT">	
+	  <Selector label = "REMOTE PORT">
+		<Parameter name="GUI.SOFTKEY.S4I_LENS_PORT_ACTIVE"/>
+	  </Selector>
+      </Button>      
+
+      <Checkbox id = "LensPort" label = "LENS PORT">
+	 <Parameter name="GUI.SOFTKEY.LENS_PORT_ACTIVE"/>
+      </Checkbox>      
+
+   </Panel>
+
+   <Panel id = "Panel_Fan" label = "FAN CONTROL">
+
+      <Button id = "FanMode" label = "FAN">
+	 <Selector label = "FAN MODE">
+	    <Parameter name="SYSTEM.THERMAL.FAN.CONTROL.MODE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_AV" label = "AV MENU">
+
+	  <Button id = "MonitorView" label = "VIEW">
+	     <Selector label="COLOR" continuousUpdate = "true">
+	         <Parameter name="GUI.MONITOR.VIEW_MODE"/>
+	     </Selector>
+	  </Button>
+
+      <Button id = "Video" label = "VIDEO" hasFocus = "true">
+         <Goto_Panel>Panel_Video</Goto_Panel>
+      </Button>
+
+      <Button id = "Viewfinder" label = "VIEWFINDER">
+	 <Goto_Panel>Panel_Viewfinder</Goto_Panel>
+      </Button>
+      <Button id = "Audio" label = "AUDIO">
+         <Goto_Panel>Panel_Audio</Goto_Panel>
+      </Button>
+      <Button id = "Headphone" label = "HEADPHONE">
+         <Goto_Panel>Panel_Headphone</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Video" label = "VIDEO">
+
+      <Button id = "Pref_Look" label = "LOOK" hasFocus = "true">
+	 <Goto_Panel>Panel_Look</Goto_Panel>
+      </Button>
+
+      <Button id = "Color" label = "COLOR">
+         <Goto_Panel>Panel_Color</Goto_Panel>
+      </Button>
+
+      <Button id = "Gain" label = "GAIN">
+         <Goto_Panel>Panel_VideoGain</Goto_Panel>
+      </Button>
+      <Button id = "TonalResponse" label = "TONE">
+         <Goto_Panel>Panel_UserTone</Goto_Panel>
+      </Button>
+
+      <Button id = "FLUT" label = "FLUT"> 
+	 <Selector label = "FLUT" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.EXPOSURE.FLUT"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+   <Panel id = "Panel_Hist_Test" label = "TRIALS">
+
+      <Button id = "max_shift" label = "MAX SHIFT">
+	 <Selector label = "MAX SHIFT" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HIST.MAX_WARNING_SHIFT"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "min_shift" label = "MIN SHIFT">
+	 <Selector label = "MIN SHIFT" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HIST.MIN_WARNING_SHIFT"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "max_div" label = "MAX MUL">
+	 <Selector label = "MAX MUL" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HIST.MAX_WARNING_DIV"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "min_mul" label = "MIN MUL">
+	 <Selector label = "MIN MUL" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HIST.MIN_WARNING_MUL"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "hist_scale" label = "SCALE">
+	 <Selector label = "SCALE" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.IMAGE_ANALYSIS.HIST.SCALE"/>
+	 </Selector>
+      </Button>
+
+
+
+   </Panel>
+   <Panel id = "Panel_UserTone" label = "TONE">
+
+      <Checkbox id = "Enable_TonalResponse" label = "CURVE">
+	 <Parameter name="GUI.PAINT.TONE.APPLY_CUSTOM"/>
+      </Checkbox>
+
+      <Button id = "TonalResponse_Define" label = "DEFINE">
+	 <Selector label = "CURVE POINT" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.TONAL_RESPONSE.POINT"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "TonalResponse_X" label = "TOE X">
+	 <Selector label = "VALUE" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.TONAL_RESPONSE.X"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "TonalResponse_Y" label = "TOE Y">
+	 <Selector label = "VALUE" continuousUpdate = "true">
+	    <Parameter name="GUI.SOFTKEY.TONAL_RESPONSE.Y"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+   <Panel id = "Panel_Color" label = "COLOR">
+
+      <Button id = "Color_Saturation" label = "SATURATION">
+	 <Selector label = "SATURATION" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.SATURATION"/>
+	 </Selector>
+      </Button>
+      <Button id = "Color_Exposure" label = "EXPOSURE">
+	 <Selector label = "EXPOSURE" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.EXPOSURE.COMPENSATION"/>
+	 </Selector>
+      </Button>
+      <Button id = "Color_Brightness" label = "BRIGHTNESS">
+	 <Selector label = "BRIGHTNESS" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.BRIGHTNESS"/>
+	 </Selector>
+      </Button>
+      <Button id = "Color_Contrast" label = "CONTRAST">
+	 <Selector label = "CONTRAST" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.CONTRAST"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Color_Shadow" label = "SHADOW">
+	 <Selector label = "SHADOW" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.SHADOWFLUT"/>
+	 </Selector>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_ColorSpace" label = "SPACE">
+
+      <Button id = "Colorspace_XYZ" label = "XYZ">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Colorspace_sRGB" label = "sRGB">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Colorspace_REC709" label = "REC709">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Colorspace_User" label = "USER XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+
+      <Button id = "Colorspace_Native" label = "NATIVE">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_VideoGain" label = "GAIN">
+
+
+      <Button id = "VideoSettings_RGain" label = "RED GAIN">
+	 <Selector label = "RED GAIN" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.GAIN.RED_VALUE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "VideoSettings_BGain" label = "BLUE GAIN">
+	 <Selector label = "BLUE GAIN" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.GAIN.BLUE_VALUE"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "VideoSettings_GGain" label = "GREEN GAIN">
+	 <Selector label = "GREEN GAIN" continuousUpdate = "true">
+	    <Parameter name="GUI.PAINT.GAIN.GREEN_VALUE"/>
+	 </Selector>
+      </Button>
+
+   </Panel>
+
+
+   <Panel id = "Panel_Detail" label = "DETAIL">
+
+      <Checkbox id = "Sharpness_MasterDetail" label = "MASTER DETAIL">
+	 <Parameter name="GUI.PAINT.FILTER.MASTER_SHARPNESS_ENABLED"/>
+      </Checkbox>
+
+
+   </Panel>
+
+
+   <Panel id = "Panel_Audio" label = "AUDIO">
+      <Button id = "InputLevel_1" label = "CHANNEL 1">
+         <Goto_Panel>Panel_Audio_Level_1</Goto_Panel>
+      </Button>
+      <Button id = "InputLevel_2" label = "CHANNEL 2">
+         <Goto_Panel>Panel_Audio_Level_2</Goto_Panel>
+      </Button>
+      <Button id = "InputLevel_3" label = "CHANNEL 3">
+         <Goto_Panel>Panel_Audio_Level_3</Goto_Panel>
+      </Button>
+      <Button id = "InputLevel_4" label = "CHANNEL 4">
+         <Goto_Panel>Panel_Audio_Level_4</Goto_Panel>
+      </Button>
+   </Panel>
+
+   <Panel id = "Panel_Audio_Level_1" label = "CH 1 LEVELS">
+      <Button id = "microphone_1" label = "MICROPHONE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_1.GAIN.MICROPHONE"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "line_1" label = "LINE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_1.GAIN.LINE"/>
+	     </Selector>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Audio_Level_2" label = "CH 2 LEVELS">
+      <Button id = "microphone_2" label = "MICROPHONE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_2.GAIN.MICROPHONE"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "line_2" label = "LINE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_2.GAIN.LINE"/>
+	     </Selector>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Audio_Level_3" label = "CH 3 LEVELS">
+      <Button id = "microphone_3" label = "MICROPHONE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_3.GAIN.MICROPHONE"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "line_3" label = "LINE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_3.GAIN.LINE"/>
+	     </Selector>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Audio_Level_4" label = "CH 4 LEVELS">
+      <Button id = "microphone_4" label = "MICROPHONE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_4.GAIN.MICROPHONE"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "line_4" label = "LINE">
+         <Selector label = "INPUT LEVEL" suffix = "dB" continuousUpdate = "true">
+            <Parameter name="AUDIO.INPUT.CHANNEL_4.GAIN.LINE"/>
+	     </Selector>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Headphone" label = "HEADPHONE">
+
+      <Button id = "Volume_HPMaster" label = "VOLUME">
+	     <Selector label = "VOLUME" suffix = "dB" continuousUpdate = "true">
+	        <Parameter name="AUDIO.HEADPHONE.MASTER"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "Volume_Left" label = "VOLUME - LEFT">
+	    <Selector label = "VOLUME" suffix = "dB" continuousUpdate = "true">
+	       <Parameter name="AUDIO.HEADPHONE.VOLUME_LEFT"/>
+	    </Selector>
+      </Button>
+      <Button id = "Volume_Right" label = "VOLUME - RIGHT">
+	     <Selector label = "VOLUME" suffix = "dB" continuousUpdate = "true">
+	        <Parameter name="AUDIO.HEADPHONE.VOLUME_RIGHT"/>
+	     </Selector>
+      </Button>
+
+      <Button id = "Headphone Mix" label = "MIX">
+	     <Selector label = "OUTPUT MIX">
+	        <Parameter name="AUDIO.HEADPHONE.MIX"/>
+	     </Selector>
+      </Button>
+
+   </Panel>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   <Panel id = "Panel_Tone" label = "TONE">
+      <Button id = "Contrast 2_2" label = "CONTRAST 2.2">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "Knee 80" label = "KNEE 80">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "Slope 2_2" label = "SLOPE 2.2">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "Toe 20" label = "TOE 20">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Detail_1" label = "DETAI 1">
+      <Button id = "DetailXX" label = "DETAIL XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "Radius_XX" label = "RADIUS XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "BlackNR_XX" label = "BLACK NR XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "WhiteNR_XX" label = "WHITE NR XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "SkinDetail_XX" label = "SKIN DETAIL XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Detail_2" label = "DETAIL 2">
+      <Button id = "SkinDetail" label = "SKIN DETAIL XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "ColorWidth" label = "COLOR WIDTH">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "SaturationWidth" label = "SATURATION WIDTH">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "PickCursor" label = "PICK (CURSOR)">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "SkinZebra" label = "SKIN ZEBRA">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Paint_1" label = "PAINT 1">
+      <Button id = "RorGorB" label = "R OR G OR B">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "AddToR" label = "ADD TO R XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "AddToG" label = "ADD TO G XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "AddToB" label = "ADD TO B XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "SaveLook" label = "SAVE LOOK">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Paint_2" label = "PAINT 2">
+      <Button id = "R or G or B" label = "R OR G OR B">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "GainXX" label = "GAIN XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "GammaXX" label = "GAMMA XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "BlackXX" label = "BLACK XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+      <Button id = "PhaseXX" label = "PHASE XX">
+         <Dispatch>BAD_KEY</Dispatch>
+      </Button>
+   </Panel>
+   <Panel id = "Panel_Developer" label = "ENGINEERING" capability="EMENU">
+
+      <Button id = "Calibrate" label = "CALIBRATE">
+	 <Goto_Panel>Panel_Calibrate</Goto_Panel>
+      </Button>
+      <Button id = "Sensor" label = "SENSOR">
+	 <Goto_Panel>Panel_EngSensor</Goto_Panel>
+      </Button>
+      <Button id = "Compression" label = "COMPRESSION">
+         <Goto_Panel>Panel_EngCompression</Goto_Panel>
+      </Button> 
+
+      <Button id = "HDR" label = "HDR">
+	 <Goto_Panel>Panel_HDR</Goto_Panel>
+      </Button>
+
+      <Button id = "Patterns" label = "PATTERNS">
+	 <Goto_Panel>Panel_Patterns</Goto_Panel>
+      </Button>
+
+   </Panel>
+
+   <Panel id = "Panel_EngSensor" label = "SENSOR">
+
+
+	<Button id = "Magnify" label = "MAGNIFY">
+		<Goto_Panel>Panel_EngMagnify</Goto_Panel>
+	</Button>
+
+    <Checkbox id = "Eng_BLACKLOOP" label = "BLK LOOP">
+        <Parameter name="DEBUG.BLACKLOOP.ACTIVE"/>
+    </Checkbox>
+    <Button id = "Eng_CalCap" label = "CAL CAPTURE">
+        <Selector label = "COUNT" continuousUpdate = "true">
+            <Parameter name="GUI.CALIBRATE.CAPTURE_FRAMECOUNT"/>
+        </Selector>
+    </Button>    
+	<Button id = "S35" label = "S35">
+		<Goto_Panel>Panel_EngS35</Goto_Panel>
+	</Button>   
+	
+	<Button id = "R1" label = "R1">
+		<Goto_Panel>Panel_EngR1</Goto_Panel>
+	</Button>    
+	 
+   </Panel>
+<Panel id = "Panel_EngMagnify" label = "MAGNIFY">
+
+      <Checkbox id = "Mag1to1" label = "1:1 MAGNIFY">
+	     <Parameter name="IMAGE_ANALYSIS.MAGNIFICATION.MAG1TO1"/>
+      </Checkbox>      
+      <Checkbox id = "MagEnable" label = "MAGNIFY ENABLE">
+	     <Parameter name="IMAGE_ANALYSIS.MAGNIFICATION.ENABLE"/>
+      </Checkbox>      
+
+      <Button id = "Eng_XPos" label = "X">
+	 <Selector label = "POSITION" continuousUpdate = "true">
+	    <Parameter name="IMAGE_ANALYSIS.MAGNIFICATION.POSITION_X"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "Eng_YPos" label = "Y">
+	 <Selector label = "POSITION" continuousUpdate = "true">
+	    <Parameter name="IMAGE_ANALYSIS.MAGNIFICATION.POSITION_Y"/>
+	 </Selector>
+      </Button>
+   </Panel>
+
+<Panel id = "Panel_EngS35" label = "S35">
+
+    <Checkbox id = "Eng_BlackSun" label = "SSD ENABLE">
+        <Parameter name="EPIC.DEBUG.SUNSPOT.ENABLE"/>
+    </Checkbox>
+    <Button id = "Eng_VrefClamp" label = "VREF_CLAMP">
+        <Selector label = "VOLTAGE" continuousUpdate = "true">
+            <Parameter name="EPIC.DEBUG.SUNSPOT.VREFCLAMP"/>
+        </Selector>
+    </Button>      
+
+    <Checkbox id = "Eng_Vln" label = "VLN ENABLE">
+        <Parameter name="EPIC.DEBUG.VLN.ENABLE"/>
+    </Checkbox>
+
+    <Checkbox id = "Eng_Vcl" label = "VCL ENABLE">
+        <Parameter name="EPIC.DEBUG.VCL.ENABLE"/>
+    </Checkbox>
+</Panel>
+
+
+<Panel id = "Panel_EngR1" label = "R1">
+
+    <Checkbox id = "Eng_BlackSun" label = "SSD ENABLE">
+        <Parameter name="REDONE.DEBUG.SUNSPOT.ENABLE"/>
+    </Checkbox>
+    <Button id = "Eng_VtxMid" label = "VTXMID">
+        <Selector label = "VOLTAGE" continuousUpdate = "true">
+            <Parameter name="REDONE.DEBUG.SUNSPOT.VTXMIDDAC"/>
+        </Selector>
+    </Button>      
+</Panel>
+
+
+   <Panel id = "Panel_Calibrate" label = "CALIBRATE">
+
+      <Button id = "Calibrate_CaptureLight" label = "GRAB LIGHT">
+	 <Dispatch>CALIBRATE_CAPTURE_LIGHT</Dispatch>
+      </Button>
+
+      <Button id = "Calibrate_CaptureLightF24" label = "GRAB LIGHT F24">
+	 <Dispatch>CALIBRATE_CAPTURE_LIGHT_F24</Dispatch>
+      </Button>
+
+      <Button id = "Calibrate_CaptureDark" label = "GRAB DARK">
+	 <Dispatch>CALIBRATE_CAPTURE_DARK</Dispatch>
+      </Button>
+
+      <Button id = "Calibrate_Apply" label = "APPLY CAL">
+	 <Dispatch>CALIBRATE_APPLY</Dispatch>
+      </Button>
+      <Checkbox id = "Cal_Available" label = "CAL PRESENT">
+          <Parameter name="CALIBRATE.FACTORY.FILE_AVAILABLE"/>
+      </Checkbox>
+
+   </Panel>
+
+   <Panel id = "Panel_EngCompression" label = "COMPRESSION">
+      		
+
+
+      <Button id = "Codec_GBias" label = "GRN BIAS">
+         <Selector label = "ADJUST">
+            <Parameter name="DEBUG.COMPRESSION.RC.GREEN.BIAS"/>
+         </Selector>
+      </Button>	
+            	      	
+      <Button id = "Codec_RBias" label = "RED BIAS">
+         <Selector label = "ADJUST">
+            <Parameter name="DEBUG.COMPRESSION.RC.RED.BIAS"/>
+         </Selector>
+      </Button>
+
+      	
+      <Button id = "Codec_BBias" label = "BLUE BIAS">
+         <Selector label = "ADJUST">
+            <Parameter name="DEBUG.COMPRESSION.RC.BLUE.BIAS"/>
+         </Selector>
+      </Button>	
+
+
+      <Button id = "Codec_PreEmph" label = "PREEMPH">
+         <Selector label = "ADJUST" continuousUpdate = "true">
+            <Parameter name="DEBUG.IMGPROC.PREEMPH"/>
+         </Selector>
+      </Button>
+      	      		
+
+   </Panel>
+
+   <Panel id = "Panel_HDR" label = "HDR">
+
+      <Checkbox id = "HDR_Enable" label = "HDR ENABLE">
+          <Parameter name="DEBUG.HDR.ENABLE"/>
+      </Checkbox>
+
+      <Button id = "HDR_NumSteps" label = "NUM STEPS">
+	 <Selector label = "TOTAL STEPS">
+	    <Parameter name="DEBUG.HDR.NUM_STEPS"/>
+	 </Selector>
+      </Button>
+
+      <Button id = "HDR_NumStops" label = "NUM STOPS">
+	 <Selector label = "RANGE" suffix = " stops">
+	    <Parameter name="DEBUG.HDR.NUM_STOPS"/>
+	 </Selector>
+      </Button>
+
+
+   </Panel>
+    <Panel id = "Panel_NR" label = "NR">
+        <Checkbox id = "NR_DbgEnable" label = "NR DBG ENABLE">
+            <Parameter name="DEBUG.NRF.DBGENABLE"/>
+        </Checkbox>      
+
+        <Button id = "NR_Green" label = "G SLOPE">
+            <Selector label = "VALUE">
+                <Parameter name="EPIC.DEBUG.NRF.SLOPE_G"/>
+            </Selector>
+        </Button>
+
+        <Button id = "NR_Red" label = "R SLOPE">
+            <Selector label = "VALUE">
+                <Parameter name="EPIC.DEBUG.NRF.SLOPE_R"/>
+            </Selector>
+        </Button>
+        <Button id = "NR_Blue" label = "B SLOPE">
+            <Selector label = "VALUE">
+                <Parameter name="EPIC.DEBUG.NRF.SLOPE_B"/>
+            </Selector>
+        </Button>
+        <Checkbox id = "NR_Reload" label = "NR RELOAD">
+            <Parameter name="DEBUG.NRF.RELOAD"/>
+        </Checkbox>
+    </Panel>
+
+   <Panel id = "Panel_Patterns" label = "PATTERNS">
+
+      <Checkbox id = "MonPattern" label = "MON TEST">
+	 <Parameter name="DEBUG.MON_PATTERN.ENABLED"/>
+	 <Selector label = "NAME">
+	    <Parameter name="DEBUG.MON_PATTERN.NAME"/>
+	 </Selector>
+      </Checkbox>
+
+      <Checkbox id = "PbPattern" label = "PB TEST">
+	 <Parameter name="DEBUG.PB_PATTERN.ENABLED"/>
+	 <Selector label = "NAME">
+	    <Parameter name="DEBUG.PB_PATTERN.NAME"/>
+	 </Selector>
+      </Checkbox>
+
+   </Panel>
+
+
+</Panels>

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "r1mx": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "toolkit.mcp"],
+      "cwd": "."
+    }
+  }
+}

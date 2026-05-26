@@ -1,0 +1,19 @@
+/* 0x00378964  FUN_00378964  size=156 bytes */
+
+
+undefined4 FUN_00378964(void)
+
+{
+  if (iRam00e27054 != 0) {
+    return 0;
+  }
+  FUN_005b8300();
+  FUN_0037d660();
+  FUN_004576ec(0x3898f8);
+  iRam00e27054 = 1;
+  uRam00e27064 = 0x389804;
+  uRam00e2ad6c = 0x388e24;
+  uRam00e2ad70 = 0x38a11c;
+  return 0;
+}
+

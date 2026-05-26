@@ -1705,6 +1705,21 @@ There are likely also `XIo_In8/16` and `XIo_Out8/16` variants at nearby addresse
 | TBD | `UiUsbSerial::ProcessUsbDebugChange` | Callback on param change |
 | TBD | `UpgradeMC::SmartUpgrade` | Firmware upgrade state machine |
 
+### XML Socket Server (TCP 49152) — Connection Class
+
+| Address | Symbol | Description |
+|---------|--------|-------------|
+| `0x0011EBC4` | `Connection::ProcessRxMessage` | Main command dispatcher; checks `connection[0x75]` auth flag |
+| `0x001157FC` | `Connection::Authenticate` | AUTH_INIT/AUTH_PASS OTP; stores seed at `connection[0x7C]` |
+| `0x000F2C00` | `Connection::ProcessGuiCommand` | Wrapper calling vtable dispatch; sends reply based on flags |
+| `0x000CF31C` | `Connection::Connection` | Constructor; allocates semaphores, state=0 |
+| `0x00120F6C` | `Connection::static_init` | Inits all static command std::string members in BSS |
+| `0x00047140` | `Connection::dispatch` | XML parsing/command routing layer |
+| `0x0039A414` | `rand()` (candidate) | Returns 16-bit random; called twice to build 32-bit AUTH_INIT seed |
+| `0x005F3110` | `Connection::sendReply` | Sends XML reply to client: `<Cmnd name=arg />` |
+| `0x001D9204` | `semTake(sem, timeout_ms)` | VxWorks semaphore take with ms→tick conversion |
+| `0x001D92BC` | `semGive(sem)` | VxWorks semaphore give |
+
 ### Exception Vectors (confirmed)
 
 | Address | Handler |
@@ -1790,6 +1805,117 @@ This runs before fn_458a14 is called; the static binary value is never used at r
 | `0xDCB3BC` | `_ZTV11UiUsbSerial` | C++ vtable: UiUsbSerial class |
 | `0xDF7930` | `XUartLite_ConfigTable` | UART Lite config table symbol |
 | `0xDF7B3C` | `XUartNs550_ConfigTable` | 16550 UART config table symbol |
+
+---
+
+## 11b. XML Socket Protocol — Decompiled (TCP Port 49152)
+
+The Flash GUI connects to the camera on TCP port 49152. The server is implemented in `Connection`
+and `UiIpModule` C++ classes (confirmed from RTTI at `0xD94Cxx`).
+
+### Key Function Addresses
+
+| Address | Name | Description |
+|---------|------|-------------|
+| `0x0011EBC4` | `Connection::ProcessRxMessage` | Main command dispatcher — checks auth state, routes to Authenticate or command handlers |
+| `0x001157FC` | `Connection::Authenticate` | AUTH_INIT / AUTH_PASS OTP handler (5572 bytes) |
+| `0x00120F6C` | `Connection::static_init` | Static std::string member initializer — assigns command-name strings to BSS objects |
+| `0x00121000` | `Connection::static_dtor` | Static member destructor |
+| `0x000F2C00` | `Connection::ProcessGuiCommand` | Thin wrapper calling `FUN_00091D70` for vtable dispatch |
+| `0x000CF31C` | `Connection::Connection` (ctor) | Initializes connection object, allocates semaphores, sets state=0 |
+| `0x00047140` | `Connection::dispatch` (candidate) | Parses XML content, builds error strings |
+
+### Connection Object Layout (inferred from decompilation)
+
+```c
+struct Connection {
+    void        **vtable;          // +0x00
+    // ...
+    uint32_t    seed;              // +0x7C (piStack_f8[0x1f]) — AUTH seed stored here
+    uint32_t    auth_state;        // +0x80 (piStack_f8[0x20]) — 0=initial, 1=await PASS, 2=authenticated
+    uint32_t    auth_result;       // +0x84 (piStack_f8[0x21]) — 0=fail, 1=user, 2=admin
+    uint8_t     authenticated;     // +0x75 (*(byte*)(piStack_f8+0x75)) — flag: 1=authenticated
+    // ... message buffers at 0x40/0x44, 0x98 (string length), etc.
+};
+```
+
+### Auth Protocol Flow (server-side, confirmed from `Connection::Authenticate`)
+
+```
+Client:  <Cmnd name="AUTH_INIT" arg="" />
+Server:  Generates 4-byte random seed via rand() (two calls to FUN_0039a414)
+         Stores seed at connection[0x1f]
+         Hex-encodes seed → 8-char hex string (e.g. "1A2B3C4D")
+         Sends: <Cmnd name="AUTH_INIT" arg="1A2B3C4D" />
+         Sets auth_state = 1
+
+Client:  <Cmnd name="AUTH_PASS" arg="<hex-encoded-XOR>" />
+Server:  Hex-decodes client arg
+         XOR-compares against JJRC1 key XOR'd with seed
+         Also checks SYSTEM.MANUFACTURING.PASSWORD.ADMIN and .USER (from GPDB)
+         If match:  authenticated = 1, auth_state = 2, auth_result = 1 (user) or 2 (admin)
+         If fail:   state unchanged
+```
+
+### Command Routing (after authentication)
+
+| Command | BSS std::string | Handled by |
+|---------|-----------------|------------|
+| `AUTH_INIT` | `0xEA0678` | `Connection::Authenticate` at 0x1157FC |
+| `AUTH_PASS` | `0xEA065C` | `Connection::Authenticate` at 0x1157FC |
+| `SYNC`      | `0xEA0624` | dispatcher at 0x11EBC4 (direct GPDB parameter sync) |
+| `ADD_TERM`  | `0xEA0640` | dispatcher at 0x11EBC4 |
+| `GET_FILE`  | `0xEA06B0` | dispatcher at 0x11EBC4 (calls `Connection::ReadAnyFile`) |
+| `GET_PARAM` | `0xEA06CC` | dispatcher at 0x11EBC4 (GPDB param read) |
+| (JJRC1 key) | `0xEA0608` | Used internally for OTP comparison only |
+
+### Static Command Strings (BSS, initialized at startup)
+
+```c
+// All initialized via Connection::static_init (0x120F6C):
+static std::string COMMAND_AUTH_INIT = "AUTH_INIT";  // BSS: 0xEA0678
+static std::string COMMAND_AUTH_PASS = "AUTH_PASS";  // BSS: 0xEA065C
+static std::string COMMAND_JJRC1    = "JJRC1";       // BSS: 0xEA0608
+static std::string COMMAND_SYNC     = "SYNC";         // BSS: 0xEA0624
+static std::string COMMAND_ADD_TERM = "ADD_TERM";     // BSS: 0xEA0640
+static std::string COMMAND_GET_FILE = "GET_FILE";     // BSS: 0xEA06B0
+static std::string COMMAND_GET_PARAM = "GET_PARAM";  // BSS: 0xEA06CC
+```
+
+### Key String Literals (`.rodata`)
+
+| Address | Content | Use |
+|---------|---------|-----|
+| `0xD3B678` | `<Cmnd name="` | XML reply header |
+| `0xD3B688` | `" arg="` | XML reply arg separator |
+| `0xD3B690` | `" />` | XML reply terminator |
+| `0xD39DD0` | `AUTH_PASS` | Static string initializer source |
+| `0xD39DDC` | `JJRC1` | Static string initializer source |
+| `0xD39DE4` | `AUTH_INIT` | Static string initializer source |
+| `0xD39E68` | `<Cmnd name="%s" arg="%s" />` | Printf format for XML replies |
+| `0xD39EA4` | `1b772ea5a3dc1e140c4240b335b1d8b8` | MD5 hash (admin password) |
+| `0xD39EC8` | `c73f8496a6dc61cee28acf80851e004a` | MD5 hash (user password) |
+| `0xD3B698` | `SYSTEM.MANUFACTURING.PASSWORD.ADMIN` | GPDB param name for admin password |
+| `0xD3B710` | `SYSTEM.MANUFACTURING.PASSWORD.USER` | GPDB param name for user password |
+
+### Decompiled Source Files
+
+```
+firmware/reverse/build_32/src/xmlsocket/
+├── 0x000f2c00_Connection_ProcessGuiCommand.c  — thin wrapper → FUN_00091D70
+├── 0x00047140_Connection_dispatch.c           — XML parsing, error message construction
+├── auth_handler/
+│   ├── 0x001157fc_FUN_001157fc.c              — Connection::Authenticate (AUTH_INIT/AUTH_PASS)
+│   ├── 0x0011ebc4_FUN_0011ebc4.c              — Connection::ProcessRxMessage (dispatcher)
+│   └── 0x00120f6c_FUN_00120f6c.c              — Connection::static_init
+├── region_auth_main/
+│   └── 0x000cf31c_FUN_000cf31c.c              — Connection::Connection (ctor)
+└── region_xml_handler/
+    ├── 0x00070900_ProcessMessage_Cmnd.c        — <Cmnd> XML element processor
+    ├── 0x0006d1d4_FUN_0006d1d4.c              — GPDB parameter handler (3 modes)
+    ├── 0x00069508_FUN_00069508.c              — Battery/power status handler
+    └── 0x00068e08_FUN_00068e08.c              — Connection::BuildResponse (candidate)
+```
 
 ---
 
@@ -3011,6 +3137,15 @@ FlashVx (Scaleform wrapper)
 | + 7 others | | Total 9 SWF files in firmware |
 
 The SWF files are SWF v7 (ActionScript 2.0). They can be extracted with `binwalk` and decompiled with `JPEXS Free Flash Decompiler` or `ffdec`.
+
+**Scaleform GFx version:**
+
+Almost certainly **Scaleform GFx 2.x** (exact minor version unrecoverable). Evidence:
+
+- SWF v7 / ActionScript 2.0 — GFx 2.x targeted Flash 6–8/AS2; GFx 3.x added Flash 9/AS3 support which is absent here.
+- Build era — Wind River copyright string reads `1984–2006`; `ccppc` compiler references VxWorks 2.2.1/Tornado tooling. GFx 2.x was current in this window (~2005–2007); GFx 3.0 shipped ~2008.
+- API surface — internal class naming (`FlashPlayer`, `FlashVx`) maps to the GFx 2.x API (`GFxPlayer`, `GFxMovieView`), not the `Scaleform::` namespace restructuring introduced in 3.x/4.x.
+- No version string survives: Scaleform is statically linked and fully stripped. No `GFx/GFxPlayer.cpp` assert paths or `GFC_BUILD_STRING`-style defines are present in the binary.
 
 **OSD XML at `0x9D2AE0`** (~40KB) defines the panel/widget hierarchy. Extract with:
 

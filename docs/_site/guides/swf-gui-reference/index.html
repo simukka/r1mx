@@ -1,0 +1,2155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SWF GUI Feature Reference | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>SWF GUI Feature Reference | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="SWF GUI Feature Reference" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/swf-gui-reference/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/swf-gui-reference/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="SWF GUI Feature Reference" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"SWF GUI Feature Reference","url":"http://0.0.0.0:4000/r1mx/guides/swf-gui-reference/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">FIRMWARE</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">SWF GUI Feature Reference</h1>
+    <p class="page-subtitle">Complete menu tree and feature reference for the RED ONE MX on-camera Flash GUI, derived from decompiled Build 32 ActionScript source.</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-easy">Easy</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">Reference</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+          <li>SWF GUI Mock Server (see running guide)</li>
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <span class="guide-stat-value">None required</span>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>The RED ONE MX on-camera display is driven by a Flash SWF (ActionScript 2) that runs
+inside the VxWorks RTOS. It communicates with the firmware over a raw XMLSocket on TCP
+port 49152. All menus, parameter controls, button handling, and monitoring overlays
+are implemented in this SWF.</p>
+
+<p>This reference was derived by:</p>
+<ul>
+  <li>Decompiling <code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/assets/swf_gui_1.swf</code> with JPEXS</li>
+  <li>Parsing <code class="language-plaintext highlighter-rouge">firmware/tools/factory_defaults.xml</code> (893 camera parameters)</li>
+  <li>Analysing <code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/assets/panels.xml</code> (full menu definition)</li>
+  <li>Reading the decompiled ActionScript managers in <code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/assets/swf_gui_1_as/</code></li>
+</ul>
+
+<div class="callout callout--info">
+  <strong>Notation:</strong> Parameter names in parentheses (e.g. <code>GUI.PAINT.EXPOSURE.ISO</code>)
+  are the internal GPDB (Global Parameter Data Block) identifiers sent over the XMLSocket
+  protocol. They can be used directly with the mock server or the camera's TCP interface.
+</div>
+
+<hr />
+
+<h2 id="boot-sequence">Boot Sequence</h2>
+
+<p>When the SWF connects to the camera, it goes through a fixed handshake before the GUI
+becomes interactive:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Stage</th>
+      <th>Event</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>TCP connect</td>
+      <td>SWF connects to port 49152</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>AUTH_SEED</td>
+      <td>Server sends a random OTP seed</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>AUTH_PASS</td>
+      <td>SWF sends OTP-encrypted MD5 password hash</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>GET_FILE</td>
+      <td>Server delivers <code class="language-plaintext highlighter-rouge">factory_defaults.xml</code> — all 893 param definitions</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>GET_PARAM *</td>
+      <td>Server delivers current values for all params</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>SYNC_EVENT_0/1/2</td>
+      <td>Three synchronisation events trigger <code class="language-plaintext highlighter-rouge">GoSplash()</code> then <code class="language-plaintext highlighter-rouge">GoCamera()</code></td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>panels.xml</td>
+      <td>SWF fetches the menu definition via HTTP</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>GUI_STATE_5_READY</td>
+      <td>Full interactive state; all menus and button injection active</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The authentication supports two roles: <strong>admin</strong> (password hash <code class="language-plaintext highlighter-rouge">1b772ea5a3dc1e140c4240b335b1d8b8</code>)
+and a lower-privilege <strong>user</strong> role.</p>
+
+<hr />
+
+<h2 id="hardware-button-mapping">Hardware Button Mapping</h2>
+
+<p>The camera body exposes dedicated buttons that the firmware reports to the SWF as GPDB
+boolean events. Each button fires its parameter to <code class="language-plaintext highlighter-rouge">"true"</code> on press.</p>
+
+<h3 id="fixed-function-buttons">Fixed-function Buttons</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Button</th>
+      <th>Parameter</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>RECORD</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.RECORD</code></td>
+      <td>Start/stop recording (or burst in BURST mode)</td>
+    </tr>
+    <tr>
+      <td>SENSOR</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.MENU.SENSOR</code></td>
+      <td>Open SENSOR menu</td>
+    </tr>
+    <tr>
+      <td>VIDEO</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.MENU.VIDEO</code></td>
+      <td>Open AV (audio/video) menu</td>
+    </tr>
+    <tr>
+      <td>SYSTEM</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.MENU.SYSTEM</code></td>
+      <td>Open SYSTEM menu (disabled while recording)</td>
+    </tr>
+    <tr>
+      <td>SYSTEM (hold)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.MENU.SYSTEM_LONG</code></td>
+      <td>Long-press system (unimplemented in Build 32)</td>
+    </tr>
+    <tr>
+      <td>Supergrip REC</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.SUPERGRIP.RAWINPUT.BUTTON.REC</code></td>
+      <td>Same as RECORD button</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="user-assignable-menu-buttons">User-Assignable Menu Buttons</h3>
+
+<p>User buttons A, B, and C jump to a stored menu panel on <strong>press</strong> and assign the
+current panel on <strong>hold</strong> (via SET_A/B/C):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Button</th>
+      <th>Parameter (press)</th>
+      <th>Parameter (hold/set)</th>
+      <th>Stored in</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>USER A</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.A</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.SET_A</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.USER_A.MENU</code></td>
+    </tr>
+    <tr>
+      <td>USER B</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.B</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.SET_B</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.USER_B.MENU</code></td>
+    </tr>
+    <tr>
+      <td>USER C</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.C</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.USER_DEFINED.SET_C</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.USER_C.MENU</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="mappable-buttons-user-keys-menu">Mappable Buttons (USER KEYS menu)</h3>
+
+<p>These buttons execute a configurable <code class="language-plaintext highlighter-rouge">KEYFNC_*</code> function. Each has an enable checkbox
+and a function selector in <strong>SETUP &gt; PREFERENCES &gt; KEYMAP &gt; USER KEYS</strong>.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Button label</th>
+      <th>Parameter</th>
+      <th>Keymap param</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>USER-1 / Side D</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.SIDE.USER_DEFINED.D</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.USER_D.*</code></td>
+    </tr>
+    <tr>
+      <td>USER-2 / Side E</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.SIDE.USER_DEFINED.E</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.USER_E.*</code></td>
+    </tr>
+    <tr>
+      <td>USER-3 / EVF B</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.RAWINPUT.BUTTON.B</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.EVF_B.*</code></td>
+    </tr>
+    <tr>
+      <td>USER-4 / EVF C</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.RAWINPUT.BUTTON.C</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.EVF_C.*</code></td>
+    </tr>
+    <tr>
+      <td>USER-5 / LCD SW1</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW1</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.LCD_A.*</code></td>
+    </tr>
+    <tr>
+      <td>Side Record</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.SIDE.RECORD</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.SIDE_RECORD.*</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="assignable-key-functions-keyfnc_">Assignable Key Functions (KEYFNC_*)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_RECORD</code></td>
+      <td>Start/stop recording (respects SIDE_RECORD.ENABLED)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_RECORD</code></td>
+      <td>Toggle recording</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_UNMOUNT_MEDIA</code></td>
+      <td>Unmount active storage</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_GOTO_MENU_A/B/C</code></td>
+      <td>Jump to user-saved menu A, B, or C</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_DO_AUTO_WHITE_BALANCE</code></td>
+      <td>Trigger auto white balance</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_DO_RAMP</code></td>
+      <td>Trigger varispeed ramp</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_DO_BURST</code></td>
+      <td>Trigger burst record</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_MAGNIFICATION</code></td>
+      <td>Toggle 1:1 pixel magnification</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_COLOR</code></td>
+      <td>Toggle false colour overlay</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_METER</code></td>
+      <td>Toggle assist exposure meter</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_VIEW_RAW</code></td>
+      <td>Toggle Raw / REDcolor monitor view</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_ZEBRA_1/2</code></td>
+      <td>Toggle zebra 1 or 2 overlay</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_INC/DEC_ISO</code></td>
+      <td>Step ISO up or down (wraps)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_INC/DEC_SHUTTER_SPEED</code></td>
+      <td>Step shutter speed up or down (wraps)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_INC/DEC_AUDIO_1/2</code></td>
+      <td>Adjust Ch1 or Ch2 audio gain</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_MULTI</code></td>
+      <td>Cycle multi-function key state 0→1→2→3→0</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">KEYFNC_DISABLED</code></td>
+      <td>No-op</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="combo-keys">Combo Keys</h3>
+
+<p>Held button combinations trigger system actions:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Combo parameter</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.RECORD</code></td>
+      <td>Trigger pre-record</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.SYSTEM</code></td>
+      <td>Return to previous menu</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.EXIT</code></td>
+      <td>Unmount active media</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.USER_G</code></td>
+      <td>Toggle preview output: HD-SDI ↔ HDMI</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.USER_F</code></td>
+      <td>Toggle LCD 5:4 scaling</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H</code></td>
+      <td>Open Engineering (developer) menu</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="menu-tree">Menu Tree</h2>
+
+<p>The GUI presents three top-level menus accessed by physical buttons:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>SENSOR button ──→ Panel_Sensor
+                     ├─ SENSITIVITY → Panel_Sensitivity
+                     ├─ COLOR TEMP  → Panel_WhiteBalance
+                     ├─ SHUTTER     → Panel_Shutter
+                     ├─ VARISPEED   → Panel_VariSpeed
+                     └─ TIME LAPSE  → Panel_TimeLapse
+
+VIDEO button ───→ Panel_AV
+                     ├─ VIEW        (color mode selector)
+                     ├─ VIDEO       → Panel_Video
+                     │    ├─ LOOK   → Panel_Look
+                     │    ├─ COLOR  → Panel_Color
+                     │    ├─ GAIN   → Panel_VideoGain
+                     │    ├─ TONE   → Panel_UserTone
+                     │    └─ FLUT   (inline selector)
+                     ├─ VIEWFINDER  → Panel_Viewfinder
+                     │    ├─ FALSE COLOR
+                     │    ├─ METERS → Panel_Meters
+                     │    ├─ ZEBRAS → Panel_Zebras
+                     │    ├─ INTENSITY
+                     │    └─ OPEN GATE
+                     ├─ AUDIO       → Panel_Audio (ch1-4 levels)
+                     └─ HEADPHONE   → Panel_Headphone
+
+SYSTEM button ──→ Panel_System
+                     ├─ SOUND       → Panel_Audio_Setup
+                     │    ├─ REC ENABLE → Panel_Rec_Enable
+                     │    ├─ OUTPUT LEVEL
+                     │    └─ 48V MIC → Panel_Rec_48V
+                     ├─ MEDIA       → Panel_Magazine
+                     ├─ PROJECT     → Panel_Project
+                     │    ├─ STATUS
+                     │    ├─ SLATE
+                     │    ├─ CONFIGURE → Panel_New_Project
+                     │    ├─ TIMECODE  → Panel_Proj_Timecode
+                     │    └─ QT PROXIES
+                     ├─ MONITOR     → Panel_Monitoring
+                     │    ├─ FRAME GUIDE → Panel_Frame_Guide
+                     │    ├─ PREVIEW (output selector)
+                     │    ├─ TEST SIGNAL
+                     │    ├─ PVW REFRESH
+                     │    └─ EVF REFRESH
+                     └─ SETUP       → Panel_Setup
+                          ├─ PREFERENCES → Panel_Preferences
+                          │    ├─ USER PROFILE
+                          │    ├─ KEYMAP → Panel_Keymap
+                          │    ├─ GPIO   → Panel_GPIO
+                          │    ├─ PLAYBACK
+                          │    └─ DISPLAY
+                          ├─ MAINTENANCE → Panel_Maintenance
+                          │    ├─ FAN
+                          │    ├─ BLK SHADING
+                          │    ├─ RESTORE (look/user/system)
+                          │    ├─ UPDATE SW
+                          │    └─ WRITE LOG
+                          ├─ SET CLOCK
+                          ├─ REMOTE
+                          └─ PROGRAM
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="sensor-menu">SENSOR Menu</h2>
+
+<h3 id="sensitivity-panel_sensitivity">Sensitivity (<code class="language-plaintext highlighter-rouge">Panel_Sensitivity</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>ISO RATING</td>
+      <td>Selector (prefix: ISO)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.EXPOSURE.ISO</code></td>
+      <td>Continuous update</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="color-temperature-panel_whitebalance">Color Temperature (<code class="language-plaintext highlighter-rouge">Panel_WhiteBalance</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter / Action</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>AUTO WB</td>
+      <td>Button</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">WHITE_BALANCE</code></td>
+      <td>Triggers firmware auto WB</td>
+    </tr>
+    <tr>
+      <td>TUNGSTEN</td>
+      <td>Button</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">WHITE_BALANCE</code></td>
+      <td>Preset WB</td>
+    </tr>
+    <tr>
+      <td>DAYLIGHT</td>
+      <td>Button</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">WHITE_BALANCE</code></td>
+      <td>Preset WB</td>
+    </tr>
+    <tr>
+      <td>MANUAL WB</td>
+      <td>Selector (suffix: °K)</td>
+      <td><code class="language-plaintext highlighter-rouge">PAINT.WHITE_BALANCE.CURRENT</code></td>
+      <td>Continuous update</td>
+    </tr>
+    <tr>
+      <td>TRIM</td>
+      <td>Button</td>
+      <td>→ Panel_Trim</td>
+      <td>Slave/tint fine-tuning</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Trim panel</strong> (<code class="language-plaintext highlighter-rouge">Panel_Trim</code>) — used for multi-camera slave offset:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>TINT</td>
+      <td><code class="language-plaintext highlighter-rouge">PAINT.TINT.CURRENT</code></td>
+    </tr>
+    <tr>
+      <td>S TINT</td>
+      <td><code class="language-plaintext highlighter-rouge">PAINT.SLAVE.TINT.CURRENT</code></td>
+    </tr>
+    <tr>
+      <td>S WBAL</td>
+      <td><code class="language-plaintext highlighter-rouge">PAINT.SLAVE.WHITE_BALANCE.CURRENT</code></td>
+    </tr>
+    <tr>
+      <td>S FLUT</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.SLAVE.SHADOWFLUT</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="shutter-panel_shutter">Shutter (<code class="language-plaintext highlighter-rouge">Panel_Shutter</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GENLOCK</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GENLOCK.REQUESTED</code></td>
+    </tr>
+    <tr>
+      <td>MODE</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.SHUTTER_SPEED.MODE</code></td>
+    </tr>
+    <tr>
+      <td>SPEED</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.SHUTTER_SPEED</code></td>
+    </tr>
+    <tr>
+      <td>SYNCRO</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.SHUTTER_SPEED.SYNC_ADJUST</code></td>
+    </tr>
+    <tr>
+      <td>PHASE</td>
+      <td>Selector (suffix: °)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.SHUTTER_PHASE.DEGREES</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Shutter speed display format (1/SEC or degrees) is controlled by <code class="language-plaintext highlighter-rouge">GUI.USER_PREF.SHUTTER_SPEED_FORMAT</code>.
+When set to degrees, <code class="language-plaintext highlighter-rouge">GUI.RECORD.SHUTTER_SPEED_DEG</code> is used instead.</p>
+
+<h3 id="varispeed-panel_varispeed">Varispeed (<code class="language-plaintext highlighter-rouge">Panel_VariSpeed</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VARISPEED</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.VARISPEED.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>RAMP</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.VARISPEED.RAMP.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>RAMP TRIGGER</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.VARISPEED.RAMP.TRIGGER</code></td>
+    </tr>
+    <tr>
+      <td>FRAMERATE</td>
+      <td>Selector (suffix: fps)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.VARISPEED.FRAME_RATE</code></td>
+    </tr>
+    <tr>
+      <td>TIME</td>
+      <td>Selector (suffix: sec)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.VARISPEED.RAMP.RAMP_1.DURATION</code></td>
+    </tr>
+    <tr>
+      <td>END RATE</td>
+      <td>Selector (suffix: fps)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.VARISPEED.RAMP.END_FRAME_RATE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Varispeed ramp can be triggered by a mappable button (<code class="language-plaintext highlighter-rouge">KEYFNC_DO_RAMP</code>) or a GPIO input.</p>
+
+<h3 id="timelapse-panel_timelapse">Timelapse (<code class="language-plaintext highlighter-rouge">Panel_TimeLapse</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>ENABLE</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.TIMELAPSE.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>TRIGGER MODE</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.TIMELAPSE.TRIGGER_MODE</code></td>
+    </tr>
+    <tr>
+      <td>SPEED</td>
+      <td>Selector (suffix: sec)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.TIMELAPSE.SHUTTER_SPEED</code></td>
+    </tr>
+    <tr>
+      <td>STEP PRINT</td>
+      <td>Selector (suffix: frames)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.TIMELAPSE.BURST_SIZE</code></td>
+    </tr>
+    <tr>
+      <td>INTERVAL</td>
+      <td>Selector (suffix: sec)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.TIMELAPSE.INTERVAL</code></td>
+    </tr>
+    <tr>
+      <td>BURST TYPE</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.TIMELAPSE.BURST_TYPE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="av-menu-videoaudio">AV Menu (Video/Audio)</h2>
+
+<h3 id="monitor-view-panel_av--inline">Monitor View (<code class="language-plaintext highlighter-rouge">Panel_AV</code> — inline)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VIEW (color mode)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.MONITOR.VIEW_MODE</code></td>
+      <td>Raw, REDcolor, etc. Mirrored to <code class="language-plaintext highlighter-rouge">VIDEO.MONITOR.VIEW_MODE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="video-look-panel_look">Video Look (<code class="language-plaintext highlighter-rouge">Panel_Look</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action / Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CLEAR</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">CLEAR_LOOK_DOIT</code></td>
+    </tr>
+    <tr>
+      <td>IMPORT</td>
+      <td>File selector — <code class="language-plaintext highlighter-rouge">GUI.PROFILE.IMPORT_PATHNAME.LOOK</code> (items from <code class="language-plaintext highlighter-rouge">SYSTEM.PROFILE.FILE_LIST.LOOK</code>)</td>
+    </tr>
+    <tr>
+      <td>EXPORT</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">EXPORT_LOOK_PROFILE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Look profiles are <code class="language-plaintext highlighter-rouge">.RLK</code> files imported from REDCINE-X.</p>
+
+<h3 id="color-panel_color">Color (<code class="language-plaintext highlighter-rouge">Panel_Color</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SATURATION</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.SATURATION</code></td>
+    </tr>
+    <tr>
+      <td>EXPOSURE</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.EXPOSURE.COMPENSATION</code></td>
+    </tr>
+    <tr>
+      <td>BRIGHTNESS</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.BRIGHTNESS</code></td>
+    </tr>
+    <tr>
+      <td>CONTRAST</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.CONTRAST</code></td>
+    </tr>
+    <tr>
+      <td>SHADOW</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.SHADOWFLUT</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="gain-panel_videogain">Gain (<code class="language-plaintext highlighter-rouge">Panel_VideoGain</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>RED GAIN</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.GAIN.RED_VALUE</code></td>
+    </tr>
+    <tr>
+      <td>GREEN GAIN</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.GAIN.GREEN_VALUE</code></td>
+    </tr>
+    <tr>
+      <td>BLUE GAIN</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.GAIN.BLUE_VALUE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="tone-panel_usertone">Tone (<code class="language-plaintext highlighter-rouge">Panel_UserTone</code>)</h3>
+
+<p>Custom per-point tonal response curve:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CURVE (enable)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.TONE.APPLY_CUSTOM</code></td>
+    </tr>
+    <tr>
+      <td>CURVE POINT</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.TONAL_RESPONSE.POINT</code></td>
+    </tr>
+    <tr>
+      <td>TOE X</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.TONAL_RESPONSE.X</code></td>
+    </tr>
+    <tr>
+      <td>TOE Y</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.TONAL_RESPONSE.Y</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="flut-shadow-rolloff">FLUT (Shadow Rolloff)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>FLUT</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.EXPOSURE.FLUT</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>FLUT (Film Log Unified Transform) adjusts shadow rolloff in the REDCOLOR colour science pipeline.</p>
+
+<h3 id="viewfinder-panel_viewfinder">Viewfinder (<code class="language-plaintext highlighter-rouge">Panel_Viewfinder</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>FALSE COLOR</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.MONITOR.OUTPUT_EFFECTS.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>FALSE COLOR mode</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.MONITOR.OUTPUT_EFFECTS.MODE</code></td>
+    </tr>
+    <tr>
+      <td>INTENSITY</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.CONTRAST_VALUE</code></td>
+    </tr>
+    <tr>
+      <td>OPEN GATE</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.OPEN_GATE_ENABLED</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Analysis Meters</strong> (<code class="language-plaintext highlighter-rouge">Panel_Meters</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>METER (HUD meter)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.IMAGE_ANALYSIS.HUD_METER</code></td>
+    </tr>
+    <tr>
+      <td>ASSISTS (enable)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.IMAGE_ANALYSIS.ASSIST_METER_ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>ASSIST METER type</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.IMAGE_ANALYSIS.ASSIST_METER</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Zebras</strong> (<code class="language-plaintext highlighter-rouge">Panel_Zebras</code>): Two independent zebra overlays, each independently enabled.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>ZEBRA 1 enable</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.1_ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>ZEBRA 1 lo IRE</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.1_LOWER_IRE</code></td>
+    </tr>
+    <tr>
+      <td>ZEBRA 1 hi IRE</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.1_UPPER_IRE</code></td>
+    </tr>
+    <tr>
+      <td>ZEBRA 2 enable</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.2_ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>ZEBRA 2 lo IRE</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.2_LOWER_IRE</code></td>
+    </tr>
+    <tr>
+      <td>ZEBRA 2 hi IRE</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ZEBRA.2_UPPER_IRE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Zebra 1 and 2 can each be toggled by mappable buttons (<code class="language-plaintext highlighter-rouge">KEYFNC_TOGGLE_ZEBRA_1/2</code>).</p>
+
+<h3 id="audio-input-levels-panel_audio">Audio Input Levels (<code class="language-plaintext highlighter-rouge">Panel_Audio</code>)</h3>
+
+<p>Four independent input channels. Each channel has separate microphone and line gain:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter (Ch N)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MICROPHONE gain (dB)</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.INPUT.CHANNEL_N.GAIN.MICROPHONE</code></td>
+    </tr>
+    <tr>
+      <td>LINE gain (dB)</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.INPUT.CHANNEL_N.GAIN.LINE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="headphone-panel_headphone">Headphone (<code class="language-plaintext highlighter-rouge">Panel_Headphone</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VOLUME (master)</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.HEADPHONE.MASTER</code></td>
+    </tr>
+    <tr>
+      <td>VOLUME LEFT</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.HEADPHONE.VOLUME_LEFT</code></td>
+    </tr>
+    <tr>
+      <td>VOLUME RIGHT</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.HEADPHONE.VOLUME_RIGHT</code></td>
+    </tr>
+    <tr>
+      <td>OUTPUT MIX</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.HEADPHONE.MIX</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="system-menu">SYSTEM Menu</h2>
+
+<h3 id="sound-setup-panel_audio_setup">Sound Setup (<code class="language-plaintext highlighter-rouge">Panel_Audio_Setup</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>REC ENABLE</td>
+      <td>Per-channel enable + input source selection</td>
+    </tr>
+    <tr>
+      <td>OUTPUT LEVEL</td>
+      <td>Headphone volume master (<code class="language-plaintext highlighter-rouge">AUDIO.HEADPHONE.VOLUME_MASTER</code>)</td>
+    </tr>
+    <tr>
+      <td>48V MIC</td>
+      <td>Per-channel phantom power enable</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Rec Enable</strong> (<code class="language-plaintext highlighter-rouge">Panel_Rec_Enable</code>): Four channels, each with:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CHANNEL N enable</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.INPUT.CHANNEL_N.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>INPUT TYPE</td>
+      <td><code class="language-plaintext highlighter-rouge">AUDIO.INPUT.CHANNEL_N.SOURCE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>48V Phantom</strong> (<code class="language-plaintext highlighter-rouge">Panel_Rec_48V</code>): Per channel — <code class="language-plaintext highlighter-rouge">AUDIO.INPUT.CHANNEL_N.PHANTOM48V_ENABLE</code></p>
+
+<h3 id="media--magazine-panel_magazine">Media / Magazine (<code class="language-plaintext highlighter-rouge">Panel_Magazine</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action / Parameter</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PRE-RECORD</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.PRERECORD.ENABLED</code></td>
+      <td>Enable pre-record buffer</td>
+    </tr>
+    <tr>
+      <td>DURATION</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.PRERECORD.DURATION</code> (sec)</td>
+      <td>Buffer length</td>
+    </tr>
+    <tr>
+      <td>UNMOUNT</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">UNMOUNT_DIGMAG</code></td>
+      <td>Safe-eject storage</td>
+    </tr>
+    <tr>
+      <td>FORMAT</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">FORMAT_DIGMAG</code></td>
+      <td>Format active drive (prompts if clips present)</td>
+    </tr>
+    <tr>
+      <td>CHANGE</td>
+      <td>→ Panel_Magazine_New</td>
+      <td>Format with a new reel number</td>
+    </tr>
+    <tr>
+      <td>RESET</td>
+      <td>→ Panel_Magazine_Reset</td>
+      <td>Format and reset reel counter</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Media states</strong> tracked by firmware: <code class="language-plaintext highlighter-rouge">NOTPRESENT</code>, <code class="language-plaintext highlighter-rouge">UNCONFIGURED</code>, <code class="language-plaintext highlighter-rouge">MOUNTED</code>, <code class="language-plaintext highlighter-rouge">NOTMOUNTED</code>, <code class="language-plaintext highlighter-rouge">UNMOUNTED</code>, <code class="language-plaintext highlighter-rouge">EXPORTED</code>, <code class="language-plaintext highlighter-rouge">INCOMPATIBLE</code>.</p>
+
+<h3 id="project-panel_project">Project (<code class="language-plaintext highlighter-rouge">Panel_Project</code>)</h3>
+
+<h4 id="project-status-panel_status">Project Status (<code class="language-plaintext highlighter-rouge">Panel_Status</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VIEW</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">VIEW_STATUS</code></td>
+      <td>Display current project/camera status</td>
+    </tr>
+    <tr>
+      <td>SAVE</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">EXPORT_PROJECT_PROFILE</code></td>
+      <td>Save project config to media</td>
+    </tr>
+    <tr>
+      <td>RECALL</td>
+      <td>File selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROFILE.IMPORT_PATHNAME.PROJECT</code> from <code class="language-plaintext highlighter-rouge">SYSTEM.PROFILE.FILE_LIST.PROJECT</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="slate-panel_slate">Slate (<code class="language-plaintext highlighter-rouge">Panel_Slate</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CAMERA (ID)</td>
+      <td><code class="language-plaintext highlighter-rouge">PROJECT.SLATE.CAMERA</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="configure-panel_new_project">Configure (<code class="language-plaintext highlighter-rouge">Panel_New_Project</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>RESOLUTION</td>
+      <td><code class="language-plaintext highlighter-rouge">PROJECT.MODE_MATRIX.RESOLUTION</code></td>
+    </tr>
+    <tr>
+      <td>TIME BASE</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.MODE_MATRIX.FRAME_RATE</code></td>
+    </tr>
+    <tr>
+      <td>QUALITY</td>
+      <td><code class="language-plaintext highlighter-rouge">PROJECT.MODE_MATRIX.QUALITY</code></td>
+    </tr>
+    <tr>
+      <td>VALID SETTINGS (flag)</td>
+      <td><code class="language-plaintext highlighter-rouge">MEDIA.DIGMAG.PROJECT_SETTINGS_RECORDABLE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Resolutions available include 4.5K WS, 4K 2:1, 4K ANA, 4K HD, 3K, 2K (Mysterium-X). Quality options include REDCODE 28, 36, 42. Not all combinations are valid — the GUI shows a VALID SETTINGS indicator.</p>
+
+<h4 id="timecode-panel_proj_timecode">Timecode (<code class="language-plaintext highlighter-rouge">Panel_Proj_Timecode</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>JAM SYNC</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.TIMECODE.JAMSYNC.REQUESTED</code></td>
+    </tr>
+    <tr>
+      <td>OUTPUT</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.TIMECODE.OUTPUT.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>CROSS</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.TIMECODE.CROSS.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>CROSS MODE</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.TIMECODE.CROSS.MODE</code></td>
+    </tr>
+    <tr>
+      <td>DISPLAY FORMAT</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.USER_PREF.TIMECODE_FORMAT</code></td>
+    </tr>
+    <tr>
+      <td>TIMEZONE</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SYSTEM_DATE.MODIFY_GMT_OFFSET</code></td>
+    </tr>
+    <tr>
+      <td>GMT OFFSET</td>
+      <td>Selector (suffix: hours)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SYSTEM_DATE.GMT_OFFSET</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="monitor-panel_monitoring">Monitor (<code class="language-plaintext highlighter-rouge">Panel_Monitoring</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Type</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>FRAME GUIDE</td>
+      <td>Button</td>
+      <td>→ Panel_Frame_Guide</td>
+    </tr>
+    <tr>
+      <td>PREVIEW output</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.MONITOR.ACTIVE_DISPLAY</code> (HD-SDI / HDMI)</td>
+    </tr>
+    <tr>
+      <td>TEST SIGNAL</td>
+      <td>Checkbox</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.MONITOR.TEST_PATTERN.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>TEST SIGNAL name</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.MONITOR.TEST_PATTERN.NAME</code></td>
+    </tr>
+    <tr>
+      <td>PVW REFRESH</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.MONITOR.FRAME_RATE</code></td>
+    </tr>
+    <tr>
+      <td>EVF REFRESH</td>
+      <td>Selector</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.REFRESH_MODE</code> (SYNCED / FIXED)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Frame Guide</strong> (<code class="language-plaintext highlighter-rouge">Panel_Frame_Guide</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>FRAME GUIDE aspect</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.FRAME_GUIDE.ASPECT</code></td>
+    </tr>
+    <tr>
+      <td>FRAME GUIDE enable</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.FRAME_GUIDE.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>FRAME GUIDE color</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.FRAME_GUIDE.COLOR</code></td>
+    </tr>
+    <tr>
+      <td>SAFETY aspect</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.TV_SAFE_AREA.ASPECT</code></td>
+    </tr>
+    <tr>
+      <td>SAFETY enable</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>SAFETY color</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.RETICLE.TV_SAFE_AREA.COLOR</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Custom reticle</strong> (<code class="language-plaintext highlighter-rouge">Panel_Customize</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter / Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>LOOK AROUND opacity (%)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.USER_PREF.LOOKAROUND.ALPHA</code></td>
+    </tr>
+    <tr>
+      <td>CURSORS → Panel_CustomizeCursors</td>
+      <td>Center, action-safe, title-safe cursors with style</td>
+    </tr>
+    <tr>
+      <td>USER ACTION</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">CUSTOM_RETICLE_ACTION</code></td>
+    </tr>
+    <tr>
+      <td>USER TITLE</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">CUSTOM_RETICLE_TITLE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Video Output enables</strong> (<code class="language-plaintext highlighter-rouge">Panel_VideoOutput</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>EVF</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.EVF.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>LCD</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.LCD.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>HD PREVIEW (HDMI)</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.MONITOR_HDMI.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>HD-SDI</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.HDSDI.ENABLED</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="setup-panel_setup">Setup (<code class="language-plaintext highlighter-rouge">Panel_Setup</code>)</h3>
+
+<h4 id="preferences-panel_preferences">Preferences (<code class="language-plaintext highlighter-rouge">Panel_Preferences</code>)</h4>
+
+<p><strong>User Profile</strong> (<code class="language-plaintext highlighter-rouge">Panel_User</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CLEAR</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">RESTORE_USER_DOIT</code></td>
+    </tr>
+    <tr>
+      <td>IMPORT</td>
+      <td>File selector: <code class="language-plaintext highlighter-rouge">GUI.PROFILE.IMPORT_PATHNAME.USER</code></td>
+    </tr>
+    <tr>
+      <td>EXPORT</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">EXPORT_USER_PROFILE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Keymap</strong> (<code class="language-plaintext highlighter-rouge">Panel_Keymap</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SIDE RECORD</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.KEYMAP.SIDE_RECORD.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>USER KEYS</td>
+      <td>→ Panel_UserKeys</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>User keys 1–5 each have an enable checkbox and a function selector (KEYFNC_* above).</p>
+
+<p><strong>GPIO</strong> (<code class="language-plaintext highlighter-rouge">Panel_GPIO</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>INPUT A enable</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.INPUT_1.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>INPUT A function</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.INPUT_1.MAPPED_FUNCTION</code></td>
+    </tr>
+    <tr>
+      <td>INPUT B enable</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.INPUT_2.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>INPUT B function</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.INPUT_2.MAPPED_FUNCTION</code></td>
+    </tr>
+    <tr>
+      <td>OUTPUT A trigger</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.OUTPUT_1.TRIGGER</code></td>
+    </tr>
+    <tr>
+      <td>OUTPUT B trigger</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.OUTPUT_2.TRIGGER</code></td>
+    </tr>
+    <tr>
+      <td>Input/Output polarity</td>
+      <td><code class="language-plaintext highlighter-rouge">SYSTEM.DEV.GPIO.CONFIG.INPUT/OUTPUT_N.POLARITY</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>GPIO inputs can be mapped to the same <code class="language-plaintext highlighter-rouge">KEYFNC_*</code> functions as user buttons.
+GPIO outputs trigger on camera events (record state, etc.).</p>
+
+<p><strong>Playback</strong> (<code class="language-plaintext highlighter-rouge">Panel_Playback</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HD-SDI resolution</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.PLAYBACK.CONFIG.DISPLAY_MODE</code></td>
+    </tr>
+    <tr>
+      <td>LOOK (use settings)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.PLAYBACK.CONFIG.LOOK</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Display</strong> (<code class="language-plaintext highlighter-rouge">Panel_Display</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>STATUS (upper HUD)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.UPPER_HUD</code></td>
+      <td>Toggle status bar visibility</td>
+    </tr>
+    <tr>
+      <td>Shutter format</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.USER_PREF.SHUTTER_SPEED_FORMAT</code></td>
+      <td>1/SEC or DEGREES</td>
+    </tr>
+    <tr>
+      <td>LENS DATA</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.LENS_DATA</code></td>
+      <td>Toggle lens info overlay</td>
+    </tr>
+    <tr>
+      <td>Lens units</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.USER_PREF.LENS_UNITS</code></td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>EVF MENU</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.EVF_FUNCTION_LADDER</code></td>
+      <td>EVF button menu display</td>
+    </tr>
+    <tr>
+      <td>METERS (lower HUD)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.LOWER_HUD</code></td>
+      <td>Toggle meter bar</td>
+    </tr>
+    <tr>
+      <td>GREY SCALE</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.GREYRAMP_CHART</code></td>
+      <td>Toggle grey ramp overlay</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="maintenance-panel_maintenance">Maintenance (<code class="language-plaintext highlighter-rouge">Panel_Maintenance</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action / Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>FAN</td>
+      <td>Fan mode selector: <code class="language-plaintext highlighter-rouge">SYSTEM.THERMAL.FAN.CONTROL.MODE</code></td>
+    </tr>
+    <tr>
+      <td>BLK SHADING</td>
+      <td>START: <code class="language-plaintext highlighter-rouge">USERCAL_START</code> / RESTORE: <code class="language-plaintext highlighter-rouge">USERCAL_RESTORE</code></td>
+    </tr>
+    <tr>
+      <td>RESTORE LOOK</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">RESTORE_LOOK_DOIT</code></td>
+    </tr>
+    <tr>
+      <td>RESTORE USER</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">RESTORE_USER_DOIT</code></td>
+    </tr>
+    <tr>
+      <td>RESTORE SYSTEM</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">RESTORE_SYSTEM_DOIT</code></td>
+    </tr>
+    <tr>
+      <td>UPDATE SW</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">UPGRADE_SOFTWARE</code> (reads upgrade from CF card)</td>
+    </tr>
+    <tr>
+      <td>WRITE LOG</td>
+      <td>Dispatch <code class="language-plaintext highlighter-rouge">FLUSH_LOG</code> (writes debug log to media)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="set-clock-panel_datetime">Set Clock (<code class="language-plaintext highlighter-rouge">Panel_DateTime</code>)</h4>
+
+<p>Date and time are set field-by-field. Each field has a modify-enable checkbox and
+a value selector. After setting all fields, dispatch <code class="language-plaintext highlighter-rouge">SET_CLOCK</code> to commit.</p>
+
+<p>Fields: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND (all in GMT).</p>
+
+<h4 id="remote-panel_remote">Remote (<code class="language-plaintext highlighter-rouge">Panel_Remote</code>)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>REMOTE PORT</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.S4I_LENS_PORT_ACTIVE</code> (Cooke S4/i lens port)</td>
+    </tr>
+    <tr>
+      <td>LENS PORT</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.SOFTKEY.LENS_PORT_ACTIVE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="program-panel_program">Program (<code class="language-plaintext highlighter-rouge">Panel_Program</code>)</h4>
+
+<p>Broadcast/production program output settings:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>POSITION (camera)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROGRAM.POSITION</code></td>
+    </tr>
+    <tr>
+      <td>HD-SDI range</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROGRAM.HDSDI</code></td>
+    </tr>
+    <tr>
+      <td>VIDEO mode</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROGRAM.VIDEO</code></td>
+    </tr>
+    <tr>
+      <td>FEED</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROGRAM.FEED</code></td>
+    </tr>
+    <tr>
+      <td>TALLY</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PROGRAM.TALLY</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="engineering-developer-menu">Engineering (Developer) Menu</h2>
+
+<p>The Engineering menu (<code class="language-plaintext highlighter-rouge">Panel_Developer</code>) requires the <code class="language-plaintext highlighter-rouge">EMENU</code> capability bit to be set
+in the camera’s OTP/capability register. It is accessed by the combo key
+<code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H</code> (normally SYSTEM + RECORD held simultaneously).</p>
+
+<div class="callout callout--warn">
+  <strong>Warning:</strong> Engineering menu parameters are not part of the normal user
+  workflow. Incorrect values can affect sensor calibration and image quality. These are
+  documented here for completeness from the decompiled source.
+</div>
+
+<h3 id="calibrate-panel_calibrate">Calibrate (<code class="language-plaintext highlighter-rouge">Panel_Calibrate</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GRAB LIGHT</td>
+      <td><code class="language-plaintext highlighter-rouge">CALIBRATE_CAPTURE_LIGHT</code> — capture light frame for factory calibration</td>
+    </tr>
+    <tr>
+      <td>GRAB LIGHT F24</td>
+      <td><code class="language-plaintext highlighter-rouge">CALIBRATE_CAPTURE_LIGHT_F24</code> — light frame at F24</td>
+    </tr>
+    <tr>
+      <td>GRAB DARK</td>
+      <td><code class="language-plaintext highlighter-rouge">CALIBRATE_CAPTURE_DARK</code> — capture dark frame</td>
+    </tr>
+    <tr>
+      <td>APPLY CAL</td>
+      <td><code class="language-plaintext highlighter-rouge">CALIBRATE_APPLY</code> — apply captured calibration data</td>
+    </tr>
+    <tr>
+      <td>CAL PRESENT</td>
+      <td>Checkbox (read-only): <code class="language-plaintext highlighter-rouge">CALIBRATE.FACTORY.FILE_AVAILABLE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="sensor-panel_engsensor">Sensor (<code class="language-plaintext highlighter-rouge">Panel_EngSensor</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MAGNIFY</td>
+      <td>→ Panel_EngMagnify</td>
+      <td>1:1 magnification position (X/Y)</td>
+    </tr>
+    <tr>
+      <td>BLK LOOP</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.BLACKLOOP.ACTIVE</code></td>
+      <td>Loop black frame output</td>
+    </tr>
+    <tr>
+      <td>CAL CAPTURE</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.CALIBRATE.CAPTURE_FRAMECOUNT</code></td>
+      <td>Frames to capture</td>
+    </tr>
+    <tr>
+      <td>S35</td>
+      <td>→ Panel_EngS35</td>
+      <td>EPIC/S35 sensor debug</td>
+    </tr>
+    <tr>
+      <td>R1</td>
+      <td>→ Panel_EngR1</td>
+      <td>RED ONE sensor debug</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>S35 debug</strong> (<code class="language-plaintext highlighter-rouge">Panel_EngS35</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SSD ENABLE</td>
+      <td><code class="language-plaintext highlighter-rouge">EPIC.DEBUG.SUNSPOT.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>VREF_CLAMP (voltage)</td>
+      <td><code class="language-plaintext highlighter-rouge">EPIC.DEBUG.SUNSPOT.VREFCLAMP</code></td>
+    </tr>
+    <tr>
+      <td>VLN ENABLE</td>
+      <td><code class="language-plaintext highlighter-rouge">EPIC.DEBUG.VLN.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>VCL ENABLE</td>
+      <td><code class="language-plaintext highlighter-rouge">EPIC.DEBUG.VCL.ENABLE</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>R1 debug</strong> (<code class="language-plaintext highlighter-rouge">Panel_EngR1</code>):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SSD ENABLE</td>
+      <td><code class="language-plaintext highlighter-rouge">REDONE.DEBUG.SUNSPOT.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>VTXMID (voltage)</td>
+      <td><code class="language-plaintext highlighter-rouge">REDONE.DEBUG.SUNSPOT.VTXMIDDAC</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="compression-panel_engcompression">Compression (<code class="language-plaintext highlighter-rouge">Panel_EngCompression</code>)</h3>
+
+<p>REDCODE compression bias adjustments:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GRN BIAS</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.COMPRESSION.RC.GREEN.BIAS</code></td>
+    </tr>
+    <tr>
+      <td>RED BIAS</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.COMPRESSION.RC.RED.BIAS</code></td>
+    </tr>
+    <tr>
+      <td>BLUE BIAS</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.COMPRESSION.RC.BLUE.BIAS</code></td>
+    </tr>
+    <tr>
+      <td>PREEMPH</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.IMGPROC.PREEMPH</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="hdr-panel_hdr">HDR (<code class="language-plaintext highlighter-rouge">Panel_HDR</code>)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>HDR ENABLE</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.HDR.ENABLE</code></td>
+    </tr>
+    <tr>
+      <td>NUM STEPS</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.HDR.NUM_STEPS</code></td>
+    </tr>
+    <tr>
+      <td>NUM STOPS (range)</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.HDR.NUM_STOPS</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="patterns-panel_patterns">Patterns (<code class="language-plaintext highlighter-rouge">Panel_Patterns</code>)</h3>
+
+<p>Debug test patterns for monitor and playback:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MON TEST enable</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.MON_PATTERN.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>MON TEST name</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.MON_PATTERN.NAME</code></td>
+    </tr>
+    <tr>
+      <td>PB TEST enable</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.PB_PATTERN.ENABLED</code></td>
+    </tr>
+    <tr>
+      <td>PB TEST name</td>
+      <td><code class="language-plaintext highlighter-rouge">DEBUG.PB_PATTERN.NAME</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="on-screen-display-hud-widgets">On-Screen Display (HUD) Widgets</h2>
+
+<p>The upper and lower HUD bars are composed of data widgets. These are visible when
+<code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.UPPER_HUD</code> / <code class="language-plaintext highlighter-rouge">GUI.OSD.SHOW.LOWER_HUD</code> are enabled.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Widget</th>
+      <th>Parameter(s) displayed</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Record indicator</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.STATE</code></td>
+    </tr>
+    <tr>
+      <td>Timecode</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.TC.*</code></td>
+    </tr>
+    <tr>
+      <td>FPS / Time base</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.FRAME_RATE</code></td>
+    </tr>
+    <tr>
+      <td>Shutter speed</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.RECORD.SHUTTER_SPEED</code> or degrees</td>
+    </tr>
+    <tr>
+      <td>ISO (EI)</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.PAINT.EXPOSURE.ISO</code></td>
+    </tr>
+    <tr>
+      <td>F-stop (lens)</td>
+      <td>Lens data from S4/i or manual</td>
+    </tr>
+    <tr>
+      <td>Focus (lens)</td>
+      <td>Lens data from S4/i</td>
+    </tr>
+    <tr>
+      <td>White balance</td>
+      <td><code class="language-plaintext highlighter-rouge">PAINT.WHITE_BALANCE.CURRENT</code></td>
+    </tr>
+    <tr>
+      <td>Media capacity</td>
+      <td><code class="language-plaintext highlighter-rouge">MEDIA.DIGMAG.CAPACITY.*</code></td>
+    </tr>
+    <tr>
+      <td>Power (battery)</td>
+      <td>Power/battery params</td>
+    </tr>
+    <tr>
+      <td>Temperature</td>
+      <td>Sensor thermal params</td>
+    </tr>
+    <tr>
+      <td>Timecode genlock</td>
+      <td>TC genlock status</td>
+    </tr>
+    <tr>
+      <td>Volume meter</td>
+      <td>Audio input levels</td>
+    </tr>
+    <tr>
+      <td>Variseed (fps)</td>
+      <td><code class="language-plaintext highlighter-rouge">VIDEO.RECORD.VARISPEED.*</code></td>
+    </tr>
+    <tr>
+      <td>Timelapse</td>
+      <td>Timelapse state</td>
+    </tr>
+    <tr>
+      <td>Digital magnification</td>
+      <td>Magnify enable/position</td>
+    </tr>
+    <tr>
+      <td>SD card</td>
+      <td>External SD card state</td>
+    </tr>
+    <tr>
+      <td>USB thumb</td>
+      <td>USB thumb drive state</td>
+    </tr>
+    <tr>
+      <td>Drop frame</td>
+      <td><code class="language-plaintext highlighter-rouge">GUI.USER_PREF.TIMECODE_FORMAT</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="recording-modes">Recording Modes</h2>
+
+<p>The camera supports three recording modes set via <code class="language-plaintext highlighter-rouge">VIDEO.RECORD.MODE</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Mode</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">CONTINUOUS</code></td>
+      <td>Normal start/stop recording</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">TIMELAPSE</code></td>
+      <td>Timelapse with configurable interval and burst size</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">BURST</code></td>
+      <td>Burst capture triggered by record button or <code class="language-plaintext highlighter-rouge">KEYFNC_DO_BURST</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Pre-record (enabled via <code class="language-plaintext highlighter-rouge">GUI.RECORD.PRERECORD.ENABLED</code>) maintains a rolling buffer
+so the camera effectively records a few seconds before the record button is pressed.</p>
+
+<hr />
+
+<h2 id="see-also">See Also</h2>
+
+<ul>
+  <li><a href="/r1mx/guides/swf-gui-mock-server">Running the SWF GUI Mock Server</a> — how to run this GUI on a PC</li>
+  <li><a href="/r1mx/guides/black-shading-calibration">Black Shading Calibration</a> — calibration guide (real camera)</li>
+  <li><a href="/r1mx/firmware">Firmware History</a> — Build 32 release notes</li>
+  <li><code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/assets/swf_gui_1_as/</code> — full decompiled ActionScript source</li>
+  <li><code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/assets/panels.xml</code> — raw menu definition XML</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -58,20 +58,20 @@ def read_mem(sock, addr, length):
 
 
 # Milestones from re_reference.md / annotations.r2
+# Default list runs deep into kernelInit and the root-task path.
 MILESTONES = [
-    (0x000000A4, "reset: just before bl usrInit"),
-    (0x0036C350, "usrInit entry"),
-    (0x0036C3D4, "usrInit: about to call sysHwInit_seq"),
-    (0x0036C3D8, "usrInit: sysHwInit_seq returned"),
-    (0x0036C3DC, "usrInit: about to call fn_458a14 (driver dispatch, NOP'd)"),
-    (0x0036C3EC, "usrInit: about to call fn_36860c"),
-    (0x0036C3F0, "usrInit: fn_36860c returned"),
     (0x0036C424, "usrInit: about to call kernelInit"),
-    (0x0036E168, "vxworks_exc_handler_installer entry"),
-    (0x0000DCB0, "sysHwInit_seq entry"),
-    (0x0000DDB4, "sysHwInit_seq exit (blr)"),
-    (0x0036860C, "usrInit_conditional_task_spawner entry"),
     (0x005A7F30, "kernelInit entry"),
+    (0x005A8170, "kernelInit: WDB task spawn area"),
+    (0x005A8190, "kernelInit: deferred ctor NOP (Patch #56) site"),
+    (0x005A8194, "kernelInit: WDB network init NOP (Patch #57) site"),
+    (0x005A838C, "kernelInit: RTTI assertion loop NOP (Patch #55) site"),
+    (0x005A2A28, "WDB task spawn (per re_reference)"),
+    (0x0037C440, "rootTask entry"),
+    (0x00381A8C, "fn_381a8c root task wrapper (Patch #53a target)"),
+    (0x00382E80, "fn_382e80 main dispatcher"),
+    (0x0036B3DC, "usrWdbInit entry"),
+    (0x0036B7EC, "bsp_init_caller (calls usrWdbInit)"),
 ]
 
 

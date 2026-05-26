@@ -1,0 +1,34 @@
+/* 0x0037d87c  FUN_0037d87c  size=160 bytes */
+
+
+void FUN_0037d87c(void)
+
+{
+  uint uVar1;
+  int *piVar2;
+  
+  FUN_005bb96c();
+  piVar2 = (int *)iRam00e9c5c0;
+  do {
+    if (piVar2 == (int *)0xe9c5c0) {
+      return;
+    }
+    while( true ) {
+      uVar1 = piVar2[7];
+      if (-1 < (int)uVar1) break;
+      if ((uVar1 & 0x10) == 0) {
+        FUN_0036c134(piVar2[3],piVar2[4],0);
+        piVar2[7] = piVar2[7] & 0x7fffffff;
+      }
+      else {
+        piVar2[7] = uVar1 & 0x7fffffff;
+      }
+      piVar2 = (int *)*piVar2;
+      if (piVar2 == (int *)0xe9c5c0) {
+        return;
+      }
+    }
+    piVar2 = (int *)*piVar2;
+  } while( true );
+}
+

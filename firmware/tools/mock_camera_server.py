@@ -10,6 +10,8 @@ Usage:
 
     --factory-defaults PATH   factory_defaults.xml (default: firmware/tools/factory_defaults.xml)
     --port PORT               TCP port (default: 49152)
+    --assets-dir DIR          Directory served via HTTP for panels.xml (default: firmware/reverse/build_32/assets)
+    --http-port PORT          HTTP port for asset server (default: 8000)
     --sensor-mx               Set SENSOR.REVISION_NUMBER=1 (MX splash, default)
     --sensor-orig             Set SENSOR.REVISION_NUMBER=0 (original RED ONE splash)
     --version STR             SYSTEM.VERSION.RED_RELEASE (default: 32.0.3#1)
@@ -17,14 +19,38 @@ Usage:
     --set NAME=VALUE          Override any param value (repeatable)
     -v, --verbose             Log all messages
 
+The server also starts an HTTP server (default port 8000) so the SWF's
+OsdXml.load("panels.xml") resolves to http://127.0.0.1:8000/panels.xml
+instead of a file:// URL that Ruffle doesn't handle reliably.
+
+Load the SWF via the printed HTTP URL — e.g.:
+    libraries/ruffle 'http://127.0.0.1:8000/swf_gui_1.swf' --base 'http://127.0.0.1:8000/' --tcp-connections allow
+
+The --base flag is required: without it Ruffle resolves relative URLs (like panels.xml)
+against the working directory instead of the HTTP server.
+
 The SWF shows RemoteConnectMC → enter IP 127.0.0.1 → click Camera.
+
+Button injection (type in the mock's terminal while the SWF is connected):
+    record      GUI.RAWINPUT.BUTTON.RECORD
+    menu        GUI.RAWINPUT.BUTTON.MENU.SYSTEM
+    sensor      GUI.RAWINPUT.BUTTON.MENU.SENSOR
+    video       GUI.RAWINPUT.BUTTON.MENU.VIDEO
+    sw1..sw4    SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW1..SW4
+    user_a/b/c  GUI.RAWINPUT.BUTTON.USER_DEFINED.A/B/C
+    dev         GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H  (Developer panel)
+    exit        GUI.RAWINPUT.BUTTON.COMBOKEY.EXIT
+    set NAME=VALUE   push an arbitrary <Param> to all subscribed clients
+    help        show this list
 """
 
 import argparse
 import asyncio
-import hashlib
+import functools
+import http.server
 import re
 import sys
+import threading
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -87,6 +113,86 @@ OTP_KEY = [
 ADMIN_MD5 = "1b772ea5a3dc1e140c4240b335b1d8b8"
 USER_MD5  = "c73f8496a6dc61cee28acf80851e004a"
 
+# ── Hardware-only params not in factory_defaults.xml ────────────────────────
+# GoCamera managers (LcdManager, GpioManager, MediaManager, FormatManager,
+# ProfileMgr) call addCallback/paramGet on these at constructor time.  Without
+# them GPDB.getParam() throws and GoCamera aborts before MenuManager.LoadPanels().
+# Keyed by param name → (type, default_value).
+HARDWARE_STUB_PARAMS: dict[str, tuple[str, str]] = {
+    # LcdManager — LCD button events + brightness
+    "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW2":      ("boolean", "false"),
+    "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW3":      ("boolean", "false"),
+    "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW4":      ("boolean", "false"),
+    "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW4_LONG": ("boolean", "false"),
+    "SYSTEM.DEV.LCD.BRIGHTNESS":               ("number",  "80"),
+    # GpioManager — GPIO inputs/outputs; FlagRecordActive reads TRIGGER at ctor time
+    "SYSTEM.DEV.GPIO.SETTING.INPUT_1":             ("string", ""),
+    "SYSTEM.DEV.GPIO.SETTING.INPUT_2":             ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.INPUT_1.POLARITY":     ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.INPUT_2.POLARITY":     ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.OUTPUT_1.POLARITY":    ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.OUTPUT_2.POLARITY":    ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.OUTPUT_1.TRIGGER":     ("string", ""),
+    "SYSTEM.DEV.GPIO.CONFIG.OUTPUT_2.TRIGGER":     ("string", ""),
+    "VIDEO.PLAYBACK.REQUESTED":                    ("boolean", "false"),
+    "GUI.PAINT.WHITE_BALANCE.AUTO":                ("boolean", "false"),
+    "VIDEO.RECORD.ACK":                            ("boolean", "false"),
+    # MediaManager — DIGMAG magazine events
+    "MEDIA.DIGMAG.DRIVE0.EJECT_DONE":  ("boolean", "false"),
+    "MEDIA.DIGMAG.DRIVE1.EJECT_DONE":  ("boolean", "false"),
+    "MEDIA.DIGMAG.MEDIA_PATH":         ("string",  ""),
+    "MEDIA.DIGMAG.CLIP_LIST":          ("string",  ""),
+    # FormatManager — DIGMAG format completion events
+    "MEDIA.DIGMAG.DRIVE0.FORMAT_DONE": ("boolean", "false"),
+    "MEDIA.DIGMAG.DRIVE1.FORMAT_DONE": ("boolean", "false"),
+    # ProfileMgr — profile import/export/restore status
+    "SYSTEM.PROFILE.IMPORT.STATUS":    ("string",  ""),
+    "SYSTEM.PROFILE.EXPORT.STATUS":    ("string",  ""),
+    "SYSTEM.PROFILE.RESTORE.REQUESTED": ("boolean", "false"),
+    "SYSTEM.PROFILE.RESTORE.STATUS":   ("string",  ""),
+    "GUI.PROFILE.IMPORT_PATHNAME.LOOK":    ("string", ""),
+    "GUI.PROFILE.IMPORT_PATHNAME.USER":    ("string", ""),
+    "GUI.PROFILE.IMPORT_PATHNAME.PROJECT": ("string", ""),
+}
+
+# ── Button shortname → GPDB param ───────────────────────────────────────────
+# Values derived from ButtonManager.as and LcdManager.as callbacks.
+BUTTON_MAP: dict[str, str] = {
+    "record":   "GUI.RAWINPUT.BUTTON.RECORD",
+    "rec":      "GUI.RAWINPUT.BUTTON.RECORD",
+    "menu":     "GUI.RAWINPUT.BUTTON.MENU.SYSTEM",
+    "sensor":   "GUI.RAWINPUT.BUTTON.MENU.SENSOR",
+    "video":    "GUI.RAWINPUT.BUTTON.MENU.VIDEO",
+    "sw1":      "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW1",
+    "sw2":      "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW2",
+    "sw3":      "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW3",
+    "sw4":      "SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW4",
+    "user_a":   "GUI.RAWINPUT.BUTTON.USER_DEFINED.A",
+    "user_b":   "GUI.RAWINPUT.BUTTON.USER_DEFINED.B",
+    "user_c":   "GUI.RAWINPUT.BUTTON.USER_DEFINED.C",
+    "side_rec": "GUI.RAWINPUT.BUTTON.SIDE.RECORD",
+    "dev":      "GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H",
+    "exit":     "GUI.RAWINPUT.BUTTON.COMBOKEY.EXIT",
+    "back":     "GUI.RAWINPUT.BUTTON.COMBOKEY.SYSTEM",
+    "pre_rec":  "GUI.RAWINPUT.BUTTON.COMBOKEY.RECORD",
+}
+
+BUTTON_HELP = """\
+Button shortcuts:
+  record / rec    GUI.RAWINPUT.BUTTON.RECORD
+  menu            GUI.RAWINPUT.BUTTON.MENU.SYSTEM
+  sensor          GUI.RAWINPUT.BUTTON.MENU.SENSOR
+  video           GUI.RAWINPUT.BUTTON.MENU.VIDEO
+  sw1 .. sw4      SYSTEM.DEV.LCD.RAWINPUT.BUTTON.SW1..SW4
+  user_a/b/c      GUI.RAWINPUT.BUTTON.USER_DEFINED.A/B/C
+  side_rec        GUI.RAWINPUT.BUTTON.SIDE.RECORD
+  dev             GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H  (Developer panel)
+  exit            GUI.RAWINPUT.BUTTON.COMBOKEY.EXIT
+  back            GUI.RAWINPUT.BUTTON.COMBOKEY.SYSTEM
+  pre_rec         GUI.RAWINPUT.BUTTON.COMBOKEY.RECORD
+  set NAME=VALUE  push arbitrary <Param> to all subscribed clients
+  help            show this list"""
+
 
 # ── OTP helpers ─────────────────────────────────────────────────────────────
 
@@ -132,16 +238,22 @@ class ParamStore:
     def __init__(self, factory_xml_path: Path):
         self.defs: dict[str, dict] = {}   # name → {type, value, ...}
         self._load(factory_xml_path)
+        # Add hardware-only stubs for params not covered by factory_defaults.xml.
+        # Only fills gaps — factory_defaults.xml entries take precedence.
+        for name, (ptype, value) in HARDWARE_STUB_PARAMS.items():
+            if name not in self.defs:
+                self.defs[name] = {"type": ptype, "value": value}
 
     def _load(self, path: Path):
         text = path.read_text(encoding="utf-8", errors="replace")
-        # Parse with regex — the XML may have quirks (Windows-style paths, etc.)
+        # value is optional — some params (events/triggers) have no value attribute
         for m in re.finditer(
             r'<Param\s[^>]*name\s*=\s*"([^"]+)"[^>]*type\s*=\s*"([^"]+)"'
-            r'[^>]*value\s*=\s*"([^"]*)"',
+            r'(?:[^>]*value\s*=\s*"([^"]*)")?',
             text, re.DOTALL
         ):
-            name, ptype, value = m.group(1), m.group(2), m.group(3)
+            name, ptype = m.group(1), m.group(2)
+            value = m.group(3) if m.group(3) is not None else ""
             self.defs[name] = {"type": ptype, "value": value}
 
     def set(self, name: str, value: str):
@@ -180,6 +292,8 @@ class CameraSession:
         self.verbose = verbose
         self._auth_seed_str: str | None = None
         self._authenticated: bool = False
+        self._subscribed: bool = False   # set True when ADD_TERM received
+        self.push_queue: asyncio.Queue[str] = asyncio.Queue()
 
     def _log(self, direction: str, msg: str):
         tag = msg[:60].replace("\n", "↵")
@@ -221,6 +335,9 @@ class CameraSession:
                     return self._auth_init(arg)
             except (ValueError, Exception):
                 pass
+            # ADD_TERM is permitted before authentication (firmware allows it)
+            if name == "ADD_TERM":
+                return self._add_term(arg)
             print(f"  [cmnd] {name} arg={arg!r}", flush=True)
             return None
         elif not self._authenticated and self._auth_seed_str is not None:
@@ -243,6 +360,8 @@ class CameraSession:
         elif name == "SYNC":
             print(f"  [sync] {arg}", flush=True)
             return xml_sync(arg)
+        elif name == "ADD_TERM":
+            return self._add_term(arg)
         else:
             print(f"  [cmnd] {name} arg={arg!r}", flush=True)
             return None
@@ -250,8 +369,6 @@ class CameraSession:
     def _auth_init(self, seed_str: str) -> str:
         self._auth_seed_str = seed_str
         seed = int(seed_str) % len(OTP_KEY)
-        # Response: name=enc("AUTH_INIT", seed), arg=plaintext seed
-        # Flash does Number(cryptArg) to set __seed — must be plain numeric string
         enc_name = otp_encrypt("AUTH_INIT", seed)
         print(f"  [auth] AUTH_INIT seed={seed_str}", flush=True)
         return f'<Cmnd name="{enc_name}" arg="{seed_str}"/>'
@@ -259,55 +376,170 @@ class CameraSession:
     def _auth_pass(self, encrypted_pass: str) -> str:
         seed = int(self._auth_seed_str or "0") % len(OTP_KEY)
         decrypted = otp_decrypt(encrypted_pass, seed)
-        md5 = hashlib.md5(decrypted.encode()).hexdigest()
-        role = "admin" if md5 == ADMIN_MD5 else ("user" if md5 == USER_MD5 else "UNKNOWN")
+        # decrypted IS the MD5 hash string the SWF sends; compare directly
+        role = "admin" if decrypted == ADMIN_MD5 else ("user" if decrypted == USER_MD5 else "UNKNOWN")
         print(f"  [auth] password → role={role}", flush=True)
         self._authenticated = True
+        self._subscribed = True   # Flash GUI sessions always receive server pushes
         enc_name = otp_encrypt("AUTH_PASS", seed)
         enc_arg  = otp_encrypt("JJRC1", seed)
         return f'<Cmnd name="{enc_name}" arg="{enc_arg}"/>'
 
+    def _add_term(self, arg: str) -> str:
+        # Firmware: ADD_TERM registers this connection as a GPDB subscriber.
+        # The arg is a connection-type string the camera compares against its own type;
+        # we always accept it and set the subscription flag.
+        self._subscribed = True
+        print(f"  [ADD_TERM] subscribed, arg={arg!r}", flush=True)
+        return xml_cmnd("ADD_TERM", arg)
+
     def _get_file(self, filename: str) -> str:
         print(f"  [GET_FILE] {filename}", flush=True)
-        # Always serve the registration XML (GuiBoot1)
         return self.params.registration_xml()
 
     def _get_params(self) -> str:
         print(f"  [GET_PARAM *] sending {len(self.params.defs)} params", flush=True)
         return self.params.values_xml()
 
+    async def push_param(self, name: str, value: str):
+        """Enqueue a server-push <Param> to this client."""
+        ptype = self.params.defs.get(name, {}).get("type", "boolean")
+        await self.push_queue.put(xml_param(name, ptype, value))
+
 
 # ── Async server ─────────────────────────────────────────────────────────────
 
-async def handle_client(reader, writer, params: ParamStore, verbose: bool):
+async def handle_client(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    params: ParamStore,
+    sessions: list,
+    verbose: bool,
+):
     peer = writer.get_extra_info("peername")
     print(f"\n[+] Client connected: {peer}", flush=True)
     session = CameraSession(params, verbose)
-    buf = b""
+    sessions.append(session)
+
+    async def rx_loop():
+        buf = b""
+        try:
+            while True:
+                chunk = await reader.read(8192)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\x00" in buf:
+                    msg_bytes, buf = buf.split(b"\x00", 1)
+                    try:
+                        msg = msg_bytes.decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    responses = session.handle_message(msg)
+                    for resp in responses:
+                        if verbose:
+                            session._log("→", resp)
+                        writer.write((resp + "\x00").encode("utf-8"))
+                        await writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        finally:
+            # Signal tx_loop to exit by pushing a sentinel
+            await session.push_queue.put(None)  # type: ignore[arg-type]
+
+    async def tx_loop():
+        try:
+            while True:
+                msg = await session.push_queue.get()
+                if msg is None:
+                    break
+                if verbose:
+                    session._log("→push", msg)
+                writer.write((msg + "\x00").encode("utf-8"))
+                await writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+
     try:
-        while True:
-            chunk = await reader.read(8192)
-            if not chunk:
-                break
-            buf += chunk
-            while b"\x00" in buf:
-                msg_bytes, buf = buf.split(b"\x00", 1)
-                try:
-                    msg = msg_bytes.decode("utf-8", errors="replace")
-                except Exception:
-                    continue
-                responses = session.handle_message(msg)
-                for resp in responses:
-                    if verbose:
-                        session._log("→", resp)
-                    writer.write((resp + "\x00").encode("utf-8"))
-                    await writer.drain()
-    except (ConnectionResetError, BrokenPipeError):
-        pass
+        await asyncio.gather(rx_loop(), tx_loop())
     finally:
+        sessions.remove(session)
         print(f"[-] Client disconnected: {peer}", flush=True)
         writer.close()
 
+
+# ── Button injection via stdin ───────────────────────────────────────────────
+
+async def stdin_injector(sessions: list, verbose: bool):
+    """Read lines from stdin and push button events to all subscribed sessions."""
+    loop = asyncio.get_event_loop()
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+
+    print("Button injection ready. Type 'help' for available commands.", flush=True)
+
+    async def broadcast(param: str, value: str):
+        targets = [s for s in sessions if s._subscribed]
+        if not targets:
+            print("  [inject] no subscribed clients", flush=True)
+            return
+        for s in targets:
+            await s.push_param(param, value)
+
+    while True:
+        try:
+            line_bytes = await reader.readline()
+        except Exception:
+            break
+        if not line_bytes:
+            break
+        line = line_bytes.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+
+        if line == "help":
+            print(BUTTON_HELP, flush=True)
+        elif line.startswith("set ") and "=" in line:
+            # set PARAM_NAME=VALUE
+            rest = line[4:]
+            k, _, v = rest.partition("=")
+            param = k.strip()
+            value = v.strip()
+            print(f"  [inject] set {param} = {value!r}", flush=True)
+            await broadcast(param, value)
+        elif line in BUTTON_MAP:
+            param = BUTTON_MAP[line]
+            print(f"  [inject] {line} → {param}", flush=True)
+            await broadcast(param, "true")
+            await asyncio.sleep(0.1)
+            await broadcast(param, "false")
+        else:
+            # Allow typing the full param name directly
+            print(f"  [inject] unknown: {line!r}  (try 'help')", flush=True)
+
+
+# ── HTTP asset server ────────────────────────────────────────────────────────
+
+def start_http_server(assets_dir: Path, port: int) -> http.server.HTTPServer:
+    """Serve the assets directory over HTTP in a daemon thread."""
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler,
+        directory=str(assets_dir.resolve()),
+    )
+    # Log only notable requests (panels.xml, .swf) to stdout for debugging
+    def _log_request(self, format, *args):
+        path = args[0].split()[1] if args else "?"
+        if any(x in path for x in ("panels", ".swf", ".xml")):
+            print(f"  [HTTP] {path}", flush=True)
+    handler.log_message = _log_request  # type: ignore[method-assign]
+    httpd = http.server.HTTPServer(("127.0.0.1", port), handler)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    return httpd
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main(args):
     factory_xml = Path(args.factory_defaults)
@@ -337,16 +569,40 @@ async def main(args):
     print(f"  Version: {params.get('SYSTEM.VERSION.RED_RELEASE')}", flush=True)
     print(f"  Serial:  {params.get('SYSTEM.MANUFACTURING.CAMERA_SERIAL_NUMBER')}", flush=True)
 
+    sessions: list[CameraSession] = []
+
+    # HTTP server so OsdXml.load("panels.xml") resolves via http:// not file://
+    assets_dir = Path(args.assets_dir)
+    swf_url = None
+    if assets_dir.exists():
+        start_http_server(assets_dir, args.http_port)
+        swf_url = f"http://127.0.0.1:{args.http_port}/swf_gui_1.swf"
+        print(f"HTTP assets: http://127.0.0.1:{args.http_port}/  (serving {assets_dir})", flush=True)
+    else:
+        print(f"Warning: assets dir not found: {assets_dir} — panels.xml won't load via HTTP", flush=True)
+
     server = await asyncio.start_server(
-        lambda r, w: handle_client(r, w, params, args.verbose),
+        lambda r, w: handle_client(r, w, params, sessions, args.verbose),
         "0.0.0.0", args.port
     )
     print(f"\nListening on 0.0.0.0:{args.port}", flush=True)
-    print("Run Ruffle:  ./ruffle firmware/reverse/build_32/assets/swf_gui_1.swf", flush=True)
+    # --base is required so XML.load("panels.xml") resolves correctly.
+    # Ruffle defaults base to the working directory, not the SWF's directory.
+    assets_abs = assets_dir.resolve().as_uri() + "/"   # file:///abs/path/to/assets/
+    print("Run Ruffle (file, recommended):", flush=True)
+    print(f"  libraries/ruffle firmware/reverse/build_32/assets/swf_gui_1.swf"
+          f" --base '{assets_abs}' --filesystem-access-mode allow --tcp-connections allow", flush=True)
+    if swf_url:
+        base_url = f"http://127.0.0.1:{args.http_port}/"
+        print("Run Ruffle (HTTP alternative):", flush=True)
+        print(f"  libraries/ruffle '{swf_url}' --base '{base_url}' --tcp-connections allow", flush=True)
     print("Enter IP:    127  .  0  .  0  .  1  then click Camera\n", flush=True)
 
     async with server:
-        await server.serve_forever()
+        await asyncio.gather(
+            server.serve_forever(),
+            stdin_injector(sessions, args.verbose),
+        )
 
 
 def parse_args():
@@ -356,6 +612,12 @@ def parse_args():
                     default="firmware/tools/factory_defaults.xml",
                     metavar="PATH")
     ap.add_argument("--port", type=int, default=49152)
+    ap.add_argument("--assets-dir",
+                    default="firmware/reverse/build_32/assets",
+                    metavar="DIR",
+                    help="Directory to serve via HTTP for panels.xml / SWF (default: firmware/reverse/build_32/assets)")
+    ap.add_argument("--http-port", type=int, default=8000, metavar="PORT",
+                    help="HTTP port for the assets server (default: 8000)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--sensor-mx",   dest="sensor_orig", action="store_false",
                    default=False, help="SENSOR.REVISION_NUMBER=1 — MX splash (default)")

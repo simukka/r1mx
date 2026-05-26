@@ -233,6 +233,29 @@ These guides require partial or full disassembly. Read the relevant diagnosis gu
 
 ---
 
+## Firmware & Software Research
+
+Guides for exploring and understanding the RED ONE MX firmware and software stack.
+
+<ul class="guide-list">
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="{{ '/guides/swf-gui-mock-server' | relative_url }}" style="display:contents; text-decoration:none;">
+      <span class="guide-pill easy">Easy</span>
+      <span class="guide-list-title" style="color:var(--text);">Running the SWF GUI mock server (explore the on-camera Flash GUI on a PC)</span>
+      <span class="guide-list-time">15 min - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+  <li class="guide-list-item">
+    <a class="guide-list-item" href="{{ '/guides/swf-gui-reference' | relative_url }}" style="display:contents; text-decoration:none;">
+      <span class="guide-pill easy">Easy</span>
+      <span class="guide-list-title" style="color:var(--text);">SWF GUI feature reference (complete menu tree and parameter reference, Build 32)</span>
+      <span class="guide-list-time">Reference - <strong style="color:#5dba5d;">Available</strong></span>
+    </a>
+  </li>
+</ul>
+
+---
+
 ## Contribute a Guide
 
 The fastest way to help this project is to write a guide for a procedure you have already done.

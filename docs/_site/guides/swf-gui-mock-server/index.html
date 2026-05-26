@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Running the SWF GUI Mock Server | RED ONE MX: Repair & Maintenance Reference</title>
+  <meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+  <link rel="stylesheet" href="/r1mx/assets/css/main.css" />
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Running the SWF GUI Mock Server | RED ONE MX: Repair &amp; Maintenance Reference</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Running the SWF GUI Mock Server" />
+<meta name="author" content="r1mx contributors" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<meta name="twitter:description" property="og:description" content="Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras." />
+<link rel="canonical" href="http://0.0.0.0:4000/r1mx/guides/swf-gui-mock-server/" />
+<meta property="og:url" content="http://0.0.0.0:4000/r1mx/guides/swf-gui-mock-server/" />
+<meta property="og:site_name" content="RED ONE MX: Repair &amp; Maintenance Reference" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Running the SWF GUI Mock Server" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","author":{"@type":"Person","name":"r1mx contributors"},"description":"Community reference for repairing, maintaining, and continuing to use RED ONE MX digital cinema cameras.","headline":"Running the SWF GUI Mock Server","url":"http://0.0.0.0:4000/r1mx/guides/swf-gui-mock-server/"}</script>
+<!-- End Jekyll SEO tag -->
+
+</head>
+<body>
+  <header class="site-header">
+  <div class="header-inner">
+    <a class="site-brand" href="/r1mx/">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">R1MX</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-list">
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/">Overview</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/specs">Specifications</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/components">Components</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/hardware">Hardware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/firmware">Firmware</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/guides">Guides</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/roadmap">Roadmap</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/made-on-r1">Made on R1</a>
+        </li>
+        
+        <li class="nav-item">
+          <a class="nav-link"
+             href="/r1mx/resources">Resources</a>
+        </li>
+        
+        <li class="nav-item nav-github">
+          <a class="nav-link nav-link--github" href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">
+            GitHub ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var btn = document.querySelector('.nav-toggle');
+    var nav = document.querySelector('.nav-list');
+    if (btn && nav) {
+      btn.addEventListener('click', function() {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        nav.classList.toggle('nav-list--open');
+      });
+    }
+  })();
+</script>
+
+  <main class="site-main">
+    <article class="page-content guide-page">
+
+  <header class="page-header guide-header">
+    <div class="guide-meta-top">
+      
+      <span class="guide-category">FIRMWARE</span>
+      
+      
+      <span class="guide-status guide-status--available">Available</span>
+      
+    </div>
+
+    <h1 class="page-title">Running the SWF GUI Mock Server</h1>
+    <p class="page-subtitle">Interactively explore the RED ONE MX on-camera Flash GUI on a modern PC using Ruffle and the bundled mock camera server.</p>
+
+    <div class="guide-stats">
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Difficulty</span>
+        <span class="guide-stat-value difficulty-easy">Easy</span>
+      </div>
+      
+      
+      <div class="guide-stat">
+        <span class="guide-stat-label">Time</span>
+        <span class="guide-stat-value">15 minutes</span>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--tools">
+        <span class="guide-stat-label">Tools</span>
+        <ul class="guide-tools-list">
+          
+          <li>Python 3.9+</li>
+          
+          <li>Ruffle binary (libraries/ruffle)</li>
+          
+          <li>Firmware reverse assets (firmware/reverse/build_32/assets/)</li>
+          
+        </ul>
+      </div>
+      
+      
+      <div class="guide-stat guide-stat--parts">
+        <span class="guide-stat-label">Parts</span>
+        
+        <span class="guide-stat-value">None required</span>
+        
+      </div>
+      
+    </div>
+  </header>
+
+  <div class="page-body">
+    <h2 id="overview">Overview</h2>
+
+<p>The RED ONE MX on-camera GUI is a Flash SWF (ActionScript 2 / AVM1) that runs inside
+the VxWorks RTOS and communicates with the camera firmware over a raw XMLSocket on TCP
+port 49152. The SWF handles all menus, sensor controls, media management, and button
+input for the camera’s monitor output.</p>
+
+<p>This guide explains how to run the SWF on a modern PC using
+<a href="https://ruffle.rs/">Ruffle</a> (an open-source Flash runtime) and the mock camera server
+in this repository. The result is a fully interactive camera GUI that responds to menu
+navigation, parameter changes, and button injection — without real camera hardware.</p>
+
+<div class="callout callout--info">
+  <strong>Source material:</strong> The SWF and all assets are from Build 32 (v32.0.3),
+  the final known production firmware for the RED ONE MX. The ActionScript source was
+  recovered by decompiling the SWF using
+  <a href="https://github.com/vorpaljs/vorpaljs">JPEXS Free Flash Decompiler</a>.
+</div>
+
+<hr />
+
+<h2 id="how-it-works">How It Works</h2>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Ruffle (Flash runtime)                    mock_camera_server.py
+       │                                         │
+       │  TCP connect → port 49152               │
+       │─────────────────────────────────────────▶│
+       │                                         │
+       │  AUTH_SEED (OTP seed)                   │
+       │◀─────────────────────────────────────────│
+       │                                         │
+       │  AUTH_PASS (OTP-encrypted MD5 hash)     │
+       │─────────────────────────────────────────▶│
+       │                                         │
+       │  GET_FILE factory_defaults.xml (893 params)
+       │◀─────────────────────────────────────────│
+       │                                         │
+       │  GET_PARAM * (all param values)         │
+       │◀─────────────────────────────────────────│
+       │                                         │
+       │  SYNC_EVENT_0 / 1 / 2                   │
+       │◀─────────────────────────────────────────│
+       │                                         │
+       │  panels.xml (menu definition, 53 KB)    │
+       │◀── HTTP GET :8000/panels.xml ───────────│
+       │                                         │
+       │  GUI_STATE_5_READY (fully interactive)  │
+       │◀─────────────────────────────────────────│
+</code></pre></div></div>
+
+<p>The mock server also serves static assets (SWF file, panels.xml, any other files the
+SWF loads) over HTTP on a second port so Ruffle can resolve relative URLs.</p>
+
+<hr />
+
+<h2 id="prerequisites">Prerequisites</h2>
+
+<div class="guide-step">
+  <div class="guide-step-num">1</div>
+  <div class="guide-step-body">
+    <strong>Confirm the required files are present.</strong>
+    <p>From the repository root:</p>
+    <pre><code>ls libraries/ruffle
+ls firmware/reverse/build_32/assets/swf_gui_1.swf
+ls firmware/reverse/build_32/assets/panels.xml
+ls firmware/tools/factory_defaults.xml</code></pre>
+    <p>If the Ruffle binary is missing, download it from
+    <a href="https://ruffle.rs/#downloads" target="_blank" rel="noopener">ruffle.rs</a>
+    and place it at <code>libraries/ruffle</code>. Make it executable:
+    <code>chmod +x libraries/ruffle</code></p>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">2</div>
+  <div class="guide-step-body">
+    <strong>Install Python dependencies.</strong>
+    <pre><code>pip install -r requirements.txt</code></pre>
+    <p>The mock server only requires Python standard library modules, but the repo
+    may have other dependencies. The key module is <code>firmware/tools/mock_camera_server.py</code>.</p>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="starting-the-gui">Starting the GUI</h2>
+
+<div class="guide-step">
+  <div class="guide-step-num">3</div>
+  <div class="guide-step-body">
+    <strong>Check for port conflicts.</strong>
+    <p>The mock server uses port 8000 (HTTP assets) and 49152 (XMLSocket) by default.
+    If port 8000 is occupied (common if <code>chroma</code> or another local service is running),
+    use <code>--http-port</code> to choose a free port:</p>
+    <pre><code># Check what's using port 8000
+lsof -i :8000
+
+# Use a different HTTP port if needed
+python3 firmware/tools/swf_gui.py --http-port 8765</code></pre>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">4</div>
+  <div class="guide-step-body">
+    <strong>Launch the GUI.</strong>
+    <pre><code>python3 firmware/tools/swf_gui.py</code></pre>
+    <p>This starts the mock server and launches Ruffle with the SWF loaded over HTTP.
+    The terminal streams tagged log output from both processes:</p>
+    <pre><code>[HH:MM:SS][MOCK  ] Listening on 0.0.0.0:49152 (HTTP on 0.0.0.0:8000)
+[HH:MM:SS][swf_gui] Ruffle PID=12345 — enter IP 127.0.0.1, click Camera</code></pre>
+  </div>
+</div>
+
+<div class="guide-step">
+  <div class="guide-step-num">5</div>
+  <div class="guide-step-body">
+    <strong>Connect through the RemoteConnect dialog.</strong>
+    <p>Ruffle opens the splash / connect screen. Enter IP <strong>127.0.0.1</strong>
+    and click <strong>Camera</strong>. If Ruffle pre-fills a different IP (e.g.
+    <code>10.3.2.1</code>), this is from a stored SharedObject cookie — clear it and
+    type <code>127.0.0.1</code>.</p>
+    <p>The GUI will boot through the full authentication and initialisation sequence.
+    Watch the terminal for boot milestones:</p>
+    <pre><code>==================================================================
+  &gt;&gt;&gt; AUTH OK — admin session
+==================================================================
+  &gt;&gt;&gt; BOOT COMPLETE — GoSplash / GoCamera about to run
+==================================================================
+  &gt;&gt;&gt; GOREADY FIRED — panels.xml parsed, splash clearing
+==================================================================
+  &gt;&gt;&gt; FULLY READY — button injection enabled
+==================================================================</code></pre>
+  </div>
+</div>
+
+<hr />
+
+<h2 id="navigating-the-gui">Navigating the GUI</h2>
+
+<p>Once the <strong>FULLY READY</strong> milestone appears, the GUI is fully interactive. Use the Ruffle
+window to click menu buttons. The complete menu structure is documented in the
+<a href="/r1mx/guides/swf-gui-reference">SWF GUI Feature Reference</a>.</p>
+
+<p>Key buttons you can explore immediately:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Physical button</th>
+      <th>Menu opened</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SENSOR</td>
+      <td>Sensitivity, color temp, shutter, varispeed, timelapse</td>
+    </tr>
+    <tr>
+      <td>VIDEO (AV)</td>
+      <td>View mode, look, color, gain, tone, audio, viewfinder</td>
+    </tr>
+    <tr>
+      <td>SYSTEM</td>
+      <td>Sound, media, project, monitor, setup</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="button-injection">Button Injection</h2>
+
+<p>The mock server reads button commands from stdin. While the GUI is running, type commands
+in the same terminal and press Enter:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">record</code></td>
+      <td>Toggle recording on/off</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">sensor</code></td>
+      <td>Open SENSOR menu</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">video</code></td>
+      <td>Open AV (video/audio) menu</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">menu</code></td>
+      <td>Open SYSTEM menu</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">user_a</code> / <code class="language-plaintext highlighter-rouge">user_b</code> / <code class="language-plaintext highlighter-rouge">user_c</code></td>
+      <td>Activate user-defined menu button</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">set_a</code> / <code class="language-plaintext highlighter-rouge">set_b</code> / <code class="language-plaintext highlighter-rouge">set_c</code></td>
+      <td>Assign current menu to user button A/B/C</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">side_record</code></td>
+      <td>Side record button</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Commands are forwarded to the mock server which injects them as camera firmware param
+events (<code class="language-plaintext highlighter-rouge">GUI.RAWINPUT.BUTTON.*</code>).</p>
+
+<hr />
+
+<h2 id="verbose-and-timeout-modes">Verbose and Timeout Modes</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Extra logging from mock server + Ruffle debug output</span>
+python3 firmware/tools/swf_gui.py <span class="nt">-v</span>
+
+<span class="c"># Stop automatically after N seconds (for scripted/agentic runs)</span>
+python3 firmware/tools/swf_gui.py <span class="nt">--timeout</span> 30
+
+<span class="c"># Override specific camera parameters at startup</span>
+python3 firmware/tools/swf_gui.py <span class="nt">--set</span> VIDEO.RECORD.STATE<span class="o">=</span>RECORDING
+
+<span class="c"># Use original RED ONE (non-MX) sensor splash</span>
+python3 firmware/tools/swf_gui.py <span class="nt">--sensor-orig</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="session-summary">Session Summary</h2>
+
+<p>When the GUI exits (Ctrl-C, or <code class="language-plaintext highlighter-rouge">--timeout</code> elapsed), the terminal prints a session
+summary showing which boot milestones were reached:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[swf_gui] ── Session summary ──
+  ✓ AUTH OK — admin session
+  ✓ BOOT COMPLETE — GoSplash / GoCamera about to run
+  ✓ GOREADY FIRED — panels.xml parsed, splash clearing
+  ✓ INIT GUI STATE
+  ✓ FULLY READY — button injection enabled
+  All milestones reached!
+</code></pre></div></div>
+
+<p>A milestone marked <strong>✗</strong> indicates a boot failure. The most common causes are a missing
+parameter in <code class="language-plaintext highlighter-rouge">factory_defaults.xml</code> or a port conflict preventing <code class="language-plaintext highlighter-rouge">panels.xml</code> from
+loading over HTTP.</p>
+
+<hr />
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symptom</th>
+      <th>Likely cause</th>
+      <th>Fix</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GUI shows splash, never clears</td>
+      <td>panels.xml HTTP GET failed</td>
+      <td>Check HTTP port is free; use <code class="language-plaintext highlighter-rouge">--http-port 8765</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">AUTH FAILED — wrong password</code></td>
+      <td>Password hash mismatch</td>
+      <td>Verify <code class="language-plaintext highlighter-rouge">ADMIN_MD5</code> in <code class="language-plaintext highlighter-rouge">mock_camera_server.py</code> matches <code class="language-plaintext highlighter-rouge">Authenticate.as</code></td>
+    </tr>
+    <tr>
+      <td>Ruffle exits immediately</td>
+      <td>SWF path or base URL wrong</td>
+      <td>Check <code class="language-plaintext highlighter-rouge">--swf</code> and <code class="language-plaintext highlighter-rouge">--assets</code> defaults</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">no subscribed clients</code> logged</td>
+      <td>Bug in old mock server version</td>
+      <td>Update to current <code class="language-plaintext highlighter-rouge">mock_camera_server.py</code></td>
+    </tr>
+    <tr>
+      <td>Button commands have no effect</td>
+      <td>GUI not at FULLY READY</td>
+      <td>Wait for milestone 5 before injecting buttons</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h2 id="see-also">See Also</h2>
+
+<ul>
+  <li><a href="/r1mx/guides/swf-gui-reference">SWF GUI Feature Reference</a> — complete menu tree and parameter reference</li>
+  <li><a href="/r1mx/guides/black-shading-calibration">Black Shading Calibration</a> — real camera calibration procedure</li>
+  <li><code class="language-plaintext highlighter-rouge">firmware/tools/mock_camera_server.py</code> — mock server source</li>
+  <li><code class="language-plaintext highlighter-rouge">firmware/reverse/build_32/src/xmlsocket/</code> — decompiled XMLSocket protocol code</li>
+</ul>
+
+  </div>
+
+  <footer class="guide-footer">
+    <a href="/r1mx/guides" class="guide-back-link">&#8592; All Guides</a>
+    <p class="guide-contribute-note">
+      See something wrong or missing?
+      <a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Open an issue</a>
+      or submit a pull request.
+    </p>
+  </footer>
+
+</article>
+
+  </main>
+  <footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4 class="footer-heading">R1MX Project</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/simukka/r1mx" target="_blank" rel="noopener">GitHub Repository</a></li>
+          <li><a href="https://github.com/simukka/r1mx/issues" target="_blank" rel="noopener">Report an Issue</a></li>
+          <li><a href="https://github.com/simukka/r1mx/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Reference</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/specs">Technical Specs</a></li>
+          <li><a href="/r1mx/components">Components & Accessories</a></li>
+          <li><a href="/r1mx/firmware">Firmware History</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-heading">Repair</h4>
+        <ul class="footer-links">
+          <li><a href="/r1mx/hardware">Hardware Reference</a></li>
+          <li><a href="/r1mx/guides">Guides</a></li>
+          <li><a href="/r1mx/resources">Resources</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-disclaimer">
+        This site is an independent community reference for educational purposes, repair, and obsolescence management of discontinued RED ONE MX cameras. It is not affiliated with or endorsed by RED Digital Cinema.
+      </p>
+      <p class="footer-trademark">
+        RED®, RED ONE®, REDCODE®, MYSTERIUM-X™, RED BRICK®, RED-DRIVE®, RED-RAM®, RED ROCKET™, REDCINE-X™, BOMB EVF™, and RED RAILS™ are trademarks of RED.COM, LLC.
+      </p>
+      <p class="footer-copy">
+        r1mx project | <a href="https://github.com/simukka/r1mx/blob/main/README.md#license">MIT License</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

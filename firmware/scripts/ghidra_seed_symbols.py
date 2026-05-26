@@ -83,8 +83,11 @@ def func(offset, name, comment=None):
     fn = listing.getFunctionAt(a)
     if fn is None:
         flat.createFunction(a, name)
-    else:
-        fn.setName(name, SourceType.USER_DEFINED)
+    elif fn.getName() != name:
+        try:
+            fn.setName(name, SourceType.USER_DEFINED)
+        except Exception:
+            pass
     label(offset, name, comment)
 
 def mem_label(offset, name, comment=None):

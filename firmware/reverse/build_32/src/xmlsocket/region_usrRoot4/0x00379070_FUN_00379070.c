@@ -1,0 +1,45 @@
+/* 0x00379070  FUN_00379070  size=340 bytes */
+
+
+void FUN_00379070(undefined4 param_1,int param_2,int param_3,int param_4)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int iVar4;
+  code *pcVar5;
+  undefined1 auStack_140 [8];
+  undefined1 auStack_138 [272];
+  int iStack_28;
+  int aiStack_24 [4];
+  
+  iStack_28 = 0;
+  pcVar5 = (code *)0x47fdcc;
+  iVar4 = 0;
+  if (param_2 == 2) {
+    pcVar5 = (code *)0x47fef4;
+  }
+  (*pcVar5)(param_1,0xd6d040);
+  if ((param_4 != 0) &&
+     (iVar1 = FUN_00463b00(param_4,param_3,&iStack_28,aiStack_24,auStack_140,0,0), iVar1 == 0)) {
+    iVar4 = param_3 - aiStack_24[0];
+  }
+  if ((iStack_28 == 0) || (uVar2 = FUN_00399ba8(iVar4), 0xfffe < uVar2)) {
+    uVar3 = 0xd6d048;
+    iVar1 = 0xd6f55c;
+  }
+  else {
+    iVar1 = FUN_0037efc8(iStack_28,auStack_138,0x100);
+    uVar3 = 0xd6cab4;
+    if (iVar4 != 0) {
+      (*pcVar5)(param_1,0xd6cabc,iVar1);
+      uVar3 = 0xd6cac4;
+      iVar1 = iVar4;
+    }
+  }
+  (*pcVar5)(param_1,uVar3,iVar1);
+  FUN_0045b580(iStack_28);
+  return;
+}
+
