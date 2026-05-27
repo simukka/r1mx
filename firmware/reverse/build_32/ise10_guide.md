@@ -708,8 +708,9 @@ After verifying the data, update `re_reference.md` Section 6:
 
 The QEMU machine source is at:
 ```
-firmware/patches/qemu/src/hw/ppc/r1mx_virtex4.c
+~/src/qemu-r1mx/hw/ppc/r1mx_virtex4.c
 ```
+(branch `r1mx` of https://github.com/simukka/qemu-r1mx)
 
 After confirming xparameters.h values, check that the MMIO stubs in the QEMU machine
 use the correct addresses. The current addresses should already match, but verify:

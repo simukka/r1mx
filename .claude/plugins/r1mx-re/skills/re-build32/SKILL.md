@@ -60,11 +60,13 @@ cd ~/src/RED/r1mx
 ### Build / rebuild QEMU
 ```bash
 cd ~/src/RED/r1mx
-./firmware/scripts/build_qemu.sh           # normal build (downloads + patches + compiles)
-./firmware/scripts/build_qemu.sh --clean   # wipe and rebuild from scratch
+./firmware/scripts/build_qemu.sh           # clone fork + build (or pull + rebuild if exists)
+./firmware/scripts/build_qemu.sh --clean   # wipe and re-clone from scratch
 ```
 
-QEMU patches live in `firmware/patches/qemu/`. To fix or improve QEMU behaviour, edit a patch file there and re-run `build_qemu.sh`. Never edit `~/src/qemu-r1mx/` directly — those changes are lost on a clean build.
+QEMU changes live in the `r1mx` branch of https://github.com/simukka/qemu-r1mx.
+Edit `~/src/qemu-r1mx/` directly, rebuild with `make -j$(nproc)` in the `build/` directory,
+then commit and push to `origin r1mx`. The build script will pull latest on subsequent runs.
 
 ## GDB RSP Critical Rules
 

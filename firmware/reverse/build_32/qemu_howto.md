@@ -50,9 +50,8 @@ cd ~/src/RED/r1mx
 ```
 
 This script:
-1. Downloads QEMU 8.2.2 (SHA-256 verified) to `~/src/qemu-r1mx/`
-2. Applies 6 patches from `firmware/patches/qemu/`
-3. Configures and builds `ppc-softmmu` only
+1. Clones `https://github.com/simukka/qemu-r1mx` (branch `r1mx`) to `~/src/qemu-r1mx/`
+2. Configures and builds `ppc-softmmu` only
 
 Output binary: `~/src/qemu-r1mx/build/qemu-system-ppc`
 
@@ -62,9 +61,9 @@ Output binary: `~/src/qemu-r1mx/build/qemu-system-ppc`
 # Expected: r1mx-virtex4    RED ONE MX Xilinx Virtex-4 FX
 ```
 
-**Rebuilding after source changes** (no re-download):
+**Rebuilding after source changes:**
 ```bash
-cd ~/src/qemu-r1mx/build && ninja qemu-system-ppc
+cd ~/src/qemu-r1mx/build && make -j$(nproc)
 ```
 
 **Clean rebuild from scratch:**
@@ -72,18 +71,18 @@ cd ~/src/qemu-r1mx/build && ninja qemu-system-ppc
 ./firmware/scripts/build_qemu.sh --clean
 ```
 
-### What the patches do
+### What the fork changes (commits on `r1mx` branch)
 
-| Patch | File | Purpose |
-|---|---|---|
-| `0001` | `hw/ppc/meson.build` | Register `r1mx_virtex4.c` in build system |
-| `0002` | `target/ppc/mmu_helper.c` | Fix PPC32 TLB vaddr truncation (upstream bug) |
-| `0003` | `accel/tcg/cputlb.c` | Fix PPC32 cross-page address overflow (upstream bug) |
-| `0004` | `target/ppc/translate.c` | Add PPC405 FSL instruction support (FPGA comms) |
-| `0005` | `target/ppc/helper_regs.c` | Silence SLER abort from firmware boot countdown |
-| `0006` | `hw/ppc/r1mx_virtex4.c` | FPGA catch-all MMIO (prevent MCE crashes) + LCD TCP bridge (port 17186) |
+| Commit | Files | Purpose |
+|--------|-------|---------|
+| `cc3b2ca` | `target/ppc/mmu_helper.c` | Fix PPC32 TLB vaddr truncation (upstream bug) |
+| `cc3b2ca` | `accel/tcg/cputlb.c` | Fix PPC32 cross-page address overflow (upstream bug) |
+| `cc3b2ca` | `target/ppc/translate.c` | Add PPC405 FSL instruction support (FPGA comms) |
+| `cc3b2ca` | `target/ppc/helper_regs.c` | Silence SLER abort from firmware boot countdown |
+| `e2f206c` | `hw/ppc/r1mx_virtex4.c`, `hw/ppc/meson.build` | r1mx-virtex4 machine + FPGA catch-all MMIO + LCD TCP bridge |
+| `e2f206c` | `hw/dma/xilinx_dma_opb.c`, `hw/dma/meson.build` | XPS OPB DMA device model (`xlnx.opb-dma-channel`) |
 
-See `firmware/patches/qemu/README.md` for full descriptions.
+Full history: https://github.com/simukka/qemu-r1mx/commits/r1mx
 
 ---
 
@@ -314,7 +313,7 @@ Adding a new patch:
 
 ## See Also
 
-- `firmware/patches/qemu/README.md` - QEMU patch descriptions
+- https://github.com/simukka/qemu-r1mx/commits/r1mx - QEMU fork commit history
 - `firmware/reverse/build_32/re_reference.md` - Full reverse engineering notes
 - `firmware/reverse/build_32/debug_interfaces.md` - WDB, USB shell, UART details
 - `firmware/reverse/build_32/build32_subsystem_map.md` - Peripheral address map
