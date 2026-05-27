@@ -1329,32 +1329,39 @@ BUILD32_PATCHES: list[Patch] = [
         phase=2,
     ),
     # -----------------------------------------------------------------------
-    # Patch #55 — Force fn_371cd4 alternate path: skip fn_381a8c RTTI loop
+    # Patch #55 — NOP conditional branch in fn_371cd0 root-task context setup
     #
-    # fn_371cd4 initialises a C++ typeinfo object. At 0x371d58 it reads a
-    # kernel-BSS global (~0xe3ffa790). On real hardware this is set before
-    # fn_371cd4 runs; in QEMU it is always 0.
+    # fn_371cd0 at 0x371d5c has a conditional branch (beq 0x371d78) that,
+    # when taken, skips the if-path block at 0x371d60–0x371d74 and jumps
+    # directly to the fn_371c74 call path.  In QEMU the BSS global tested at
+    # 0x371d54 is always 0, so the beq is always NOT taken — execution always
+    # falls through to 0x371d60.
     #
-    # When the global == 0 the function stores fn_381a8c (0x381a8c) as the
-    # typeinfo callback at offsets +580 and +588 of the object. fn_381a8c is
-    # then invoked as an infinite VxWorks task that walks a C++ RTTI type
-    # descriptor stream starting at 0x840600. In QEMU the stream never reaches
-    # a Q0 terminator (only null bytes follow); r3 advances at ~800 KB/s
-    # through the heap forever, starving usrRoot of CPU and preventing WDB.
+    # However, if the branch encoding is beq (taken when equal/zero), and the
+    # tested global IS 0, the branch IS taken.  Earlier analysis (before Patches
+    # #53a/#53c were written) incorrectly described 0x371d60–0x371d74 as
+    # "RTTI typeinfo callback installation."  In fact r31 = TCB pointer here;
+    # 0x24c(r31) = ctx+0x8c = task initial PC, 0x25c(r31) = ctx+0x9c = SPR945.
+    # Patches #53a and #53c repurpose slot 0x371d6c to also write ctx+0x84 = LR.
     #
-    # Fix: change the conditional branch at 0x371d5c from "bc (bne) 0x371d78"
-    # to "b 0x371d78" (unconditional), so fn_371cd4 ALWAYS takes the alternate
-    # path. That path calls fn_371c74 with a NULL global (returns -1 safely)
-    # and stores obj[192]/obj[148][212] as the callbacks — both NULL from BSS,
-    # so typeinfo processing is simply skipped without any crash.
+    # The alternate path (0x371d78–0x371db4) calls fn_371c74 which reads a
+    # corrupt BSS function pointer (0xe293f4 = 0x542974, mid-epilogue of
+    # fn_542910) and over-unwinds r1 by +0x10, corrupting fn_371cd0's LR save
+    # slot and causing blr → 0x0 → reset loop (root cause of the boot
+    # regression; see Patch #60).
     #
-    #   0x371d5c: 0x4082001c  bc 0x371d78  (beq — take alt path if BSS global != 0)
-    #   ->         0x4800001c  b  0x371d78  (always take alt path)
+    # Fix: NOP the branch at 0x371d5c so execution ALWAYS falls through to the
+    # if-path block, which (with Patches #53a/#53c) correctly sets
+    # ctx+0x8c = ctx+0x84 = 0x381a8c, then branches directly to epilogue at
+    # 0x371db8 — bypassing fn_371c74 entirely and avoiding the r1 corruption.
+    #
+    #   0x371d5c: 0x4082001c  beq 0x371d78  (skip if-path when BSS global == 0)
+    #   ->         0x60000000  nop            (always fall through to 0x371d60)
     Patch(
         offset=0x371d5c,
         original=b'\x40\x82\x00\x1c',
-        replacement=b'\x48\x00\x00\x1c',
-        description="Force fn_371cd4 alternate path: skip fn_381a8c RTTI infinite loop (BSS global ~0xe3ffa790 is 0 in QEMU; bc->b at 0x371d5c always takes the fn-ptr-copy path, never installs fn_381a8c)",
+        replacement=PPC_NOP,
+        description="NOP beq at 0x371d5c in fn_371cd0: prevents skip of 0x371d60-0x371d74 (ctx+0x8c/ctx+0x84 = 0x381a8c via Patches #53a/#53c). Original branch sent execution to fn_371c74 path, which uses a corrupt BSS fn-ptr (0xe293f4=0x542974) and over-unwinds r1 causing blr→0x0 reset loop. NOP forces fall-through to the if-path block which correctly sets task PC/LR then branches to epilogue, bypassing fn_371c74 entirely.",
         phase=2,
     ),
     # -----------------------------------------------------------------------
@@ -1501,6 +1508,37 @@ BUILD32_PATCHES: list[Patch] = [
         replacement=PPC_NOP,
         description="NOP bl fn_5b11ac inside fn_5a7f30: blocking UDP poll call that prevents fn_5a7f30 from returning; NOP allows WDB task to be spawned (at 0x5a8170) and BSS[0xe9c420] WDB struct ptr to be set before fn_5a7f30 returns normally",
         phase=2,
+    ),
+    # -----------------------------------------------------------------------
+    # Patch #60 — NOP bne in fn_371c74 to suppress indirect call via corrupt fn-ptr
+    #
+    # fn_371c74 (arg-copy helper called from fn_371cd0's TCB setup path) loads a
+    # function pointer from BSS[0xe293f4] and, if non-null, calls it via bctrl.
+    # At runtime the pointer = 0x00542974, which is the MIDDLE of fn_542910's
+    # epilogue:
+    #
+    #   0x542974: lwz  r31, 0x1c(r1)   ; restore r31 from fn_542910 frame
+    #   0x542978: mtlr r0              ; set LR = r0 (fn_371cd0 return addr)
+    #   0x54297c: addi r1, r1, 0x20    ; ← adds fn_542910's frame size (0x20)
+    #   0x542980: blr
+    #
+    # fn_371c74 has a 0x10-byte frame; the epilogue adds 0x20 — over-unwinding
+    # by 0x10.  This shifts fn_371cd0's r1 from 0x07fffbd0 to 0x07fffbe0 so its
+    # epilogue reads the wrong LR slot (0x07fffc04 = 0) instead of the correct one
+    # (0x07fffbf4 = 0x5b24c0).  blr then jumps to 0x0 → romInit restart loop.
+    #
+    # Fix: NOP the bne at 0x371c9c so fn_371c74 ALWAYS takes the null-fn-ptr
+    # path (r31 = −1, no bctrl).  The -1 sentinel stored to TCB+0x25c is the
+    # standard "not set" value and has no adverse effect on VxWorks task launch.
+    #
+    #   0x371c9c: 0x4082000c  bne 0x371ca8   (branches to bctrl if fn-ptr != 0)
+    #   ->         0x60000000  nop            (always fall through to li r31,-1)
+    Patch(
+        offset=0x371c9c,
+        original=b'\x40\x82\x00\x0c',
+        replacement=PPC_NOP,
+        description="NOP bne in fn_371c74: suppresses indirect call via corrupt fn-ptr at BSS[0xe293f4]=0x542974 (mid-epilogue of fn_542910); the bctrl over-unwinds r1 by 0x10, corrupting fn_371cd0's frame and causing blr→0x0 reset loop; NOP forces the safe r31=-1 path",
+        phase=1,
     ),
 ]
 
