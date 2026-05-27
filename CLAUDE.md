@@ -78,7 +78,7 @@ Source: `hw/ppc/r1mx_virtex4.c` in the `r1mx` branch.
 | `0xb2600000` | XIic (I2C) | ✅ |
 | `0x64010000` | XPS Central DMA | ✅ Phase 1 |
 | `0xe1200000` | XPci_v3 host bridge | ✅ Phase 2 |
-| `0xe0080000`–`0xe0200000` | RED histogram IP ×5 | ⏳ Phase 3 |
+| `0xe0080000`–`0xe0200000` | RED histogram IP ×5 | ✅ Phase 3 |
 | `0xf0000000` | NOR flash | ⏳ Phase 4 |
 | TBD | External timer (VxWorks tick) | ⏳ Phase 5 — **critical** |
 

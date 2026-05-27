@@ -31,7 +31,7 @@ make -j$(nproc)
 | XIic | `0xb2600000` | `iic_v1_13_b` | ✅ Implemented | — |
 | XDmaChannel / XDmaMulti | `0x64010000` | `dma_v1_10_b` | ✅ Implemented (`xlnx.opb-dma-channel`) | ~~P1~~ |
 | XPci_v3 | `0xe1200000` | `pci_v1_02_a` | ✅ Implemented (`xlnx.opb-pci-host`) | ~~P2~~ |
-| RED Histogram IP ×5 | `0xe0080000`–`0xe0200000` | Custom RED FPGA | ❌ Missing | **P3** |
+| RED Histogram IP ×5 | `0xe0080000`–`0xe0200000` | Custom RED FPGA | ✅ Implemented (`red.histogram-ip`) | ~~P3~~ |
 | XOpbArb | (DCR-internal) | `opbarb_v1_02_a` | ➖ Not needed | — |
 | XPlbArb | (DCR-internal) | `plbarb_v1_01_a` | ➖ Not needed | — |
 | IPIF layer | — | `ipif_v1_23_b` | ➖ Library only | — |
