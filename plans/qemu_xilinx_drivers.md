@@ -35,7 +35,7 @@ make -j$(nproc)
 | XOpbArb | (DCR-internal) | `opbarb_v1_02_a` | ➖ Not needed | — |
 | XPlbArb | (DCR-internal) | `plbarb_v1_01_a` | ➖ Not needed | — |
 | IPIF layer | — | `ipif_v1_23_b` | ➖ Library only | — |
-| NOR Flash | `0xf0000000` | EBC peripheral | ⚠ Stub reads 0xFF | P4 |
+| NOR Flash | `0xf0000000` | EBC peripheral | ✅ Returns 0xFF (erased state) | ~~P4~~ |
 | PCI memory window | `0xa0000000` | — | ⚠ Unmapped (no devices) | P2 |
 | PCI config aperture | `0xe2000000` | — | ⚠ Unmapped | P2 |
 
