@@ -21,6 +21,7 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 6. [MMIO Peripheral Map](#6-mmio-peripheral-map)
    - [6b. xparameters.h](#6b-xparameterssh-generated--ise-edk-101-confirmed-2026-05-14)
    - [6c. ISE 10.x EDK Source Library](#6c-ise-10x-edk-source-library-r1mx_mmio--decompilation-reference)
+   - [6d. Embedded Build Paths & Driver Version Map](#6d-embedded-build-paths--driver-version-map)
 7. [DCR (On-Chip Peripheral) Map](#7-dcr-on-chip-peripheral-map)
 8. [Boot Sequence — Step by Step](#8-boot-sequence--step-by-step)
 9. [Stack Canary — QEMU Patch](#9-stack-canary--qemu-patch)
@@ -882,6 +883,114 @@ loop watchdog trigger we observed (18701 resets per session).
 
 ---
 
+## 6d. Embedded Build Paths & Driver Version Map
+
+### Overview
+
+The firmware binary contains **Windows build paths** embedded by the C compiler as part of
+STABS/DWARF debug info and `assert()` macro strings. These reveal the exact build machine
+layout, software version, and every Xilinx EDK driver file compiled into the BSP.
+
+**Extraction method:**
+```bash
+strings firmware/reverse/build_32/extracted/software.patched.r1mx.bin \
+  | grep -E 'C:/(sundance|WindRiver)' | sort -u
+```
+
+### Build Machine Layout
+
+| Path prefix | Meaning |
+|---|---|
+| `C:/sundance/SW/32_0_3/` | Root of the Build 32 source tree (version 32.0.3) |
+| `C:/sundance/SW/32_0_3/Sundance/bsp_ppc405_0_revB/` | BSP root (board "ppc405_0 rev B") |
+| `C:/sundance/SW/32_0_3/Sundance/bsp_ppc405_0_revB/ppc405_0_drv_csp/xsrc/` | Consolidated Xilinx driver source directory |
+| `C:/WindRiver2.6/vxworks-6.4/` | Wind River Workbench 2.6 with VxWorks 6.4 kernel |
+| `C:/WindRiver2.6/vxworks-6.4/target/config/comps/src/edrStub.c` | VxWorks EDR (error detection) stub |
+| `C:/WindRiver2.6/vxworks-6.4/target/config/comps/src/usrMmuInit.c` | VxWorks MMU init (disabled) |
+
+**Key insight:** The BSP uses a **flat `xsrc/` directory** that consolidates source files from
+multiple separately-versioned Xilinx EDK driver packages. This is the standard Wind River /
+Xilinx EDK BSP build pattern for VxWorks projects.
+
+### Additional Source Paths (relative — application code)
+
+The firmware also contains relative paths from the application layer:
+```
+./app_modules/common/paramutils.h
+./app_modules/parammgr/ParamMgrModule.h
+./app_modules/parammgr/ParamRef.h
+```
+These confirm that the RED application source was built from a separate `app_modules/`
+directory tree, distinct from the Xilinx BSP.
+
+### Complete Xilinx Driver Version Map
+
+Every file in `xsrc/` maps to a specific versioned Xilinx EDK driver package.
+The version numbers are determined by cross-referencing file names and content against
+the driver collection in `~/src/RED/drivers/` (EDK ~10.x vintage).
+
+| xsrc file(s) | Xilinx EDK package | Local source path | Notes |
+|---|---|---|---|
+| `xdma_channel.c`, `xdma_channel_sg.c`, `xdma_multi.c`, `xdma_multi_sg.c` | `dma_v1_10_b` | `~/src/RED/drivers/dma_v1_10_b/src/` | OPB Central DMA |
+| `xemaclite.c`, `xemaclite_intr.c`, `xemaclite_selftest.c` | `emaclite_v1_12_a` | `~/src/RED/drivers/emaclite_v1_12_a/src/` | Confirmed by BSP libsrc |
+| `xemaclite_end_adapter.c` | `emaclite_vxworks5_4_v1_00_a` | `~/src/RED/drivers/emaclite_vxworks5_4_v1_00_a/src/` | VxWorks MUX END adapter |
+| `xiic.c`, `xiic_intr.c`, `xiic_options.c`, `xiic_selftest.c`, `xiic_sinit.c`, `xiic_stats.c` | `iic_v1_13_b` | `~/src/RED/drivers/iic_v1_13_b/src/` | Confirmed by BSP libsrc |
+| `xintc.c`, `xintc_intr.c`, `xintc_options.c`, `xintc_selftest.c` | `intc_v1_10_c` | `~/src/RED/drivers/intc_v1_10_c/src/` | Confirmed by BSP libsrc |
+| `xio_dcr.c` | `cpu_ppc405_v1_10_a` | `~/src/RED/drivers/cpu_ppc405_v1_10_a/src/` | DCR bus access wrappers |
+| `xipif_v1_23_b.c` | `ipif_v1_23_b` | `~/src/RED/drivers/ipif_v1_23_b/src/` | Exact match — version in filename |
+| `xopbarb.c` | `opbarb_v1_02_a` | `~/src/RED/drivers/opbarb_v1_02_a/src/` | OPB arbiter |
+| `xopbarb_selftest.c` | ⚠ unknown | — | **Not found in driver collection** — may be from a custom or older opbarb version not preserved |
+| `xpci.c`, `xpci_config.c`, `xpci_intr.c`, `xpci_selftest.c`, `xpci_v3.c` | `pci_v1_02_a` (probable) | `~/src/RED/drivers/pci_v1_02_a/src/` | v1_01_a, v1_02_a, v1_12_a all have matching files; v1_02_a chosen as EDK 10.x contemporary |
+| `xplbarb.c`, `xplbarb_selftest.c` | `plbarb_v1_01_a` | `~/src/RED/drivers/plbarb_v1_01_a/src/` | PLB arbiter |
+| `xuartlite.c`, `xuartlite_intr.c`, `xuartlite_selftest.c`, `xuartlite_sinit.c`, `xuartlite_stats.c` | `uartlite_v1_12_a` | `~/src/RED/drivers/uartlite_v1_12_a/src/` | Confirmed by BSP libsrc |
+| `xuartlite_sio_adapter.c` | `uartlite_vxworks5_4_v1_00_a` | `~/src/RED/drivers/uartlite_vxworks5_4_v1_00_a/src/` | VxWorks SIO channel adapter |
+| `xuartns550.c`, `xuartns550_format.c`, `xuartns550_intr.c`, `xuartns550_options.c`, `xuartns550_selftest.c`, `xuartns550_sinit.c`, `xuartns550_stats.c` | `uartns550_v1_11_a` | `~/src/RED/drivers/uartns550_v1_11_a/src/` | Confirmed by BSP libsrc |
+| `xuartns550_adapter.c` | `uartns550_vxworks5_4_v1_00_b` | `~/src/RED/drivers/uartns550_vxworks5_4_v1_00_b/src/` | VxWorks SIO adapter for 16550 |
+| `xversion.c` | `common_v1_00_a` | `~/src/RED/drivers/common_v1_00_a/src/` | BSP version string helpers |
+
+**VxWorks kernel sources (not Xilinx):**
+| Embedded path | Source | Notes |
+|---|---|---|
+| `C:/WindRiver2.6/vxworks-6.4/target/config/comps/src/edrStub.c` | VxWorks 6.4 EDR stub | Error detection / reporting stub — no real hardware interaction |
+| `C:/WindRiver2.6/vxworks-6.4/target/config/comps/src/usrMmuInit.c` | VxWorks 6.4 MMU init | MMU disabled in this BSP (flat physical addressing) |
+
+### Consolidated xsrc Directory
+
+A local mirror of the BSP's flat `xsrc/` directory has been created at:
+```
+firmware/reverse/build_32/xsrc/
+```
+
+All 43 files are **symlinks** pointing to the corresponding versioned source in
+`~/src/RED/drivers/<package>/src/<file>.c`. This allows:
+- Direct `grep` / `diff` across the exact source that was compiled
+- IDE code navigation from xsrc files to the originals
+- Future verification: compile `xsrc/*.c` with `powerpc-eabi-gcc` and compare symbols
+  against the firmware binary to confirm version correctness
+
+**Note on `xopbarb_selftest.c`:** This file is referenced in the firmware but has no match
+in our driver collection. `opbarb_v1_02_a` does not include a selftest file. The firmware
+likely used an older or customised version of the OPB arbiter driver. This file is not
+present in the `xsrc/` symlink set.
+
+### Implications for Emulation
+
+Having the **exact source code** for every compiled Xilinx driver means:
+
+1. **Register maps are authoritative** — the `_l.h` header for each driver gives the exact
+   MMIO offsets, bit fields, and reset values that the firmware expects.
+2. **Self-test sequences are known** — each `x*_selftest.c` describes exactly what MMIO
+   read/write sequence the firmware performs at boot and what return values it expects.
+   QEMU device models must pass these tests (or the firmware patches them out).
+3. **Interrupt wiring is explicit** — `x*_intr.c` shows exactly which interrupt enable/
+   acknowledge/status bits each driver uses, informing the XIntc IRQ line assignments.
+4. **DMA descriptors are documented** — `xdma_channel.c` / `xdma_multi.c` describe the
+   exact scatter-gather descriptor format the firmware uses for data movement.
+
+See `plans/qemu_xilinx_drivers.md` for the full QEMU emulation plan based on this analysis.
+
+---
+
 ## 7. DCR (On-Chip Peripheral) Map
 
 The PPC405F6 (Xilinx Virtex-4 hard-macro) has on-chip peripherals accessible via the Device Control Register (DCR) bus. ⚠ **`bamboo` machine uses PPC440 with wrong PVR family — see Section 15 for correct QEMU setup.** DCR `mtdcr`/`mfdcr` for unknown registers silently returns 0 on most QEMU PPC405 targets — these should not cause crashes.
@@ -1460,7 +1569,7 @@ the TB cache for page 0, causing QEMU to re-translate the block at 0x68 mid-loop
 When re-translated with the transient SLER encoding, `store_40x_sler(0xc0000000)`
 fires and QEMU aborts.
 
-**QEMU patch #5 — silence SLER abort (`firmware/patches/qemu/0005-silence-sler-abort.patch`):**
+**QEMU fix #5 — silence SLER abort** (commit `cc3b2ca` in `r1mx` branch, `target/ppc/helper_regs.c`)**:**
 Remove the `cpu_abort()` from `store_40x_sler()`. Accept any SLER value (store to
 SPR array). QEMU has no LE memory region implementation to protect, and the firmware
 does not require LE regions; the apparent mtspr SLER instruction is a transient
@@ -2147,47 +2256,64 @@ This project uses a **patched fork of QEMU 8.2.2** called `qemu-r1mx`. The fork 
 
 **What `r1mx-virtex4` emulates:**
 
-| Address | Device | Details |
-|---------|--------|---------|
-| `0x00000000` | 256 MB SDRAM | — |
-| `0xe0600000` | XUartLite | Connected to stdio; 115200 baud |
-| `0xe0800000` | XIntc | Xilinx interrupt controller |
-| `0xe1020000` | XEmacLite | Connected to host TAP for WDB UDP |
-| `0xe0be0000`–`0xe0200000` | Silent stubs | Histogram IPs, PCI windows |
-| Reset vector | `0x00000000` | Matches firmware load address |
+| Address | Device | Status | Details |
+|---------|--------|--------|---------|
+| `0x00000000` | 256 MB SDRAM | ✅ | — |
+| `0xe0600000` | XUartLite | ✅ | Primary console, 115200 baud, connected to stdio |
+| `0xe0640000` | XUartNs550 #1 | ✅ | NS16550 UART |
+| `0xe0650000` | XUartNs550 #2 | ✅ | NS16550 UART |
+| `0xe0800000` | XIntc | ✅ | Xilinx 8-line interrupt controller |
+| `0xe1020000` | XEmacLite | ✅ | 10/100 Ethernet; host TAP for WDB UDP |
+| `0xb2600000` | XIic | ✅ | I2C controller |
+| `0x64010000` | XPS Central DMA | ✅ | `xlnx.opb-dma-channel`; simple + SG modes |
+| `0xe1200000` | XPci_v3 | ⏳ stub | PCI host bridge (Phase 2) |
+| `0xe0080000`–`0xe0200000` | RED histogram IP ×5 | ⏳ stub | Custom FPGA blocks (Phase 3) |
+| `0xf0000000` | NOR flash | ⏳ stub | Returns 0xFF (Phase 4) |
+| TBD | External timer | ⏳ missing | VxWorks tick source — **most critical** (Phase 5) |
+| Reset vector | `0x00000000` | ✅ | Matches firmware load address |
 
 ### Fork Source + Build
 
-The fork source is tracked inside this repo at `firmware/patches/qemu/`:
+The fork is hosted on GitHub:
 
-```
-firmware/patches/qemu/
-  README.md                        — patch descriptions and upstream notes
-  0001-r1mx-virtex4-machine.patch  — hw/ppc/meson.build: register r1mx_virtex4.c
-  0002-ppc32-tlb-vaddr-truncation.patch  — upstream bug fix: mmu_helper.c
-  0003-ppc32-crosspage-addr-truncation.patch — upstream bug fix: cputlb.c
-  src/hw/ppc/r1mx_virtex4.c        — custom machine source (249 lines)
-```
+**https://github.com/simukka/qemu-r1mx — branch `r1mx`**
 
-**Build from scratch:**
+- `main` branch = upstream QEMU 8.2.2 (unmodified baseline)
+- `r1mx` branch = our working branch with all r1mx changes (2 commits on top of `main`)
+
+**Clone and build (first time):**
 ```bash
-# Downloads QEMU 8.2.2, applies 3 patches + new machine file, builds:
-cd ~/src/r1mx
-./firmware/scripts/build_qemu.sh
+git clone -b r1mx git@github.com:simukka/qemu-r1mx.git ~/src/qemu-r1mx
+cd ~/src/qemu-r1mx
 
-# Output: ~/src/qemu-r1mx/build/qemu-system-ppc
-~/src/qemu-r1mx/build/qemu-system-ppc -M help | grep r1mx
+# Ubuntu/Debian build deps (if needed):
+# sudo apt install build-essential libglib2.0-dev libpixman-1-dev python3 ninja-build
+
+mkdir build && cd build
+../configure \
+  --target-list=ppc-softmmu \
+  --enable-debug \
+  --disable-docs \
+  --disable-werror
+make -j$(nproc)
+
+# Verify:
+./qemu-system-ppc -M help | grep r1mx
 # → r1mx-virtex4             RED ONE MX (Xilinx Virtex-4, PPC405F6)
 ```
 
-**If `~/src/qemu-r1mx` already exists:**
+**If `~/src/qemu-r1mx` already exists (rebuild after changes):**
 ```bash
-# Rebuild without re-downloading:
-cd ~/src/qemu-r1mx/build && make -j$(nproc)
-
-# Full clean rebuild:
-./firmware/scripts/build_qemu.sh --clean
+cd ~/src/qemu-r1mx && git pull origin r1mx
+cd build && make -j$(nproc)
 ```
+
+**Commit layout on `r1mx` branch:**
+
+| Commit | Files | Description |
+|--------|-------|-------------|
+| `cc3b2ca` | `accel/tcg/cputlb.c`, `target/ppc/helper_regs.c`, `target/ppc/mmu_helper.c`, `target/ppc/translate.c` | PPC405 core fixes (address truncation, SLER, FSL stubs) |
+| `e2f206c` | `hw/ppc/r1mx_virtex4.c`, `hw/ppc/meson.build`, `hw/dma/xilinx_dma_opb.c`, `hw/dma/meson.build` | r1mx machine definition + XPS OPB DMA device model |
 
 ### Bug Fixes in This Fork
 
@@ -2217,8 +2343,11 @@ computed (size0 must use the pre-truncation overflow value).
 ### Prerequisites
 
 ```bash
-# Build qemu-r1mx (first time):
-./firmware/scripts/build_qemu.sh
+# Clone and build qemu-r1mx (first time — see "Fork Source + Build" above):
+git clone -b r1mx git@github.com:simukka/qemu-r1mx.git ~/src/qemu-r1mx
+cd ~/src/qemu-r1mx && mkdir build && cd build
+../configure --target-list=ppc-softmmu --enable-debug --disable-docs --disable-werror
+make -j$(nproc)
 
 # Install radare2:
 apt install radare2
@@ -3140,12 +3269,33 @@ The SWF files are SWF v7 (ActionScript 2.0). They can be extracted with `binwalk
 
 **Scaleform GFx version:**
 
-Almost certainly **Scaleform GFx 2.x** (exact minor version unrecoverable). Evidence:
+**GFx 2.0.41** (high-medium confidence). Cross-referenced against downloaded SDK archives (2.0.41, 2.1.53, 2.1.57, 3.2.83).
 
-- SWF v7 / ActionScript 2.0 — GFx 2.x targeted Flash 6–8/AS2; GFx 3.x added Flash 9/AS3 support which is absent here.
-- Build era — Wind River copyright string reads `1984–2006`; `ccppc` compiler references VxWorks 2.2.1/Tornado tooling. GFx 2.x was current in this window (~2005–2007); GFx 3.0 shipped ~2008.
-- API surface — internal class naming (`FlashPlayer`, `FlashVx`) maps to the GFx 2.x API (`GFxPlayer`, `GFxMovieView`), not the `Scaleform::` namespace restructuring introduced in 3.x/4.x.
-- No version string survives: Scaleform is statically linked and fully stripped. No `GFx/GFxPlayer.cpp` assert paths or `GFC_BUILD_STRING`-style defines are present in the binary.
+**SDK version exclusion matrix:**
+
+| SDK Version | Verdict | Reason |
+|---|---|---|
+| GFx 1.x | ❌ Excluded | Predates Flash 6/SWF v7 support |
+| **GFx 2.0.41** | ✅ Best match | All evidence consistent; no 2.1+ features present |
+| GFx 2.1.53/2.1.57 | ⚠️ Possible but unlikely | None of the 2.1-added APIs appear in firmware |
+| GFx 3.x–4.x | ❌ Excluded | Requires Flash 9+/AS3; `Scaleform::` namespace (both absent) |
+
+**Evidence for GFx 2.0.41 specifically** (SDK API comparison against firmware symbols):
+
+- **SWF v7 / ActionScript 2.0** — GFx 2.x targeted Flash 6–8/AS2; GFx 3.x added Flash 9/AS3 support (absent here).
+- **Build era** — Wind River copyright `1984–2006`; GFx 2.0 copyright is 2005–2006. GFx 2.1 bears 2005–2007 and shipped ~2007; GFx 3.0 shipped ~2008.
+- **No 2.1-only API features** — Cross-referencing `GFxPlayer.h`, `GFxLoader.h`, `GFxFont.h`, `GFxEvent.h`, `GRenderer.h`, and `GFxRenderConfig.h` across SDK versions: none of the following GFx 2.1+ additions appear anywhere in firmware symbols:
+  - `GFxMovieView::GetDirtyFlag()`, `GetLoadingFrame()`, `IsMovieFocused()`, `WaitForLoadFinish()`, `WaitForFrame()`
+  - `GFxTaskManager` class (new header `GFxTaskManager.h` in 2.1)
+  - `GFxTextClipboard`, `GFxTextKeyMap`, `GFxIMEManager` (2.1 text/IME additions to `GFxLoader.h`)
+  - `GFxWString_Reserve` / `GFxWStringBufferReserve` (new in 2.1 `GFxString.h`)
+  - `GRenderer::BeginFrame()`, `EndFrame()`, `ReleaseResources()`, `AddEventHandler()` (new in 2.1 `GRenderer.h`)
+  - `GFxRenderConfig` flags-only 3-argument constructor (new in 2.1)
+- **3rdParty library fingerprint** — All 2.x SDK versions bundle zlib 1.2.3 and jpeg-6b; firmware contains `inflate 1.2.3 Copyright 1995-2005 Mark Adler` — matches all 2.x (not a differentiator between minor versions).
+- **API surface** — `FlashPlayer`/`FlashVx` wrapper class API maps to the flat GFx 2.x API (`GFxPlayer`, `GFxMovieView`), not the `Scaleform::` namespace restructuring introduced in 3.x/4.x.
+- **No version string survives**: Scaleform is statically linked and fully stripped. No `GFx/GFxPlayer.cpp` assert paths or `GFC_BUILD_STRING`-style defines are present in the binary.
+
+**Caveat**: GFx 2.1.x cannot be completely ruled out — RED may have linked against 2.1 without using the new IME/task-manager/renderer features. However, `GRenderer::BeginFrame()`/`EndFrame()` are core render-loop calls that would almost certainly be used if available, and their absence is strong evidence against 2.1.
 
 **OSD XML at `0x9D2AE0`** (~40KB) defines the panel/widget hierarchy. Extract with:
 
