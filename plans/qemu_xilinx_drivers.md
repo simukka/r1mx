@@ -235,52 +235,95 @@ backed by a file image, which allows VxWorks TFFS to format and use the flash.
 
 ---
 
-## Phase 5: Timer IP for VxWorks Tick Clock
+## Phase 5: VxWorks Tick Clock (PPC405 internal PIT)
 
-### Why it matters
-VxWorks requires a hardware tick clock to drive task scheduling and `taskDelay()`.  
-The firmware does **not** use the PPC405 internal decrementer (`mtspr DEC`).  
-Instead, it uses an external timer IP connected to the XIntc interrupt controller.
+### Status: ✅ no new QEMU device needed — investigation reframed
 
-This is the root cause of the current workQ spin blocker (see `re_reference.md` §9a).
+The original Phase 5 hypothesis (an external `xps_tmrctr` IP on the XIntc bus) is **wrong**.
+Firmware disassembly (see `re_reference.md` §6c and the SPR stub table at offsets 0x381f7c /
+0x382024 / 0x382034) shows the BSP tick is driven by the **PPC405 internal PIT** (SPR 0x3DB),
+firing exception vector `0x00001000`. Confirming evidence:
 
-### Investigation required
-1. Find the timer IP base address: search firmware for `XTmrCtr_Initialize` or `XTmrCtr_Start`
-   - If absent: the timer may be a custom RED IP or a VxWorks BSP sysClkConnect() implementation
-2. Check if `xtmrctr_v1_00_b` source is compiled in (no `xtmrctr.c` in xsrc/ — **absent**)
-3. Search for the VxWorks BSP clock init: `sysClkEnable()`, `auxClkEnable()`, `sysClkConnect()`
-   - These functions write to the timer's MMIO base and enable the XIntc input for the timer IRQ
+- `xtmrctr.c` is absent from `xsrc/` — no `XTmrCtr_*` driver in the firmware.
+- mtspr-PIT stub at `0x381f7c` is reached from `sysClkEnable` (`0x19474`),
+  `sysClkDisable` (`0x194ec`), and `sysClkRateSet` (`0x19568`).
+- `sysClkEnable` sequence (paraphrased): clear TSR(WIS), `mtspr PIT, reload`,
+  `mtspr TCR, TCR | 0x04400000` (PIE | ARE).
+- `sysTimerClkFreq = 100 MHz`; reload value lives at `[0xe9c7c0]`.
 
-### Likely candidates
-- The `fn_9BC8` call in `fn_DCB0` (hardware sequencer step '3') — this is the current prime
-  suspect for the timer init call (see `re_reference.md` §9a, "fn_DCB0 Full Disassembly")
-- Alternatively, the `fn_1968` call (step '4') or `fn_935C` (step '5')
+QEMU already implements the PPC405 PIT end-to-end:
 
-### QEMU implementation plan
+- `hw/ppc/ppc.c` — `store_40x_pit`, `store_40x_tcr`, `store_40x_tsr`, `start_stop_pit`,
+  `cpu_4xx_pit_cb`. Reload value, PIE bit (TCR[26]), and ARE bit (TCR[22]) are honoured.
+- `target/ppc/cpu_init.c` — SPR 0x3DB/0x3DA/0x3D8 registered with the correct callbacks.
+- `target/ppc/excp_helper.c` — `PPC_INTERRUPT_PIT` raises `POWERPC_EXCP_PIT` at vector 0x1000.
 
-Once the timer IP base address is confirmed:
-1. Add `xilinx_timer.c` to QEMU (or reuse `hw/timer/xilinx_timer.c` if it exists)
-2. Connect its output IRQ to the appropriate XIntc input line
-3. Configure reload value to achieve `sysClkRateGet()` ticks/second (typically 60 Hz)
+### Remaining investigation
 
-**This is the single most important missing piece** for getting VxWorks multitasking
-to actually schedule tasks — without it, the kernel work queue never processes, and
-no application tasks run.
+The PIT interrupt is gated on `MSR.EE` (`async_deliver` in `excp_helper.c`). The blocker is
+no longer hardware — it is firmware state.
+
+**Call chain (static analysis, only path that programs the PIT):**
+```
+usrInit @ 0x36c350  →  bl kernelInit @ 0x5a7f30 (called from 0x36c424)
+                          └── scheduler dispatches root task
+                                └── usrRoot @ 0x36c440
+                                      ├── bl sysClkRateSet @ 0x952c (0x36c4e4)
+                                      └── bl sysClkEnable  @ 0x942c (0x36c4e8)
+```
+
+Confirmed addresses in `software.patched.r1mx.bin` (NOT 0x19460 — the summary's address was
+based on the unpatched binary). Only one `bl 0x942c` exists in the binary; no data-word or
+`lis+addi` reference builds the address anywhere else.
+
+**Observed in 30 s `-d cpu,int --trace 'ppc40x_*'` run (65-patch `--r1mx` binary):**
+
+1. Reached: `usrInit`, `kernelInit @ 0x5a7f30`, `taskInit @ 0x5b231c`, plus heavy activity in
+   `0x44xxxx`/`0x49xxxx`/`0x5b0xxx-0x5bbxxx` (scheduler internals).
+2. **Not** reached: `usrRoot @ 0x36c440`, `0x381a8c` (corrected root-task PC per re_ref §53a),
+   `0x5ab0dc` (workQ spin), `0xddb8`/`0xdde0` (second-usrInit / rootTask wrapper).
+3. MSR ∈ {`0x00000000`, `0x00000300`} only — `EE` never set.
+4. PIT trace shows exactly one boot-time write (`PIT := 0`, `TCR := 0xFFFFFFFF → 0xFFC00000`,
+   `TSR := 0`) and nothing else.
+
+**Conclusion:** the firmware is stuck inside `kernelInit` before the scheduler dispatches the
+root task. `sysClkEnable` and the workQ spin are both *downstream* of root-task dispatch — the
+scheduler must bootstrap without a tick clock first. Therefore the remaining Phase 5 work is
+**not** "add hardware in QEMU"; it is debugging why `kernelInit @ 0x5a7f30` does not complete
+root-task dispatch in QEMU, downstream of the existing 65 `--r1mx` patches.
+
+### Verification recipe
+
+```
+~/src/qemu-r1mx/build/qemu-system-ppc \
+  -machine r1mx-virtex4 -m 2G -nographic \
+  -device "loader,file=.../software.patched.r1mx.bin,addr=0x0,force-raw=on" \
+  --trace 'ppc40x_*' --trace 'ppc4xx_pit*' -d int
+```
+
+A working tick clock will show repeated `ppc40x_store_tsr`/`ppc4xx_pit_start` events plus
+`Raise exception at 00001000` deliveries once MSR.EE flips on. Today only the boot-time
+write is observed.
+
+### Optional debug-only fallback
+
+If the goal is to prove the PIT path independent of BSP init: a small firmware patch that
+manually does `mtspr PIT, N` + `mtspr TCR, 0x04400000` + `mtmsr (MSR | 0x8000)` (EE=1) at the
+end of `usrInit` should produce a stream of PIT exceptions. This is for diagnosis, not
+production — the real fix is to repair the BSP init path so `sysClkEnable` runs naturally.
 
 ---
 
 ## Implementation Order & Dependencies
 
 ```
-Phase 5 (Timer)  ← most critical: unblocks VxWorks scheduler
-    ↓
-Phase 1 (DMA)    ← needed for camera data pipeline
-    ↓
-Phase 2 (PCI)    ← needed for storage + USB
-    ↓
-Phase 3 (Histogram stubs) ← prevent MCE crashes in camera init
-    ↓
-Phase 4 (NOR Flash) ← needed for TFFS / firmware upgrade path
+Phase 1 (DMA)    ✅ done
+Phase 2 (PCI)    ✅ done
+Phase 3 (Histogram stubs) ✅ done
+Phase 4 (NOR Flash) ✅ done
+Phase 5 (Tick clock)      ⚠️ QEMU side complete (PPC405 internal PIT already modelled);
+                             remaining work is firmware-side — trace why sysClkEnable is
+                             never called and confirm MSR.EE re-enables before the workQ spin
 ```
 
 ---
@@ -294,7 +337,7 @@ hw/ppc/xilinx_pci_host.c       — NEW: Phase 2 PCI host bridge
 hw/ide/sii3512_stub.c          — NEW: Phase 2 SATA stub
 hw/usb/isp1562_stub.c          — NEW: Phase 2 USB stub (optional)
 hw/misc/red_histogram_ip.c     — NEW: Phase 3 histogram stubs (×5)
-hw/timer/xilinx_timer.c        — Check if exists; adapt or create for Phase 5
+hw/ppc/ppc.c                   — PPC405 internal PIT (used as Phase 5 tick — no new file)
 ```
 
 ---

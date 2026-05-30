@@ -1266,7 +1266,11 @@ The flag is set by the timer ISR (`workQAdd()`), which requires:
 - `mfmsr` read via GDB shows MSR=0x00000000 at the spin (EE=0, CE=0 — all interrupts disabled)
 - GDB `P21=00008000` (write MSR) was **rejected** by QEMU — MSR is read-only in the GDB stub
 - Firmware has **NO `mtspr DEC` instructions** — VxWorks BSP does NOT use the PPC decrementer
-  as the tick clock; it uses an external timer IP connected via XIntc
+  as the tick clock; it uses the **PPC405 internal PIT** (SPR 0x3DB), which fires at
+  exception vector `0x1000`. **Not** an external `xps_tmrctr` IP — see §6c (xtmrctr.c absent
+  from xsrc/) and the SPR stub table at firmware offsets 0x381f7c (mtspr PIT) / 0x382024
+  (mtspr TCR) / 0x382034 (mtspr TSR). Callers of the mtspr-PIT stub: 0x19474, 0x194ec, 0x19568
+  (sysClkEnable / sysClkDisable / sysClkRateSet).
 
 **Why MSR=0:** The function at 0xddb8 (the rootTask wrapper / second usrInit caller) calls
 `fn_371ed0(0)` at 0xdde8, which executes `mtmsr 0; isync` — explicitly clearing all MSR bits.
@@ -1274,14 +1278,80 @@ This is called FROM the root task context AFTER the second usrInit returns.  The
 runs in the kernel scheduler context (before/during multitasking), where interrupts have not
 yet been re-enabled by the BSP timer init.
 
-**Root cause:** The QEMU `r1mx-virtex4` machine has `XIntc` modelled but no XIntc-connected
-timer IP. Without a real hardware timer firing an interrupt, the workQ flag is never set, and
-the kernel scheduler never context-switches to run the root task.
+**Root cause:** QEMU's PPC405 PIT (`store_40x_pit` / `store_40x_tcr` in `hw/ppc/ppc.c`,
+firing `POWERPC_EXCP_PIT` at vector 0x1000) is gated on `MSR.EE` (see `target/ppc/excp_helper.c`
+`async_deliver`). Until VxWorks re-enables EE in the kernel scheduler context, no PIT interrupt
+is delivered and the `workQ` flag at `0x010D0584` is never set. No external timer IP is needed.
+
+**Status (Phase 5 investigation, May 2026):** Boot trace shows only one PIT-related write at
+startup — `TCR := 0xFFFFFFFF` (mask → 0xFFC00000), `PIT := 0`, `TSR := 0`. `sysClkEnable` is
+not reached in the current QEMU run, so the PIT reload stays 0 and no tick fires.
+
+**Confirmed addresses (patched binary `software.patched.r1mx.bin`):**
+
+| Symbol | Address | Notes |
+|---|---|---|
+| `sysClkEnable` | `0x0000942c` | Entry. Body at `0x9460` does `mtspr PIT/TCR/TSR`. |
+| `sysClkDisable` | `0x000094a0` | |
+| `sysClkConnect` | `0x00009508` | |
+| `sysClkRateSet` | `0x0000952c` (entry; body at `0x9584`) | |
+| `mtspr PIT` stub | `0x00371f7c` | Single-insn `mtspr PIT,r3 ; blr` |
+| `mfspr PIT` stub | `0x00371f84` | |
+| `mtspr TCR` stub | `0x00372024` | 9 callers |
+| `mfspr TCR` stub | `0x0037201c` | 9 callers |
+| `mtspr TSR` stub | `0x00372034` | 7 callers |
+| `mfspr TSR` stub | `0x0037202c` | |
+| `sysClkRunning` | `[0xe0FBD4]` | Set to 1 by sysClkEnable, checked at `0x9440` |
+| pit_reload | `[0xe9c7c0]` | Loaded by sysClkEnable at `0x9470` |
+| `kernelInit` | `0x005a7f30` | Last `bl` from `usrInit` (at `0x36c424`) |
+| `usrInit` | `0x0036c350` | reset-time entry; body ends at `0x36c43c` (blr) |
+| `usrRoot` (sysClk caller) | `0x0036c440` | Task entry. Only path to `sysClkRateSet` / `sysClkEnable`. |
+
+**Call chain to `sysClkEnable` (static analysis, single path):**
+```
+usrInit (0x36c350)
+  └── bl kernelInit (0x36c424 → 0x5a7f30)         ← never normally returns
+        └── … scheduler dispatches root task …
+              └── usrRoot (0x36c440)
+                    ├── bl sysClkRateSet (0x36c4e4 → 0x952c)
+                    └── bl sysClkEnable  (0x36c4e8 → 0x942c)
+                          ├── mtspr TSR, TSR | 0x08000000
+                          ├── mtspr PIT, *(0xe9c7c0)
+                          └── mtspr TCR, TCR | 0x04400000   (PIE | ARE)
+```
+- Only one `bl 0x942c` exists in the binary (at `0x36c4e8`). No data-word reference, no lis+addi pair builds `0x942c` anywhere else. `sysClkEnable` is unreachable except via `usrRoot`.
+- `usrRoot` itself has no direct `bl 0x36c440` callers — it is dispatched only as the root task's entry by the VxWorks scheduler after `kernelInit`.
+
+**Actual blocker (live QEMU trace, 30 s run, `--r1mx` 65-patch binary):**
+- `usrInit` (`0x36c350`) runs through to `0x36c424` (`bl kernelInit`) → enters `kernelInit @ 0x5a7f30`.
+- Heavy activity in `0x44xxxx`, `0x49xxxx`, `0x5b0xxx`–`0x5bbxxx` ranges — VxWorks `kernelInit`
+  internals (incl. `taskInit @ 0x5b231c`, `fn_5b0a84`, etc.).
+- `0x36c428` (usrInit epilogue) is sampled because the chain of bl/blrs touches it during
+  TB-boundary sampling, but `0x124` (the post-usrInit dead loop) is **never** entered →
+  `kernelInit` has not returned.
+- **NOT reached:** `0x36c440` (`usrRoot` — the only path to sysClk), `0x381a8c`
+  (corrected root-task PC per §53a), `0x5ab0dc` (workQ spin), `0xddb8`/`0xdde0`
+  (second-usrInit / rootTask wrapper).
+- MSR values observed: only `0x00000000` and `0x00000300`. `EE` (bit 15 = 0x8000) **never set**.
+
+**Diagnosis:** the firmware is stuck **inside `kernelInit` (`0x5a7f30`)** before the scheduler
+dispatches the root task. `sysClkEnable` and the workQ spin are both downstream of root-task
+dispatch — they cannot be reached until `kernelInit` completes its setup and either spawns
+or context-switches to `usrRoot`. The tick clock is **not** a prerequisite for getting into
+`usrRoot`; the scheduler must bootstrap without it.
+
+**Therefore: Phase 5 (adding/wiring a tick-clock device) is not the current blocker.** The
+remaining work is to debug why `kernelInit` does not complete root-task dispatch in QEMU —
+likely an unresolved sub-failure in `taskInit`/`fn_5b0a84`/scheduler bring-up, downstream of
+the existing 65 `--r1mx` patches.
 
 **Next actions (to unblock the workQ spin):**
-1. Find the XIntc timer IP base address from the firmware (search for timer init code)
-2. Add `xilinx_timer` model to `r1mx_virtex4.c` connected to XIntc IRQ line
-3. OR: add a firmware patch that directly enables MSR.EE and pre-sets the workQ flag
+1. Trace why `sysClkEnable` (in the firmware) is never invoked in QEMU — likely a missed
+   `sysClkConnect()` callback wiring or an upstream failure aborting BSP init.
+2. Confirm VxWorks re-enables `MSR.EE` in the scheduler context before the workQ spin
+   (it must, since the PIT is the only tick source — but verify with GDB at scheduler entry).
+3. As a debug fallback: a firmware patch that directly enables MSR.EE plus calls into
+   `sysClkEnable` early would prove the QEMU PIT path end-to-end.
 
 **fn_36860c analysis (static):** No direct MMIO access. All 7 sub-calls are VxWorks
 task-spawn/messaging functions with guard checks (`[0xFCA3C0] != 0` etc.) that skip
