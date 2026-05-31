@@ -45,6 +45,60 @@ RED ONE camera for the goal of producing:
 3. Debugging steps.
 4. Repair guides.
 
+## Setup
+
+### System prerequisites
+
+Install the following packages with your system package manager before creating the Python environment:
+
+```bash
+sudo apt install \
+    python3 python3-venv \
+    kicad \
+    tesseract-ocr tesseract-ocr-eng \
+    libgl1
+```
+
+- **python3 / python3-venv** - Python 3.12 or later
+- **kicad** - provides `pcbnew` (the KiCad Python API used by the toolkit); not available on PyPI
+- **tesseract-ocr** - OCR engine used by `pytesseract`
+- **libgl1** - OpenGL runtime required by OpenCV
+
+### Python environment
+
+The project uses a virtual environment at `.venv/`. Create and populate it once:
+
+```bash
+# Create the venv
+python3 -m venv .venv
+
+# Install Python dependencies
+.venv/bin/pip install -r requirements.txt
+```
+
+Then add the KiCad Python bindings to the venv so `import pcbnew` works:
+
+```bash
+echo /usr/lib/python3/dist-packages > .venv/lib/python3.12/site-packages/kicad.pth
+```
+
+> If your Python version differs, replace `python3.12` with the output of `.venv/bin/python --version`.
+
+### Verify
+
+```bash
+.venv/bin/python -c "import cv2, PyQt6, pcbnew, easyocr; print('OK')"
+.venv/bin/pytest toolkit/tests/ -q
+```
+
+### Running the toolkit
+
+```bash
+.venv/bin/python -m toolkit
+```
+
+---
+
 ## Reverse Engineering
 
 ### Decompiling firmware and indexing for semantic search
@@ -69,7 +123,7 @@ and lookup_function(name_or_address) which does exact address lookup
 via ChromaDB where filter or semantic name search.
 
 #### Run order:
-python3 -m pip install -f requirements.txt
+.venv/bin/pip install -r requirements.txt
 
 1. Seed known symbols (already exists)
 python3 firmware/scripts/ghidra_seed_symbols.py

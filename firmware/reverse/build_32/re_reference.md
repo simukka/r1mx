@@ -1557,15 +1557,15 @@ To understand full boot: find the CORRECT initial descriptor format (what data s
 at 0x020390d0), OR find how other VxWorks tasks (shell, network, etc.) are started in
 a real camera boot and patch to reach those code paths.
 
-**SW BP trap crashes (DISCOVERED THIS SESSION):**
-- QEMU SW BPs use a PPC trap instruction. When the trap fires, the CPU takes a Program Check
-  exception (vector 0x700). Before fn_36e168 installs proper handlers, 0x700 contains raw
-  binary code — not a handler. This causes an immediate crash, creating a phantom restart loop.
+**SW BP trap crashes (DISCOVERED THIS SESSION — later found to be a different root cause):**
+- ~~QEMU SW BPs use a PPC trap instruction~~ — **this was wrong.** See section 15 ("GDB RSP
+  Debugging") for the correct mechanism. SW BPs are TCG-level; they never touch 0x700.
+- The crashes observed at the time were caused by bad function-pointer calls in BSS-uninit code
+  paths (later fixed by Patches #59 and #60), not by BP trap handling.
 - **Symptom:** BP at call-site X fires repeatedly; BP at target function entry never fires.
-- **Fix:** ONLY place BPs at call/return boundaries in usrInit. Never inside any function
-  that executes between 0x36c3d0 (fn_36e168 entry) and 0x36c424 (kernelInit).
-- **Note:** After fn_36e168 completes, VxWorks handlers ARE installed, but the Program Check
-  handler at 0x700 may still mishandle QEMU's trap instruction. Continue using boundary-only BPs.
+  Root cause was the firmware resetting to 0x0, not a BP mechanism fault.
+- **Corrected fix:** BPs are safe at any address once QEMU is running. The 0x700 rfi-skip
+  (Patch #58) has NO interaction with QEMU's BP mechanism.
 
 **Write watchpoints DO work on QEMU PPC405:**
 - `Z2,addr,4` (write watchpoint) and `Z4,addr,4` (access watchpoint) accepted with `$OK#9a`
@@ -2489,29 +2489,67 @@ python3 scripts/patch_firmware.py --probe 0x<CRASH_ADDR>
 
 ### GDB RSP Debugging — Correct Protocol (CRITICAL)
 
-#### Known QEMU PPC405 Bug: Hardware Breakpoints (Z1) Don't Work
+#### How QEMU-R1MX Implements Breakpoints and Watchpoints
 
-- **SW-BPs (Z0)** — WORK: replace instruction with PPC `trap`, QEMU traps it before firmware
-- **HW-BPs (Z1)** — BROKEN on this target: `Z1,addr,4` never fires on QEMU PPC405
-- **Write watchpoints (Z2/Z4)** — WORK: successfully used to catch runtime writes to data
-- **Always use `Z0`, never `Z1`**
+**All breakpoint/watchpoint handling is at the TCG translation layer — not in guest code.**
 
-#### CRITICAL: Where SW BPs Are Safe
+QEMU's system-mode GDB stub dispatches `Z`/`z` commands through:
 
-QEMU's SW BP trap instruction fires the CPU's Program Check exception (vector 0x700).
-**Before fn_36e168 completes (0x36c3d0), the vector table contains raw binary code**, not
-handlers → crash. **After fn_36e168** VxWorks handlers are installed, but placing BPs INSIDE
-functions that fn_458a14 or fn_36860c call is still risky.
+```
+gdb_breakpoint_insert(cpu, type, addr, len)
+  └─ AccelOpsClass->insert_breakpoint          (accel/tcg/tcg-accel-ops.c)
+       └─ cpu_breakpoint_insert(cpu, addr, BP_GDB)   ← Z0 and Z1 both land here
+```
 
-**Safe rule:** Place BPs ONLY at call/return boundaries in usrInit:
-- ✅ `bl fn_X` in usrInit (the bl instruction itself)
-- ✅ Return address after a bl (first instruction of next call)  
-- ❌ Inside fn_X body (function entry, middle, or epilogue)
+When TCG next translates a basic block containing the marked address it inserts a debug
+check. When the PC reaches that address the check fires `EXCP_DEBUG` — an internal QEMU
+exception that **never enters the guest exception vector table**. The round-robin scheduler
+catches it and calls `cpu_handle_guest_debug(cpu)`, which sends `$T05` to the GDB client.
+
+Consequences:
+- The rfi-skip handler at guest address 0x700 (Patch #58) has **zero interaction** with BPs.
+  QEMU does not write a PPC `trap` opcode to guest memory; there is no 0x700 involvement.
+- BPs can be placed **at any guest address** — inside functions, before fn_36e168 installs
+  VxWorks handlers, anywhere. The earlier "boundary-only" rule was based on a false premise.
+- Patch #58 is still needed for unimplemented-SPR and privilege-violation faults; it is just
+  unrelated to the BP mechanism.
+
+**Breakpoint and watchpoint type support matrix:**
+
+| GDB cmd | Type | QEMU implementation | Works? |
+|---------|------|---------------------|--------|
+| `Z0,addr,4` | SW BP | `cpu_breakpoint_insert` → TCG EXCP_DEBUG | ✅ Yes |
+| `Z1,addr,4` | HW BP | same `cpu_breakpoint_insert` path as Z0 | ✅ Yes (identical to Z0 in TCG) |
+| `Z2,addr,4` | Write watchpoint | `cpu_watchpoint_insert` → TCG memory hook | ✅ Yes |
+| `Z3,addr,4` | Read watchpoint | same | ✅ Yes |
+| `Z4,addr,4` | Access watchpoint | same | ✅ Yes |
+
+Note: Z1 routes identically to Z0 in QEMU's TCG accel layer (`tcg_insert_breakpoint` treats
+`GDB_BREAKPOINT_SW` and `GDB_BREAKPOINT_HW` as the same case). The PPC405 IAC/DBCR hardware
+debug registers are **not** emulated; Z1 works only because it falls back to TCG software BPs.
+There is no advantage to using Z1 over Z0 — use Z0 consistently.
+
+#### GDB RSP Protocol — What Works
+
+Use **standard ACK mode** throughout. Do NOT negotiate `QStartNoAckMode`: it introduces
+subtle timing issues that prevent `wait_stop` from receiving the `$T05` reply reliably.
+
+Key rules:
+1. **Send `$c#63` without reading the ack** — in ACK mode QEMU sends `+` immediately, then
+   runs the CPU. `wait_bp()` drains both the `+` and the eventual `$T05` by scanning for `T05`
+   in the raw byte stream. This is correct and matches all working probe scripts.
+2. **Filter `O` packets in wait_bp** — QEMU may send `$Oxxxx#yy` console-output packets
+   before the stop reply. Scan for `T05`/`T03`/`T02` specifically, not just any `$` packet.
+3. **Always halt before setting/clearing BPs** — send `\x03` and drain the stop reply first.
+4. **Step past a BP before resuming** — after a BP fires, the PC is AT the BP address. Either
+   single-step (`s`) past it or clear the BP before `$c#63`; otherwise it fires again.
+5. **`QStartNoAckMode` is NOT needed and causes bugs** — QEMU's GDB stub acknowledges it, but
+   then the T05 reply may not be received correctly. All working probe scripts use ACK mode.
 
 #### Stale BPs — Must Clear at Session Start
 
-QEMU preserves SW BPs as long as it's running. Old BPs from prior sessions cause phantom
-crashes. **ALWAYS clear all previously-used addresses at session start:**
+QEMU preserves BPs in its internal table as long as it is running. Stale BPs from prior
+sessions cause the firmware to stop unexpectedly. **Always clear known-used addresses first:**
 
 ```python
 stale_bps = [0x36c3dc, 0x36c3e0, 0x36c3e4, 0x36c3e8, 0x36c3ec, 0x36c3f0, 0x36c424,
@@ -2522,8 +2560,6 @@ for bp in stale_bps:
 
 #### Connection + BP Protocol
 
-Always halt QEMU before setting/clearing BPs:
-
 ```python
 import socket, time
 
@@ -2532,7 +2568,7 @@ def gdb_connect(port=1237):
     return s
 
 def halt(s):
-    """Send interrupt and drain the T02 stop signal."""
+    """Send interrupt and drain the stop reply."""
     s.send(b'\x03')
     time.sleep(0.5)
     try: s.recv(4096)
@@ -2546,9 +2582,8 @@ def send_cmd(s, cmd, timeout=5):
         try:
             chunk = s.recv(8192)
             if chunk:
-                s.send(b'+')
+                s.send(b'+')          # always ACK in standard mode
                 buf += chunk
-                # complete packet = $..#xx
                 st = buf.find(b'$')
                 if st >= 0 and b'#' in buf[st+1:] and len(buf) > buf.find(b'#', st+1)+2:
                     break
@@ -2557,7 +2592,6 @@ def send_cmd(s, cmd, timeout=5):
 
 def get_regs(s):
     r = send_cmd(s, 'g', 10)
-    # Find the long register packet (not T02/T05 stop packets)
     i = 0
     while i < len(r):
         if r[i:i+1] == b'$':
@@ -2577,20 +2611,23 @@ def clr_bp(s, addr):  send_cmd(s, f'z0,{addr:X},4')
 def step(s):          send_cmd(s, 's', 5)
 
 def resume(s):
-    """IMPORTANT: Do NOT recv after $c — let wait_bp() catch T05."""
+    """Send $c#63 without reading the ack — wait_bp drains it."""
     s.send(b'$c#63')
 
 def wait_bp(s, timeout=60):
-    """Returns (hit:bool, nip, lr, sp). Halts QEMU on return."""
+    """Returns (hit:bool, nip, lr, sp). Filter O packets; stop on T02/T03/T05."""
     t0 = time.time()
     buf = b''
     while time.time()-t0 < timeout:
         try:
-            d = s.recv(4096)
-            buf += d
-            if b'T05' in buf or b'T03' in buf:
-                nip, lr, sp = get_regs(s)
-                return True, nip, lr, sp
+            chunk = s.recv(4096)
+            if chunk:
+                s.send(b'+')
+                buf += chunk
+                # T02=Ctrl-C, T03=singlestep, T05=breakpoint — any stops the wait
+                if b'T05' in buf or b'T03' in buf or b'T02' in buf:
+                    nip, lr, sp = get_regs(s)
+                    return True, nip, lr, sp
         except socket.timeout: pass
     return False, 0, 0, 0
 ```
@@ -2599,22 +2636,21 @@ def wait_bp(s, timeout=60):
 
 ```python
 s = gdb_connect(1237)
-halt(s)                    # ← ALWAYS halt before setting BPs
+halt(s)                    # ALWAYS halt before touching BPs
 
-set_bp(s, 0xDCB0)          # fn_DCB0 entry
+set_bp(s, 0xDCB0)          # set BP; no recv needed (send_cmd handles it)
 resume(s)                  # DO NOT recv after this
 
 hit, nip, lr, sp = wait_bp(s, 60)
 if hit:
     print(f"Stopped at 0x{nip:08X}")
-    clr_bp(s, nip)         # clear before stepping
-    step(s)                # single-step past the trap
+    clr_bp(s, nip)         # clear BP before stepping
+    step(s)                # single-step past the BP address
     nip2, _, _ = get_regs(s)
     print(f"After step: 0x{nip2:08X}")
     set_bp(s, nip)         # optionally re-arm
     resume(s)
 
-# Close cleanly (QEMU resumes when socket closes)
 s.close()
 ```
 
