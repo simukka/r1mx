@@ -40,7 +40,10 @@ _EXTRACTED = _REPO_ROOT / "firmware/reverse/build_32/extracted"
 
 # Canonical SHA-256 identities (re_reference.md §0.1).
 SHA_ORIGINAL = "416e148c9eb4b818bef004ebe6294dcbb1e74026604fdb964178fe9e2b65d9cd"
-SHA_PATCHED_R1MX = "f7be6c2a769cef73f6b6f6aeca9284c685571c520799c4ae6ea806875139eb42"
+# 2026-06-02: regenerated after DISABLING the wrong patch #57 (the NOP at
+# 0x5a8190 that broke root-task dispatch).  See patch_firmware.py #57 and
+# re_reference.md §0.
+SHA_PATCHED_R1MX = "281ef88ac558c459fa6ec500ea3be9c1dc253f9baa660a2e81b6d31502597d7c"
 
 PPC_BLR = 0x4E800020   # blr  (branch to link register)
 
@@ -107,6 +110,18 @@ CHECKS: list[Check] = [
           "re_reference.md §0.2, §10", addr=0x36C424, want=0x5A7F30, link=True),
     Check("word", "software.bin", "usrInit epilogue @0x36c43c = blr",
           "re_reference.md §10 (body ends 0x36c43c)", addr=0x36C43C, want=PPC_BLR),
+
+    # -- kernelInit dispatch call (the fix: patch #57 disabled) --------------
+    # In the ORIGINAL image, kernelInit's last call (0x5a8190) is bl 0x5b11ac
+    # (taskActivate -> first context switch into the root task).
+    Check("branch", "software.bin", "kernelInit @0x5a8190 -> taskActivate (0x5b11ac)",
+          "re_reference.md §0; trace_dispatch_path.py", addr=0x5A8190, want=0x5B11AC, link=True),
+    # The PATCHED r1mx image MUST preserve that call (the wrong patch #57 used
+    # to NOP it, which made kernelInit return -> 0x124 halt).  This asserts the
+    # dispatch call survives patching so the root task is actually dispatched.
+    Check("branch", "software.patched.r1mx.bin",
+          "patched kernelInit @0x5a8190 still = bl taskActivate (patch #57 disabled)",
+          "re_reference.md §0; patch_firmware.py #57", addr=0x5A8190, want=0x5B11AC, link=True),
 
     # -- function-entry prologues (sanity: these addresses are real entries) -
     Check("word", "software.bin", "usrInit entry @0x36c350 = mflr r0 (prologue)",

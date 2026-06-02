@@ -8,9 +8,12 @@ Checks performed (in order):
   [1] reset_loop     -- UART ^^^ count stays < threshold before usrInit
   [2] usrInit        -- BP at 0x36c424 fires (kernelInit call site; usrInit done)
   [3] kernelInit     -- BP at 0x5a7f30 fires (VxWorks multitasking starting)
-  [4] terminal_state -- after kernelInit, race usrRoot (0x36c440) vs halt loop (0x124);
-                        0x124 currently wins (kernelInit returns) -- see re_reference §0.3
-  [5] msr_ee         -- MSR.EE == 0 at terminal state (external interrupts never enabled)
+  [4] dispatch       -- BP at 0x372838 fires (rfi context-switch INTO the root task);
+                        lr == 0x381a8c, r3 == 0x020390d0 (root-task entry + descriptor)
+  [5] root_task_running -- after dispatch, the CPU is executing the root-task body
+                        (PC in 0x380000..0x384000), NOT the old 0x124 halt loop
+  [6] msr_ee         -- MSR.EE == 0 while the root task spins (sysClkEnable not yet
+                        reached; the current downstream blocker -- see re_reference §0.3)
 
 When a milestone BP times out the test halts QEMU with Ctrl-C and runs a set of
 assumption checks against the live CPU/memory state to explain the stall.
@@ -90,6 +93,8 @@ class Milestone:
     timeout_s: float          # before scaling
     # optional memory reads to report at BP hit: list of (label, addr, size)
     mem_reads: list[tuple[str, int, int]] = field(default_factory=list)
+    # optional register expectations at BP hit: {reg_name: expected_value}
+    expect_regs: dict[str, int] = field(default_factory=dict)
 
 
 MILESTONES: list[Milestone] = [
@@ -112,10 +117,22 @@ MILESTONES: list[Milestone] = [
             ("intCnt @ 0xe2942c",      0xe2942c,   4),
         ],
     ),
-    # usrRoot (0x36c440) is intentionally NOT a linear milestone: it is never
-    # reached in the current build because kernelInit returns first.  It is
-    # checked by the post-kernelInit terminal-state race instead (_terminal_race).
+    Milestone(
+        key="dispatch",
+        addr=0x372838,
+        label="rfi context-switch INTO root task  (0x372838; lr=0x381a8c, r3=0x020390d0)",
+        timeout_s=30.0,
+        expect_regs={"lr": 0x00381A8C, "r3": 0x020390D0},
+    ),
 ]
+
+# The first context switch (rfi at 0x372838) dispatches the root task.
+# These are the expected register values at that instant (re_reference §0).
+ROOT_TASK_ENTRY  = 0x00381A8C   # root-task PC (kernelInit arg1; lr at the rfi)
+ROOT_TASK_DESC   = 0x020390D0   # root-task descriptor pointer (r3 at the rfi)
+# The root task then executes its body; sample it here to prove it is running.
+ROOT_BODY_LO     = 0x00380000
+ROOT_BODY_HI     = 0x00384000
 
 # ^^^ lines seen before usrInit BP fires; >this means reset loop
 RESET_LOOP_THRESHOLD = 5
@@ -146,9 +163,10 @@ _WORQQ_FLAG_ADDR = 0x010D0584
 _INT_CNT_ADDR    = 0xe2942c
 _KERNEL_STATE    = 0x010D0580
 
-# Terminal-state race (post-kernelInit): usrRoot vs boot-stub halt loop.
-USRROOT_ADDR   = 0x0036C440   # usrRoot entry (desired; never reached in current build)
-HALT_LOOP_ADDR = 0x00000124   # boot-stub `b 0x124` dead loop (current terminal state)
+# Regression sentinel: the OLD terminal state when the wrong patch #57 made
+# kernelInit return.  If the CPU is ever found here post-dispatch, multitasking
+# regressed (see _post_dispatch_check).
+HALT_LOOP_ADDR = 0x00000124   # boot-stub `b 0x124` dead loop (pre-fix terminal state)
 
 
 def _infer_stall_stage(pc: int) -> str:
@@ -564,69 +582,60 @@ def _print_result(r: CheckResult) -> None:
 # ---------------------------------------------------------------------------
 
 _TERMINAL_LABELS = {
-    "terminal_state": "Terminal state = halt loop 0x124 (kernelInit returned)",
-    "msr_ee": "MSR.EE == 0 at terminal state (interrupts never enabled)",
+    "root_task_running": "Root task is executing its body (0x380000..0x384000), not 0x124 halt",
+    "msr_ee": "MSR.EE == 0 while root task spins (sysClkEnable not yet reached)",
 }
 
 
-def _terminal_race(
+def _post_dispatch_check(
     gdb: GdbRsp,
     enabled_checks: set[str],
     timeout_scale: float,
 ) -> list[CheckResult]:
-    """Race usrRoot (0x36c440) against the boot-stub halt loop (0x124).
+    """After the first context switch, confirm the root task is actually running.
 
-    Encodes re_reference.md §0.2/§0.3: after kernelInit *returns* (abnormal),
-    usrInit returns to the boot stub which `bl 0x124`'s into a `b 0x124` dead
-    loop, and usrRoot is never reached.  Sets a BP at both addresses and resumes
-    once -- whichever fires reveals the terminal state in well under a second
-    (replacing the old 90 s usrRoot timeout).
+    Encodes re_reference.md §0 (post-fix): kernelInit dispatches the root task
+    via the rfi at 0x372838 and does NOT return.  Let the root task run briefly,
+    halt it, and assert the PC is inside the root-task body (0x380000..0x384000)
+    rather than the old 0x124 halt loop.
 
-    TRIPWIRE semantics: `terminal_state` PASSes while the firmware ends at 0x124
-    (the documented current blocker).  If usrRoot wins instead, it FAILs with a
-    "blocker resolved" message -- that failure is GOOD NEWS and the cue to update
-    re_reference §0 and this expectation.
+    REGRESSION TRIPWIRE: if the CPU is found at 0x124 (or at usrInit's post-
+    kernelInit return 0x36c428), the wrong patch #57 (NOP at 0x5a8190) has come
+    back -- FAIL loudly.
     """
     results: list[CheckResult] = []
-    gdb.set_bp(USRROOT_ADDR)
-    gdb.set_bp(HALT_LOOP_ADDR)
-    print(f"\n  [*] Terminal-state race: usrRoot(0x{USRROOT_ADDR:06x}) "
-          f"vs halt-loop(0x{HALT_LOOP_ADDR:06x})...")
+    print("\n  [*] Letting the root task run, then sampling its PC...")
     gdb.resume()
-    reply = gdb.wait_stop(timeout=30.0 * timeout_scale)
-    if reply is None:
-        gdb.interrupt()
+    time.sleep(1.5 * timeout_scale)
+    gdb.interrupt()
     regs = gdb.get_regs()
     pc = regs.get("pc", 0)
-    gdb.clear_bp(USRROOT_ADDR)
-    gdb.clear_bp(HALT_LOOP_ADDR)
 
-    if "terminal_state" in enabled_checks:
-        if pc == HALT_LOOP_ADDR:
+    if "root_task_running" in enabled_checks:
+        if pc in (HALT_LOOP_ADDR, 0x36C428):
             r = CheckResult(
-                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
-                status=PASS,
-                detail=("reached 0x124 halt loop -- kernelInit RETURNED to the boot "
-                        "stub (current blocker, re_reference §0.3). TRIPWIRE: if this "
-                        "ever stops at usrRoot 0x36c440, the blocker is resolved -- "
-                        "update re_reference §0."),
+                key="root_task_running", label=_TERMINAL_LABELS["root_task_running"],
+                status=FAIL,
+                detail=(f"REGRESSION: CPU at 0x{pc:08x} -- kernelInit returned again. "
+                        "The wrong patch #57 (NOP at 0x5a8190) may be re-enabled; "
+                        "the root task is not being dispatched."),
                 regs=regs,
             )
-        elif pc == USRROOT_ADDR:
+        elif ROOT_BODY_LO <= pc < ROOT_BODY_HI:
             r = CheckResult(
-                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
-                status=FAIL,
-                detail=("usrRoot (0x36c440) reached -- kernelInit-returns blocker "
-                        "appears RESOLVED (good news!). Update re_reference §0.2/§0.3 "
-                        "and this test's expected terminal state."),
+                key="root_task_running", label=_TERMINAL_LABELS["root_task_running"],
+                status=PASS,
+                detail=(f"PC=0x{pc:08x} is inside the root-task body "
+                        f"(0x{ROOT_BODY_LO:06x}..0x{ROOT_BODY_HI:06x}) -- multitasking "
+                        "is live (root task dispatched and running)."),
                 regs=regs,
             )
         else:
             r = CheckResult(
-                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
+                key="root_task_running", label=_TERMINAL_LABELS["root_task_running"],
                 status=FAIL,
-                detail=(f"unexpected terminal PC=0x{pc:08x} "
-                        f"({_infer_stall_stage(pc)}); expected 0x124 or usrRoot 0x36c440"),
+                detail=(f"PC=0x{pc:08x} ({_infer_stall_stage(pc)}); expected root-task "
+                        f"body 0x{ROOT_BODY_LO:06x}..0x{ROOT_BODY_HI:06x}"),
                 regs=regs,
             )
         results.append(r)
@@ -812,6 +821,25 @@ def run_smoke_test(
                     prev_failed = True
                     continue
 
+                # Register assertions (e.g. the dispatch BP must show the
+                # root-task entry in lr and the descriptor in r3).
+                reg_mismatch = [
+                    f"{rn}=0x{regs.get(rn, 0):08x} (want 0x{rv:08x})"
+                    for rn, rv in m.expect_regs.items()
+                    if regs.get(rn) != rv
+                ]
+                if reg_mismatch:
+                    r = CheckResult(
+                        key=m.key, label=m.label, status=FAIL,
+                        detail=(f"BP fired at 0x{pc:08x} but register check failed: "
+                                + ", ".join(reg_mismatch)),
+                        regs=regs,
+                    )
+                    results.append(r)
+                    _print_result(r)
+                    prev_failed = True
+                    continue
+
                 # Expected BP -- read milestone memory probes.
                 mem_vals: dict[str, int] = {}
                 for label, addr, size in m.mem_reads:
@@ -828,14 +856,14 @@ def run_smoke_test(
                 results.append(r)
                 _print_result(r)
 
-            # -- Terminal-state race + MSR.EE (post-kernelInit) -----------
-            want_terminal = enabled_checks & {"terminal_state", "msr_ee"}
+            # -- Root-task-running + MSR.EE (post-dispatch) ---------------
+            want_terminal = enabled_checks & {"root_task_running", "msr_ee"}
             if want_terminal and not prev_failed:
-                for r in _terminal_race(gdb, enabled_checks, timeout_scale):
+                for r in _post_dispatch_check(gdb, enabled_checks, timeout_scale):
                     results.append(r)
                     _print_result(r)
             elif want_terminal:
-                for key in ("terminal_state", "msr_ee"):
+                for key in ("root_task_running", "msr_ee"):
                     if key in enabled_checks:
                         results.append(CheckResult(
                             key=key, label=_TERMINAL_LABELS[key], status=SKIP,
@@ -845,7 +873,6 @@ def run_smoke_test(
         finally:
             for m in active_milestones:
                 gdb.clear_bp(m.addr)
-            gdb.clear_bp(USRROOT_ADDR)
             gdb.clear_bp(HALT_LOOP_ADDR)
             gdb.close()
 
@@ -865,7 +892,7 @@ def run_smoke_test(
 # Entry point
 # ---------------------------------------------------------------------------
 
-ALL_CHECK_KEYS = {"reset_loop", "terminal_state", "msr_ee"} | {m.key for m in MILESTONES}
+ALL_CHECK_KEYS = {"reset_loop", "root_task_running", "msr_ee"} | {m.key for m in MILESTONES}
 
 
 def main() -> int:
@@ -919,7 +946,7 @@ def main() -> int:
         print("  reset_loop  -- UART ^^^ count stays below threshold before usrInit")
         for m in MILESTONES:
             print(f"  {m.key:<12} -- {m.label} (BP @ 0x{m.addr:08x})")
-        print(f"  {'terminal_state':<12} -- {_TERMINAL_LABELS['terminal_state']}")
+        print(f"  {'root_task_running':<12} -- {_TERMINAL_LABELS['root_task_running']}")
         print(f"  {'msr_ee':<12} -- {_TERMINAL_LABELS['msr_ee']}")
         return 0
 

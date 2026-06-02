@@ -53,6 +53,7 @@ class Patch:
     description: str
     phase: int = 1      # which boot phase this patch is for
     bamboo_only: bool = False  # True = only needed for bamboo/unmapped MMIO machine
+    enabled: bool = True       # False = kept for the record but NOT applied (wrong/regressive)
 
 
 # ---------------------------------------------------------------------------
@@ -1478,36 +1479,42 @@ BUILD32_PATCHES: list[Patch] = [
         phase=1,
     ),
     # -----------------------------------------------------------------------
-    # Patch #57 — NOP the blocking poll call inside fn_5a7f30 (WDB network init)
+    # Patch #57 — DISABLED 2026-06-02.  This patch was WRONG and was the cause
+    # of the "kernelInit returns abnormally → 0x124 halt" blocker (re_reference
+    # §0.3).  Kept here for the record; enabled=False so it is never applied.
     #
-    # fn_5a7f30 (called from usrInit at 0x36c424) performs three critical steps:
-    #   1. Sets up the WDB agent struct on its own stack frame (sp+56)
-    #   2. Writes BSS[0xe9c420] = sp+56  (WDB struct pointer used by WDB task)
-    #   3. Spawns the WDB task via fn_5b2880 (entry = 0x37c440)
-    #   4. Calls fn_5b11ac (0x5b0ff4) — a blocking UDP socket / semaphore wait
-    #      that never returns in QEMU (no real WDB UDP network agent present)
+    # Original (incorrect) theory: fn_5a7f30 == "WDB network init" and the call
+    # at 0x5a8190 (bl 0x5b11ac → 0x5b0ff4) was a "blocking UDP socket/semaphore
+    # wait" that prevented fn_5a7f30 from returning, so it was NOP'd.
     #
-    # Because step 4 blocks forever, usrInit never completes and the scheduler
-    # never runs the WDB task or any other task.
+    # Reality (proven by firmware/scripts/trace_dispatch_path.py):
+    #   - fn_5a7f30 (0x5a7f30) IS VxWorks `kernelInit` (re_reference §10).
+    #   - 0x5b2880 (call at 0x5a8170) is `taskInit` — it creates the root task
+    #     TCB (entry = kernelInit arg1 = 0x381a8c, descriptor r3 = 0x020390d0).
+    #   - 0x5b0ff4 (the call NOP'd here) is `taskActivate` — it adds the root
+    #     task to the ready queue (bl 0x5b57b0) then calls windExit (0x372534),
+    #     which performs the FIRST context switch: ctx-save (0x372638) →
+    #     scheduler core (0x5aaf5c) → restore new TCB → `rfi` into the task
+    #     (0x372838, which loads the task's MSR with EE=1 and its PC).
+    #   - kernelInit is therefore SUPPOSED to never return; it hands control to
+    #     the scheduler.  NOP'ing taskActivate makes kernelInit fall through to
+    #     its `blr`, the root task is never dispatched, MSR.EE never gets set,
+    #     and usrInit returns to the boot stub → `b 0x124` halt loop.
     #
-    # Fix: NOP the blocking call at 0x5a8190, NOT the outer fn_5a7f30 call.
-    # With this patch:
-    #   - Steps 1-3 run normally: WDB struct is initialised and BSS[0xe9c420]
-    #     is set; the WDB task is spawned into the VxWorks task queue.
-    #   - fn_5a7f30 returns to usrInit; usrInit returns to the root task.
-    #   - The WDB struct lives at a fixed address on the root task's stack
-    #     (below its current SP after usrInit returns).  The idle loop at
-    #     0x124 never grows the root task's stack so the struct stays valid.
-    #   - The scheduler then runs the WDB task (and camera tasks).
+    # The author's "blocks forever" observation was kernelInit *correctly*
+    # never returning, misread as a hang.  With the scheduler null-ptr fix
+    # (patch at 0x5aaf5c) in place, the context switch dispatches cleanly, so
+    # this NOP is both unnecessary and actively harmful.  Removing it restores
+    # the root task (the lost "Session 20" multitasking state).
     #
-    #   0x5a8190: 0x4800901d  bl 0x5b11ac  (→ blocks in fn_5b0ff4 UDP wait)
-    #   ->         0x60000000  nop
+    #   0x5a8190: 0x4800901d  bl 0x5b11ac (taskActivate — first context switch)
     Patch(
         offset=0x5a8190,
         original=b'\x48\x00\x90\x1d',
         replacement=PPC_NOP,
-        description="NOP bl fn_5b11ac inside fn_5a7f30: blocking UDP poll call that prevents fn_5a7f30 from returning; NOP allows WDB task to be spawned (at 0x5a8170) and BSS[0xe9c420] WDB struct ptr to be set before fn_5a7f30 returns normally",
+        description="[DISABLED — WRONG] NOP bl taskActivate(0x5b0ff4) inside kernelInit; this NOP is what caused kernelInit to return → 0x124 halt. taskActivate triggers the first context switch into the root task; kernelInit must never return. See trace_dispatch_path.py.",
         phase=2,
+        enabled=False,
     ),
     # -----------------------------------------------------------------------
     # Patch #60 — NOP bne in fn_371c74 to suppress indirect call via corrupt fn-ptr
@@ -1646,6 +1653,9 @@ def apply_patches(data: bytearray, patches: list[Patch],
     applied = 0
     warnings = []
     for p in patches:
+        if not p.enabled:
+            print(f"  [-] {hex(p.offset)}: SKIP (disabled) {p.description[:60]}")
+            continue
         if phase is not None and p.phase != phase:
             continue
         if skip_bamboo_only and p.bamboo_only:

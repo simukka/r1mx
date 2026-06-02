@@ -11,7 +11,7 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 
 ---
 
-## 0. Current Boot State & Source of Truth — READ FIRST  (verified 2026-06-02)
+## 0. Current Boot State & Source of Truth — READ FIRST  (updated 2026-06-02 — root task now dispatched)
 
 > Sections 1–22 below are a chronological RE log and contain **superseded conclusions**.
 > Where anything conflicts with §0, **§0 wins**; where §0 is unsure, the **executable tests
@@ -22,58 +22,73 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 | File | SHA-256 | Role |
 |------|---------|------|
 | `extracted/software.bin` | `416e148c…d9cd` | original decrypted Build 32 v32.0.3 — RE source of truth |
-| `extracted/software.patched.r1mx.bin` | `f7be6c2a…eb42` | QEMU-boot binary (`patch_firmware.py --r1mx`); what the smoke test runs |
+| `extracted/software.patched.r1mx.bin` | `281ef88a…9d7c` | QEMU-boot binary (`patch_firmware.py --r1mx`, 59 patches); what the smoke test runs. **Changed 2026-06-02** when the wrong patch #57 was disabled (was `f7be6c2a…eb42`, 60 patches). |
 
-### 0.2 Verified boot behavior  (reproduce: `.venv/bin/python firmware/scripts/smoke_test.py`)
+### 0.2 Verified boot behavior  (reproduce: `python3 firmware/scripts/smoke_test.py`)
 
 QEMU `r1mx-virtex4`, fixed breakpoint harness (steps off each BP — see harness note in §0.5):
 
 | Milestone | Addr | Result | Evidence |
 |-----------|------|--------|----------|
 | usrInit → `bl kernelInit` | `0x36c424` | ✅ reached ~0.1 s | smoke_test PASS |
-| kernelInit entry | `0x5a7f30` | ✅ reached, `lr=0x36c428` | smoke_test PASS |
-| kernelInit **returns** | — | ⚠️ **YES — abnormal** | lr-chain back to boot stub |
-| usrRoot entry | `0x36c440` | ❌ **never reached** | smoke_test 90 s timeout |
-| **terminal state** | `0x124` | 🛑 `b 0x124` dead loop, `lr=0xac` | smoke_test PC sample |
+| kernelInit entry | `0x5a7f30` | ✅ reached | smoke_test PASS |
+| **rfi context-switch INTO root task** | `0x372838` | ✅ **fires** (`lr=0x381a8c`, `r3=0x020390d0`) | smoke_test `dispatch` PASS |
+| root task body running | `0x380000`–`0x383fff` | ✅ executing (e.g. PC `0x381938`) | smoke_test `root_task_running` PASS |
+| `sysClkEnable` / workQ spin | `0x942c` / `0x5ab0dc` | ❌ not yet reached | downstream of the root-task loop |
 
-- **No reset loop.** Free-run emits **1** `^^^` line (not the 18,701 of an older binary);
-  firmware reaches `0x124` in ~0.1 s and spins there silently.
-- **MSR.EE never set** — `msr` stays `0x00000000`; external interrupts / PIT tick never enabled.
+- **No reset loop.** Free-run emits **1** `^^^` line, then the root task runs silently.
+- **kernelInit no longer returns** — it dispatches the root task and hands off to the scheduler.
+- **MSR.EE still 0** — the root task spins in an early polling loop (`0x380000`–`0x383400`)
+  *before* it reaches `sysClkEnable`, so the PIT tick / external interrupts are not yet enabled.
 
-### 0.3 The blocker, reframed
+### 0.3 The blocker — RESOLVED, and the new frontier
 
-`kernelInit (0x5a7f30)` **enters and then returns** — instead of starting multitasking and
-never returning. usrInit then runs to its `blr`, returns to the boot stub at `0x00a4`, which
-executes `bl 0x124` (at `0x00a8`) into the `b 0x124` halt loop. Therefore:
+**Root cause (fixed 2026-06-02):** firmware patch **#57** (`patch_firmware.py`) NOP'd
+`bl 0x5b11ac` at `0x5a8190` — which is kernelInit's call to **`taskActivate`** (the first
+context switch into the root task), *not* a "blocking UDP wait" as the patch comment claimed.
+With that call NOP'd, the root task was never dispatched, kernelInit fell through to its `blr`,
+and usrInit returned to the boot stub → `b 0x124` halt loop. **Patch #57 is now `enabled=False`.**
+Proven end-to-end by `firmware/scripts/trace_dispatch_path.py`:
 
-- The open question is **not** "why is it stuck inside kernelInit / why isn't the root task
-  dispatched" (the old, disproven diagnosis) but **"why does `kernelInit` return at all?"** —
-  e.g. root task never spawned, scheduler exits immediately, or a firmware/QEMU patch aborts
-  kernel bring-up.
-- `usrRoot (0x36c440)`, `sysClkEnable`, and the workQ spin at `0x5ab0dc` are all **downstream**
-  of the (never-taken) root-task dispatch and are **never reached**. Phase 5 (tick-clock
-  device) is therefore *not* the current blocker.
+```
+kernelInit 0x5a8190  bl taskActivate (0x5b11ac→0x5b0ff4)
+  └─ windAdd-to-readyQ 0x5b57b0
+  └─ windExit 0x372534
+       └─ ctx-save 0x372638  →  scheduler core 0x5aaf5c  →  restore TCB
+            └─ rfi 0x372838   →  root task @ 0x381a8c  (r3 = descriptor 0x020390d0)
+```
+
+**New frontier:** the root task (`0x381a8c`) runs but **spins in a polling loop across
+`0x380000`–`0x383400`** (recurring through `0x3801cc → 0x380ea4 → 0x382c78 → 0x383000`). It is
+the only ready task and `MSR.EE=0`, so nothing external (interrupt/other task) can change the
+state it polls. It never reaches `sysClkEnable`. The open questions are now:
+1. What does the `~0x380ea4` loop poll, and what would satisfy it? (Likely the old
+   `0x020390d0` descriptor-population / command-dispatch question — see §53a and the dispatcher
+   `fn_382e80`.)
+2. Does the root task ever reach `sysClkEnable` (0x942c) to start the PIT tick (Phase 5)?
 
 ### 0.4 Superseded claims elsewhere in the repo  (do not trust)
 
 | Claim | Where | Reality |
 |-------|-------|---------|
-| "stuck *inside* kernelInit before root-task dispatch" | re_reference §"Actual blocker" (~L1340) | kernelInit **returns** |
-| "0x124 never entered → kernelInit hasn't returned" | re_reference (~L1345) | 0x124 **is** the terminal state |
+| "kernelInit returns abnormally → 0x124 halt is the terminal state" | earlier §0 (pre-2026-06-02) | **fixed**: caused by wrong patch #57; root task now dispatched |
+| "stuck *inside* kernelInit before root-task dispatch" | re_reference §"Actual blocker" (~L1340) | root task **is** dispatched (rfi @ 0x372838) |
 | "tight reset loop, 18,701 ^^^, kernelInit never reached" | `session_blocker_investigation.md` | old binary `76ca28…`; current boots fine |
-| "root task created, dispatched, 60 ms loop" | `plan.md` (session 20) | not reproducible; root task never reached |
-| "kernelInit never returns" | `qemu_howto.md`, build32_static_analysis | true on HW; **false** in current QEMU |
+| "root task created, dispatched, 60 ms loop" | `plan.md` (session 20) | **reproduced again** after disabling patch #57 |
+| "kernelInit never returns" | `qemu_howto.md`, build32_static_analysis | now TRUE in QEMU too (matches HW) |
 
 ### 0.5 Tests as source of truth  (all three layers built — run `firmware/scripts/run_tests.py`)
 
-Every claim above is (or will be) backed by an assertion, so discrepancies are settled by
-running a test rather than re-reading notes. Three layers:
+Every claim above is backed by an assertion, so discrepancies are settled by running a test
+rather than re-reading notes. Three layers:
 
 1. **Static / RE facts** — `firmware/scripts/test_re_facts.py` *(no QEMU, instant)*: binary
-   SHAs + boot-flow disassembly (`0xa4=bl usrInit`, `0xa8=bl 0x124`, `0x124=b 0x124`,
-   `0x36c424=bl kernelInit`, `0x36c3d4=bl 0xdcb0`, …) read straight from the binary.
+   SHAs + boot-flow disassembly (`0xa4=bl usrInit`, `0x36c424=bl kernelInit`,
+   `0x5a8190=bl taskActivate` (the fix), …) read straight from the binary.
 2. **Dynamic boot** — `firmware/scripts/smoke_test.py` *(QEMU)*: milestone PCs with per-BP
-   `PC==addr` assertions, kernelInit-returns→`0x124` tripwire, MSR.EE-never-set, reset-loop guard.
+   `PC==addr` assertions, the `dispatch` BP (rfi into root task, with `lr`/`r3` register
+   assertions), a `root_task_running` check (+ a regression tripwire if the CPU is ever found
+   back at `0x124`), MSR.EE state, and a reset-loop guard.
 3. **Emulator devices** — `firmware/scripts/test_emulator_devices.py` *(QEMU, no firmware)*:
    asserts the `r1mx-virtex4` memory map matches §6 (every peripheral mapped at its base,
    histogram IP ×5, NOR=128 MB) + NOR-reads-0xFF / RAM-reads-0x00 behavior. 19 facts, ~10 s.
