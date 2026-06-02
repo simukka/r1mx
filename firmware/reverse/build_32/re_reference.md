@@ -11,6 +11,81 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 
 ---
 
+## 0. Current Boot State & Source of Truth — READ FIRST  (verified 2026-06-02)
+
+> Sections 1–22 below are a chronological RE log and contain **superseded conclusions**.
+> Where anything conflicts with §0, **§0 wins**; where §0 is unsure, the **executable tests
+> under `firmware/scripts/` are the ultimate source of truth** — run them, don't argue with prose.
+
+### 0.1 Binary identity  (assert with `firmware/scripts/test_re_facts.py`)
+
+| File | SHA-256 | Role |
+|------|---------|------|
+| `extracted/software.bin` | `416e148c…d9cd` | original decrypted Build 32 v32.0.3 — RE source of truth |
+| `extracted/software.patched.r1mx.bin` | `f7be6c2a…eb42` | QEMU-boot binary (`patch_firmware.py --r1mx`); what the smoke test runs |
+
+### 0.2 Verified boot behavior  (reproduce: `.venv/bin/python firmware/scripts/smoke_test.py`)
+
+QEMU `r1mx-virtex4`, fixed breakpoint harness (steps off each BP — see harness note in §0.5):
+
+| Milestone | Addr | Result | Evidence |
+|-----------|------|--------|----------|
+| usrInit → `bl kernelInit` | `0x36c424` | ✅ reached ~0.1 s | smoke_test PASS |
+| kernelInit entry | `0x5a7f30` | ✅ reached, `lr=0x36c428` | smoke_test PASS |
+| kernelInit **returns** | — | ⚠️ **YES — abnormal** | lr-chain back to boot stub |
+| usrRoot entry | `0x36c440` | ❌ **never reached** | smoke_test 90 s timeout |
+| **terminal state** | `0x124` | 🛑 `b 0x124` dead loop, `lr=0xac` | smoke_test PC sample |
+
+- **No reset loop.** Free-run emits **1** `^^^` line (not the 18,701 of an older binary);
+  firmware reaches `0x124` in ~0.1 s and spins there silently.
+- **MSR.EE never set** — `msr` stays `0x00000000`; external interrupts / PIT tick never enabled.
+
+### 0.3 The blocker, reframed
+
+`kernelInit (0x5a7f30)` **enters and then returns** — instead of starting multitasking and
+never returning. usrInit then runs to its `blr`, returns to the boot stub at `0x00a4`, which
+executes `bl 0x124` (at `0x00a8`) into the `b 0x124` halt loop. Therefore:
+
+- The open question is **not** "why is it stuck inside kernelInit / why isn't the root task
+  dispatched" (the old, disproven diagnosis) but **"why does `kernelInit` return at all?"** —
+  e.g. root task never spawned, scheduler exits immediately, or a firmware/QEMU patch aborts
+  kernel bring-up.
+- `usrRoot (0x36c440)`, `sysClkEnable`, and the workQ spin at `0x5ab0dc` are all **downstream**
+  of the (never-taken) root-task dispatch and are **never reached**. Phase 5 (tick-clock
+  device) is therefore *not* the current blocker.
+
+### 0.4 Superseded claims elsewhere in the repo  (do not trust)
+
+| Claim | Where | Reality |
+|-------|-------|---------|
+| "stuck *inside* kernelInit before root-task dispatch" | re_reference §"Actual blocker" (~L1340) | kernelInit **returns** |
+| "0x124 never entered → kernelInit hasn't returned" | re_reference (~L1345) | 0x124 **is** the terminal state |
+| "tight reset loop, 18,701 ^^^, kernelInit never reached" | `session_blocker_investigation.md` | old binary `76ca28…`; current boots fine |
+| "root task created, dispatched, 60 ms loop" | `plan.md` (session 20) | not reproducible; root task never reached |
+| "kernelInit never returns" | `qemu_howto.md`, build32_static_analysis | true on HW; **false** in current QEMU |
+
+### 0.5 Tests as source of truth  (all three layers built — run `firmware/scripts/run_tests.py`)
+
+Every claim above is (or will be) backed by an assertion, so discrepancies are settled by
+running a test rather than re-reading notes. Three layers:
+
+1. **Static / RE facts** — `firmware/scripts/test_re_facts.py` *(no QEMU, instant)*: binary
+   SHAs + boot-flow disassembly (`0xa4=bl usrInit`, `0xa8=bl 0x124`, `0x124=b 0x124`,
+   `0x36c424=bl kernelInit`, `0x36c3d4=bl 0xdcb0`, …) read straight from the binary.
+2. **Dynamic boot** — `firmware/scripts/smoke_test.py` *(QEMU)*: milestone PCs with per-BP
+   `PC==addr` assertions, kernelInit-returns→`0x124` tripwire, MSR.EE-never-set, reset-loop guard.
+3. **Emulator devices** — `firmware/scripts/test_emulator_devices.py` *(QEMU, no firmware)*:
+   asserts the `r1mx-virtex4` memory map matches §6 (every peripheral mapped at its base,
+   histogram IP ×5, NOR=128 MB) + NOR-reads-0xFF / RAM-reads-0x00 behavior. 19 facts, ~10 s.
+
+> **Harness note:** QEMU re-triggers a `BP_GDB` breakpoint if you `continue` while the CPU is
+> still parked on it (it re-reports the same PC instead of advancing). The smoke test now clears
+> each BP as it fires (step-off) and asserts `PC == milestone`. Earlier milestone data taken
+> without step-off — everything appearing to "stop at 0x36c424" — was a **harness artifact**,
+> not firmware behavior. This is why §0 contradicts the older sessions.
+
+---
+
 ## Table of Contents
 
 1. [PPC405F6 Architecture Reference](#1-ppc405f6-architecture-reference)
@@ -1230,7 +1305,7 @@ With `--r1mx` (59/64 patches) and the `r1mx-virtex4` QEMU machine:
 - **fn_458a14(r3=0/1)** → Patch #44: both return 0 cleanly ✓
 - **fn_36860c** completes — conditional task spawns, all guards false at cold boot ✓
 - **usrInit** fully completes — UART output `^^^123456789\r\n` confirmed ✓
-- **kernelInit (0x5a7f30)** called — never returns; starts VxWorks multitasking ✓
+- **kernelInit (0x5a7f30)** called ✓ — on HW it starts multitasking and never returns, but **in the current QEMU build it RETURNS** (abnormal) → boot-stub halt loop at 0x124. See §0.
 - **usrInit called TWICE** — first from 0x36c3d4 (pre-kernel), second from 0xdde0 (root task) ✓
 - UART emits `^^^123456789\r\n` ~18,700 times during boot — `fn_DCB0` (the hardware sequencer) is invoked once per subsystem brought up across both `usrInit` passes and all nested initializers; the prints stop entirely once boot completes (observed: serial line count frozen at 18,701 for 45+ s). An earlier note in this section claimed the string appears "TWICE" — that was a misread of the last two lines of the log. ✓
 - VxWorks task stack confirmed: r1=0x4cce6df0 (task stack at ~1.28 GB, above kernel pool) ✓
@@ -1321,6 +1396,14 @@ usrInit (0x36c350)
 ```
 - Only one `bl 0x942c` exists in the binary (at `0x36c4e8`). No data-word reference, no lis+addi pair builds `0x942c` anywhere else. `sysClkEnable` is unreachable except via `usrRoot`.
 - `usrRoot` itself has no direct `bl 0x36c440` callers — it is dispatched only as the root task's entry by the VxWorks scheduler after `kernelInit`.
+
+> ⚠️ **SUPERSEDED (2026-06-02 — see §0).** This block's diagnosis ("stuck *inside* kernelInit;
+> 0x124 never entered; kernelInit has not returned") is **disproven** by the corrected
+> breakpoint harness, which steps off each BP. kernelInit **is** reached **and returns**; the
+> firmware's terminal state is the `0x124` halt loop, and usrRoot is never reached. The earlier
+> data came from a harness that re-triggered the BP at `0x36c424` on every `continue` (so the
+> PC never advanced past it). The "65-patch" binary cited here also predates the current
+> `software.patched.r1mx.bin` (sha `f7be6c2a…`). Retained for history only.
 
 **Actual blocker (live QEMU trace, 30 s run, `--r1mx` 65-patch binary):**
 - `usrInit` (`0x36c350`) runs through to `0x36c424` (`bl kernelInit`) → enters `kernelInit @ 0x5a7f30`.

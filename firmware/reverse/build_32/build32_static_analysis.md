@@ -71,7 +71,7 @@ Total size: 14.55 MB (0xE8BF20 bytes)
 0x0088:  addi r1, r1, 0
 0x008c:  addi r1, r1, -0x10        ; SP = 0x0000FFF0
 0x00a4:  bl 0x36c350               ; → main boot init function
-0x00a8:  bl 0x124                  ; → infinite halt loop (never reached)
+0x00a8:  bl 0x124                  ; → infinite halt loop (REACHED in current QEMU; see re_reference §0)
 ```
 
 **romInit SP instruction for QEMU patch:**

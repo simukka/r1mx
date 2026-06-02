@@ -1,5 +1,12 @@
 # Session — Blocker Investigation
 
+> ⚠️ **SUPERSEDED (2026-06-02).** The "tight reset loop / 18,701 `^^^` / kernelInit never
+> reached" finding below was observed on an **older binary** (sha `76ca28…`, 59 patches). The
+> current `software.patched.r1mx.bin` (sha `f7be6c2a…`) does **not** reset-loop: free-run emits
+> 1 `^^^`, and kernelInit is reached in ~0.1 s (it then returns → `0x124` halt loop). See
+> `re_reference.md` §0 and `firmware/scripts/smoke_test.py` for current truth. The
+> static-analysis findings below (descriptor at `0x020390d0`, the arg-passing path) remain valid.
+
 ## Goal
 
 Find what populates the root-task descriptor at `0x020390d0` so `fn_382e80`

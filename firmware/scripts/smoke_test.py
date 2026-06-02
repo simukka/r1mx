@@ -5,10 +5,12 @@ Launches QEMU in debug mode, connects the GDB RSP stub, sets breakpoints at
 key boot milestones, and verifies the firmware reaches each one in order.
 
 Checks performed (in order):
-  [1] reset_loop   -- UART ^^^ count stays < threshold before usrInit
-  [2] usrInit      -- BP at 0x36c424 fires (kernelInit call site; usrInit done)
-  [3] kernelInit   -- BP at 0x5a7f30 fires (VxWorks multitasking starting)
-  [4] usrRoot      -- BP at 0x36c440 fires (root task dispatched by scheduler)
+  [1] reset_loop     -- UART ^^^ count stays < threshold before usrInit
+  [2] usrInit        -- BP at 0x36c424 fires (kernelInit call site; usrInit done)
+  [3] kernelInit     -- BP at 0x5a7f30 fires (VxWorks multitasking starting)
+  [4] terminal_state -- after kernelInit, race usrRoot (0x36c440) vs halt loop (0x124);
+                        0x124 currently wins (kernelInit returns) -- see re_reference §0.3
+  [5] msr_ee         -- MSR.EE == 0 at terminal state (external interrupts never enabled)
 
 When a milestone BP times out the test halts QEMU with Ctrl-C and runs a set of
 assumption checks against the live CPU/memory state to explain the stall.
@@ -34,6 +36,12 @@ GDB RSP protocol notes (see re_reference.md §15 for full details):
     - Filter 'O' (console output) packets in wait_stop; look for T02/T03/T05
     - Both Z0 (SW) and Z1 (HW) BPs use the same TCG cpu_breakpoint_insert path;
       they bypass firmware exception handlers entirely (no 0x700 involvement)
+    - After a BP fires you MUST clear it (or single-step) before the next 'c'.
+      QEMU re-triggers a BP_GDB breakpoint if you continue while the CPU is
+      still parked on it: continue re-reports the SAME PC instead of advancing.
+      (Verified with bp_probe: continue from 0x36c424 re-hit 0x36c424; clearing
+      the BP first let it advance to kernelInit @ 0x5a7f30.)  The milestone loop
+      below clears each BP as it fires so the next continue steps off it.
     - SPR encoding: spr = ((w >> 11) & 0x1f) << 5 | ((w >> 16) & 0x1f)
 """
 
@@ -104,16 +112,9 @@ MILESTONES: list[Milestone] = [
             ("intCnt @ 0xe2942c",      0xe2942c,   4),
         ],
     ),
-    Milestone(
-        key="usrRoot",
-        addr=0x36C440,
-        label="usrRoot entry     (root task dispatched by scheduler)",
-        timeout_s=90.0,
-        mem_reads=[
-            ("kernelState @ 0x10d0580", 0x010d0580, 4),
-            ("workQ flag @ 0x10d0584",  0x010d0584, 4),
-        ],
-    ),
+    # usrRoot (0x36c440) is intentionally NOT a linear milestone: it is never
+    # reached in the current build because kernelInit returns first.  It is
+    # checked by the post-kernelInit terminal-state race instead (_terminal_race).
 ]
 
 # ^^^ lines seen before usrInit BP fires; >this means reset loop
@@ -125,6 +126,7 @@ RESET_LOOP_THRESHOLD = 5
 # ---------------------------------------------------------------------------
 
 _STALL_RANGES: list[tuple[int, int, str]] = [
+    (0x000124, 0x000124, "at post-usrInit dead loop (b 0x124) — usrInit+kernelInit RETURNED; boot stub spins"),
     (0x36C350, 0x36C43F, "in usrInit body (pre-kernelInit)"),
     (0x5A7F30, 0x5A9000, "in kernelInit setup"),
     (0x5AB0DC, 0x5AB0DC, "at workQ spin — windWorker waiting for timer ISR"),
@@ -143,6 +145,10 @@ _WORQQ_SPIN_ADDR = 0x5AB0DC
 _WORQQ_FLAG_ADDR = 0x010D0584
 _INT_CNT_ADDR    = 0xe2942c
 _KERNEL_STATE    = 0x010D0580
+
+# Terminal-state race (post-kernelInit): usrRoot vs boot-stub halt loop.
+USRROOT_ADDR   = 0x0036C440   # usrRoot entry (desired; never reached in current build)
+HALT_LOOP_ADDR = 0x00000124   # boot-stub `b 0x124` dead loop (current terminal state)
 
 
 def _infer_stall_stage(pc: int) -> str:
@@ -554,6 +560,91 @@ def _print_result(r: CheckResult) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Terminal-state race (post-kernelInit)
+# ---------------------------------------------------------------------------
+
+_TERMINAL_LABELS = {
+    "terminal_state": "Terminal state = halt loop 0x124 (kernelInit returned)",
+    "msr_ee": "MSR.EE == 0 at terminal state (interrupts never enabled)",
+}
+
+
+def _terminal_race(
+    gdb: GdbRsp,
+    enabled_checks: set[str],
+    timeout_scale: float,
+) -> list[CheckResult]:
+    """Race usrRoot (0x36c440) against the boot-stub halt loop (0x124).
+
+    Encodes re_reference.md §0.2/§0.3: after kernelInit *returns* (abnormal),
+    usrInit returns to the boot stub which `bl 0x124`'s into a `b 0x124` dead
+    loop, and usrRoot is never reached.  Sets a BP at both addresses and resumes
+    once -- whichever fires reveals the terminal state in well under a second
+    (replacing the old 90 s usrRoot timeout).
+
+    TRIPWIRE semantics: `terminal_state` PASSes while the firmware ends at 0x124
+    (the documented current blocker).  If usrRoot wins instead, it FAILs with a
+    "blocker resolved" message -- that failure is GOOD NEWS and the cue to update
+    re_reference §0 and this expectation.
+    """
+    results: list[CheckResult] = []
+    gdb.set_bp(USRROOT_ADDR)
+    gdb.set_bp(HALT_LOOP_ADDR)
+    print(f"\n  [*] Terminal-state race: usrRoot(0x{USRROOT_ADDR:06x}) "
+          f"vs halt-loop(0x{HALT_LOOP_ADDR:06x})...")
+    gdb.resume()
+    reply = gdb.wait_stop(timeout=30.0 * timeout_scale)
+    if reply is None:
+        gdb.interrupt()
+    regs = gdb.get_regs()
+    pc = regs.get("pc", 0)
+    gdb.clear_bp(USRROOT_ADDR)
+    gdb.clear_bp(HALT_LOOP_ADDR)
+
+    if "terminal_state" in enabled_checks:
+        if pc == HALT_LOOP_ADDR:
+            r = CheckResult(
+                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
+                status=PASS,
+                detail=("reached 0x124 halt loop -- kernelInit RETURNED to the boot "
+                        "stub (current blocker, re_reference §0.3). TRIPWIRE: if this "
+                        "ever stops at usrRoot 0x36c440, the blocker is resolved -- "
+                        "update re_reference §0."),
+                regs=regs,
+            )
+        elif pc == USRROOT_ADDR:
+            r = CheckResult(
+                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
+                status=FAIL,
+                detail=("usrRoot (0x36c440) reached -- kernelInit-returns blocker "
+                        "appears RESOLVED (good news!). Update re_reference §0.2/§0.3 "
+                        "and this test's expected terminal state."),
+                regs=regs,
+            )
+        else:
+            r = CheckResult(
+                key="terminal_state", label=_TERMINAL_LABELS["terminal_state"],
+                status=FAIL,
+                detail=(f"unexpected terminal PC=0x{pc:08x} "
+                        f"({_infer_stall_stage(pc)}); expected 0x124 or usrRoot 0x36c440"),
+                regs=regs,
+            )
+        results.append(r)
+
+    if "msr_ee" in enabled_checks:
+        msr = regs.get("msr", 0)
+        ee = bool(msr & 0x8000)
+        results.append(CheckResult(
+            key="msr_ee", label=_TERMINAL_LABELS["msr_ee"],
+            status=PASS if not ee else FAIL,
+            detail=f"msr=0x{msr:08x}  (EE={'1 -- UNEXPECTED' if ee else '0'})",
+            regs=regs,
+        ))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Smoke test runner
 # ---------------------------------------------------------------------------
 
@@ -690,10 +781,38 @@ def run_smoke_test(
                     prev_failed = True
                     continue
 
-                # BP fired -- read registers and memory
+                # BP fired -- read registers to verify *which* BP we hit.
                 regs = gdb.get_regs()
                 pc = regs.get("pc", 0)
 
+                # Step off this BP so the *next* resume() actually advances.
+                # QEMU re-triggers a BP_GDB breakpoint if you continue while the
+                # CPU is still parked on it (see GDB RSP notes in the docstring),
+                # which otherwise makes every later milestone false-PASS by
+                # re-reporting this same address.  Clearing it here is the
+                # step-over.
+                gdb.clear_bp(m.addr)
+
+                # PC assertion: the BP that fired must be *this* milestone's
+                # address.  Without this the loop reports PASS for whatever
+                # address came back, so a stale/re-triggered earlier BP leaking
+                # through would be mistaken for reaching this milestone.
+                if pc != m.addr:
+                    r = CheckResult(
+                        key=m.key, label=m.label, status=FAIL,
+                        detail=(
+                            f"stopped at 0x{pc:08x} but expected 0x{m.addr:08x} "
+                            f"after {elapsed:.1f}s -- wrong BP fired "
+                            f"({_infer_stall_stage(pc)}); milestone NOT validated"
+                        ),
+                        regs=regs,
+                    )
+                    results.append(r)
+                    _print_result(r)
+                    prev_failed = True
+                    continue
+
+                # Expected BP -- read milestone memory probes.
                 mem_vals: dict[str, int] = {}
                 for label, addr, size in m.mem_reads:
                     raw = gdb.read_mem(addr, size)
@@ -709,9 +828,25 @@ def run_smoke_test(
                 results.append(r)
                 _print_result(r)
 
+            # -- Terminal-state race + MSR.EE (post-kernelInit) -----------
+            want_terminal = enabled_checks & {"terminal_state", "msr_ee"}
+            if want_terminal and not prev_failed:
+                for r in _terminal_race(gdb, enabled_checks, timeout_scale):
+                    results.append(r)
+                    _print_result(r)
+            elif want_terminal:
+                for key in ("terminal_state", "msr_ee"):
+                    if key in enabled_checks:
+                        results.append(CheckResult(
+                            key=key, label=_TERMINAL_LABELS[key], status=SKIP,
+                            detail="skipped: a preceding milestone failed",
+                        ))
+
         finally:
             for m in active_milestones:
                 gdb.clear_bp(m.addr)
+            gdb.clear_bp(USRROOT_ADDR)
+            gdb.clear_bp(HALT_LOOP_ADDR)
             gdb.close()
 
     # Add skipped reset_loop if it wasn't evaluated (e.g. usrInit not in checks)
@@ -730,7 +865,7 @@ def run_smoke_test(
 # Entry point
 # ---------------------------------------------------------------------------
 
-ALL_CHECK_KEYS = {"reset_loop"} | {m.key for m in MILESTONES}
+ALL_CHECK_KEYS = {"reset_loop", "terminal_state", "msr_ee"} | {m.key for m in MILESTONES}
 
 
 def main() -> int:
@@ -784,6 +919,8 @@ def main() -> int:
         print("  reset_loop  -- UART ^^^ count stays below threshold before usrInit")
         for m in MILESTONES:
             print(f"  {m.key:<12} -- {m.label} (BP @ 0x{m.addr:08x})")
+        print(f"  {'terminal_state':<12} -- {_TERMINAL_LABELS['terminal_state']}")
+        print(f"  {'msr_ee':<12} -- {_TERMINAL_LABELS['msr_ee']}")
         return 0
 
     # Validate paths

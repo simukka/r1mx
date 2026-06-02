@@ -12,6 +12,12 @@ Strategy: decompile first, patch second.
 
 ## Current State (session 20)
 
+> ⚠️ **OUTDATED (2026-06-02).** The "root task created, dispatched, running 60 ms loop" claims
+> below are **not reproducible** on the current binary (`software.patched.r1mx.bin`, sha
+> `f7be6c2a…`). Verified current state: kernelInit is reached **and returns**; usrRoot / the
+> root task are **never reached**; firmware halts in the `0x124` dead loop. Authoritative status
+> + reproduction: `re_reference.md` §0 and `firmware/scripts/smoke_test.py`.
+
 - **54 patches** in firmware/scripts/patch_firmware.py (committed to `reverse-build-32`)
 - Boot progress (fully confirmed):
   - fn_36e168 completes — VxWorks exception handlers installed ✓
