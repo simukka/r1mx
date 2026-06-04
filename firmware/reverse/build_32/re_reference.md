@@ -22,7 +22,7 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 | File | SHA-256 | Role |
 |------|---------|------|
 | `extracted/software.bin` | `416e148c…d9cd` | original decrypted Build 32 v32.0.3 — RE source of truth |
-| `extracted/software.patched.r1mx.bin` | `281ef88a…9d7c` | QEMU-boot binary (`patch_firmware.py --r1mx`, 59 patches); what the smoke test runs. **Changed 2026-06-02** when the wrong patch #57 was disabled (was `f7be6c2a…eb42`, 60 patches). |
+| `extracted/software.patched.r1mx.bin` | `f97e33a1…5550` | QEMU-boot binary, built from source: `make -C firmware/reverse/build_32/src install`. **Lean default since 2026-06-02** — 29 patch sections: 27 bisected-redundant patches dropped + #1/#2/#3 moved into the qemu-r1mx machine. Requires the patched `r1mx-virtex4` machine. `make full` rebuilds the legacy 59-patch image (`281ef88a…`). |
 
 ### 0.2 Verified boot behavior  (reproduce: `python3 firmware/scripts/smoke_test.py`)
 
@@ -34,14 +34,16 @@ QEMU `r1mx-virtex4`, fixed breakpoint harness (steps off each BP — see harness
 | kernelInit entry | `0x5a7f30` | ✅ reached | smoke_test PASS |
 | **rfi context-switch INTO root task** | `0x372838` | ✅ **fires** (`lr=0x381a8c`, `r3=0x020390d0`) | smoke_test `dispatch` PASS |
 | root task body running | `0x380000`–`0x383fff` | ✅ executing (e.g. PC `0x381938`) | smoke_test `root_task_running` PASS |
-| `sysClkEnable` / workQ spin | `0x942c` / `0x5ab0dc` | ❌ not yet reached | downstream of the root-task loop |
+| `sysClkEnable` | `0x942c` | ❌ not reachable from this image | only via `usrRoot` (rootRtn `0x37C440`); this post-boot snapshot dispatches into OpenSSL X.509v3 code at `0x381a8c` instead — see §0.3 |
 
 - **No reset loop.** Free-run emits **1** `^^^` line, then the root task runs silently.
 - **kernelInit no longer returns** — it dispatches the root task and hands off to the scheduler.
-- **MSR.EE still 0** — the root task spins in an early polling loop (`0x380000`–`0x383400`)
-  *before* it reaches `sysClkEnable`, so the PIT tick / external interrupts are not yet enabled.
+- **MSR.EE still 0** — the dispatched PC (`0x381a8c`, forced by patches #53a/b/c/55) lands in
+  **OpenSSL 0.9.8a X.509v3 parsing code** (Wind River Security Libraries) chewing on an empty,
+  zero-filled buffer at `0x020390d0`. This is a *patch artifact*, not the camera's real root
+  task. See §0.3.
 
-### 0.3 The blocker — RESOLVED, and the new frontier
+### 0.3 The blocker — RESOLVED; the frontier — CHARACTERIZED
 
 **Root cause (fixed 2026-06-02):** firmware patch **#57** (`patch_firmware.py`) NOP'd
 `bl 0x5b11ac` at `0x5a8190` — which is kernelInit's call to **`taskActivate`** (the first
@@ -58,14 +60,128 @@ kernelInit 0x5a8190  bl taskActivate (0x5b11ac→0x5b0ff4)
             └─ rfi 0x372838   →  root task @ 0x381a8c  (r3 = descriptor 0x020390d0)
 ```
 
-**New frontier:** the root task (`0x381a8c`) runs but **spins in a polling loop across
-`0x380000`–`0x383400`** (recurring through `0x3801cc → 0x380ea4 → 0x382c78 → 0x383000`). It is
-the only ready task and `MSR.EE=0`, so nothing external (interrupt/other task) can change the
-state it polls. It never reaches `sysClkEnable`. The open questions are now:
-1. What does the `~0x380ea4` loop poll, and what would satisfy it? (Likely the old
-   `0x020390d0` descriptor-population / command-dispatch question — see §53a and the dispatcher
-   `fn_382e80`.)
-2. Does the root task ever reach `sysClkEnable` (0x942c) to start the PIT tick (Phase 5)?
+**Frontier — IDENTIFIED 2026-06-02** (`probe_loop2.py`, `trace_root_task.py`, rodata xref scan).
+The dispatched task (`0x381a8c`) runs a clean, deterministic high-level loop:
+
+```
+0x381a8c (top) → fn_381a38 → fn_381824 → fn_382e80 → fn_382bec → loop back to 0x381a8c
+```
+
+with the pointer in `r3` advancing ~6 bytes/iteration over the buffer at `0x020390d0`. **An
+earlier reading of this as a "camera command interpreter walking 6-byte records" was WRONG.**
+A scan of every absolute rodata reference made by the `0x380000–0x383fff` code block resolves
+them to **OpenSSL 0.9.8a (11 Oct 2005) X.509v3 / ASN.1 source** — file strings `v3_crld.c`,
+`v3_info.c`, `v3_pmaps.c`, `v3_pcons.c`, `a_utctm.c`; identifiers `CRLDistributionPoints`,
+`distpoint`, `reasons`, `name.fullname`, `name.relativename`, `RelativeName`, `POLICY_MAPPING`,
+`requireExplicitPolicy`, `inhibitPolicyMapping`, `permittedSubtrees`, `removeFromCRL`,
+`noticenos`, `pqualid`; and the banner **`Wind River Security Libraries`** (the WR OpenSSL port).
+`fn_381824` itself builds pointers to `POLICY_MAPPING` and `Wind River Security Libraries`.
+
+So `0x381a8c…0x383fff` is **OpenSSL X.509v3 certificate-extension parsing/printing code**, not a
+RED command language. The `'Q'`/`'Z'`/`'_'`/`'__L'` "tokens" are OpenSSL CONF/extension-value
+parsing; `fn_3802d4` is a prefix-match (`strncmp`-style); `fn_380ea4` is a bounded byte-peek.
+The buffer at `0x020390d0` is just an empty string/CONF pointer OpenSSL was handed — **not** a
+command table and **not** CMOS sensor data. In QEMU it is zero-filled heap (it lies at ≈32 MB,
+beyond the `0xe8bf20` image), so the parser walks an empty value forever, `MSR.EE=0` throughout.
+It does not crash and does not reach `sysClkEnable`.
+
+**Why this is a patch artifact, not the real boot:** the dispatch to `0x381a8c` is *forced* by
+patches #53a/b/c/55. The image's root-task TCB has `TCB+0x94 = 0` (stale, snapshot) which equals
+the stale global `*(0xE3A790)=0`, so `fn_371cd0` takes its if-path and the patches overwrite the
+PC slot with the hard-coded `0x381a8c` — a valid in-image code address the patch author landed on
+and misread as a "command dispatcher." The **natural** root routine is `usrRoot` (rootRtn
+`0x37C440`, passed by usrInit at `0x36c424`: `lis r3,0x38; addi r3,r3,-0x3bc0`), and the natural
+`taskInit` entry is `0x0ff96280` — a heap pointer (`= pStackBase − stackSize`), zero in QEMU,
+which is exactly why the patches reroute it. The cold `usrRoot`/`sysClkEnable` path already ran on
+the live camera before the dump.
+
+**Snapshot insight (confirmed):** `software.bin` (decrypted from `redone.1`, the distributed
+`redone.su` upgrade) was built from a **memory image of a booted camera** — `.data`/heap carry
+running-state (`intCnt=0x552F30` patch #47; `sysMemTop=0x4CCECBD7`, `sysPhysMemTop=0x395944A3`
+caches at `0xE0C37C/0x80`). The heap region (`0x01153480–0x0FFFFFFF`) is **beyond the captured
+file**, so the data the real root task would have used (and the relocated code at `0x0ff96280`)
+is simply not present.
+
+**What populates `0x020390d0`? Nothing, in this emulation** (verified): a write-watchpoint on the
+buffer caught **0 writes** across the full boot — the dispatched code only reads it. The pointer
+is delivered as the task's GPR3 (arg1) via `taskArgsSet` (`fn_371bac`, writes `TCB+0x1cc`); the
+value is never a file constant. Its contents were produced by an agent outside the captured state
+(another task/loader, gated behind interrupts that never fire here) and lived in the uncaptured heap.
+
+**Ruled out (experiment):** that #53a/b/c/55 are wrong like #57. Disabling all four → **reset
+loop** (`kernelInit → taskActivate → rfi(lr=0) → kernelInit`, ×9): the natural else-path of
+`fn_371cd0` (`fn_371c74` → stale fn-ptr `*(0xE293F4)=0x542974`) does not yield a working task
+given the snapshot's stale TCB/globals. So #53a/b/c/55 are **load-bearing** (force a non-crashing
+dispatch). Reverted; committed binary unchanged (`281ef88a…`).
+
+**Realistic next steps** (cold `sysClkEnable` is not reconstructable from this post-boot image):
+- Treat `0x381a8c…0x383fff` as **upstream OpenSSL 0.9.8a** (WR Security Libraries); map addresses
+  to `crypto/x509v3/*.c` + `crypto/asn1/*.c` rather than hand-decompiling. The dispatch into it is
+  an artifact and is not on the camera's real boot path.
+- For the PIT tick (Phase 5), do not rely on re-running `usrRoot`; drive the external timer /
+  `MSR.EE` emulator-side.
+
+#### Patch necessity map (unwind, bisected 2026-06-02)
+
+Built from `firmware/reverse/build_32/src` (`make r1mx DROP=<offset>` + `smoke_test`), every
+r1mx patch was tested for whether the boot still reaches the dispatch+liveness state. Result:
+**27 of the 59 r1mx patches are NOT needed** — `make minimal` builds without them (32 sections)
+and passes the **full** smoke test identically (SHA `72bff3e3…` vs the 59-patch `281ef88a…`).
+
+**Redundant (27 — tagged `[REDUNDANT for dispatch]` in `patches.S`, excluded by `make minimal`):**
+
+| Patches | Note |
+|---|---|
+| `#22–#33` BSS sentinels (`e26ddc, e27000, e276b8, e27bd4, e29438, e2a3c8, e2a748, e2a918, e2a994, e2a9b4, e2b590, e2b7d8`) | 12 — only the first sentinel (`#21`) matters |
+| `#10–#12` bcopy guards (`388280, 388284, 3878cc`) | 3 — guarded path not taken |
+| `#65` `fn_371c74` fn-ptr null (`371c9c`) | 1 — if-path bypasses `fn_371c74` |
+| `#49+#50` `fn_5b58a8` vtable-bypass pair (`5b5964, 5b596c`) | 2 |
+| `#53b` fast-exit NOP (`381ad0`) | 1 |
+| `#58+#59` `fn_38038c` overflow-redirect pair (`38042c, 380430`) | 2 |
+| `#61` deferred-ctor NOP (`37c33c`) | 1 |
+| `#55` bne-NOP (`371d5c`) | 1 — comparison is already equal (TCB+0x94==global==0), so the if-path is taken without forcing it |
+| `#34, #35` SSD `IsCompatible` bypasses (`5d552c, 5d58e8`) | 2 |
+| `#62` Program-Exception handler rewrite (`0x700`) | 1 — **0x700 never fires** during this boot; dropping it restores the firmware's own handler (more faithful) |
+| `#63` `0x734` bctrl NOP | 1 — that hardware-dispatch path is not taken |
+
+**Moved into qemu-r1mx (3 — `[MOVED TO qemu-r1mx]` in `patches.S`, also dropped from default):**
+
+| Patch | Now supplied by the machine |
+|---|---|
+| `#1` romInit SP relocate (`0x84`) | The flat-load model puts the boot stack (`0xFFF0`) inside the image; `r1mx_apply_boot_env_fixups` writes the relocated `lis r1,0x800` so the deep usrInit stack clears the image. |
+| `#2/#3` canary spin NOPs (`36c388/394`) | The machine seeds the VxWorks canary VALUES (`0x12348765@0xE269A4`, `0x5A5AC3C3@0xE269A0`) — modelling the init agent — so the spin exits naturally. |
+
+Implemented in `hw/ppc/r1mx_virtex4.c` (`r1mx_apply_boot_env_fixups`, a VM-state-change handler
+that fires on RUNNING, after the `-device loader` populates RAM, before the vCPU executes). The
+writes are idempotent, so the legacy `make full` 59-patch image still boots on the patched machine.
+
+**Load-bearing in the firmware (29):** `#21`, `#6`, `#7–#9` vtable ptrs, `#13–#20` bctrl bypasses,
+`#36/#44/#45/#46`, `#51/#52/#53` (sysMemTop/intCnt); `#47+#48` `fn_5b57b0` pair, `#53a` PC hardcode,
+`#53c` LR slot, `#54` scheduler null-deref; `#4` SSL verify-callback skip. `#5` (BSS-memset skip)
+is **optimization only** (boot works without it, ~15 s slower).
+
+"Redundant" means *not needed to reach the current (OpenSSL-artifact) dispatch state* — these
+patches prevent crashes on code paths this boot does not take. If the dispatch is later
+redirected toward the real root task, re-evaluate (which is why they remain in `patches.S`).
+
+#### What was moved to qemu-r1mx, and what stays
+
+Applying the test "does this patch compensate for an *emulator inaccuracy* (vs. the image being a
+RAM snapshot, or un-emulatable crypto)?":
+
+- **Moved (#1/#2/#3):** boot-environment items — the flat-load boot stack (#1) and the missing
+  init-agent canaries (#2/#3). Now in the machine (`r1mx_apply_boot_env_fixups`); dropped from the
+  default firmware image.
+- **No new device emulation needed.** The only MMIO/device patches were the 5 `DEVICE_GAP`
+  (XUartLite) ones, already handled — the r1mx-virtex4 machine maps the real device (`bamboo_only`).
+- **`#62`/`#63` are not emulator gaps** — bisection shows they're redundant (no program exception
+  fires on this path). The real CPU-emulation fixes already live in qemu-r1mx (cputlb truncation,
+  mmu_helper cast, SLER abort, FSL stubs).
+- **Everything else stays firmware:** snapshot `.data`/BSS, dispatch scaffolding, and crypto — not
+  emulator responsibilities (post-boot RAM snapshot; crypto needs keys/hardware).
+
+**Result: the default image is 29 patch sections** (`f97e33a1…`); `make full` keeps the legacy 59
+(`281ef88a…`). Both require the patched `r1mx-virtex4` machine.
 
 ### 0.4 Superseded claims elsewhere in the repo  (do not trust)
 
@@ -1249,7 +1365,7 @@ Disassembly:
 
 Applied in addition to the Phase 1 patches above. All offsets are also runtime addresses (firmware loads at 0x0).
 
-Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches and produce `software.patched.r1mx.bin`. Omit `--r1mx` for the bamboo-machine binary.
+Build with `make -C firmware/reverse/build_32/src install` to produce `software.patched.r1mx.bin`. Use `make all` for the bamboo-machine binary (includes the `DEVICE_GAP` group). Patches are flag-gated assembly in `firmware/reverse/build_32/src/patches/patches.S`; see that tree's `README.md`. (The legacy `patch_firmware.py` byte-patcher has been retired.)
 
 ### Complete Patch Table (54 patches — current as of session 20)
 
@@ -1291,7 +1407,7 @@ Run `cd firmware && python3 scripts/patch_firmware.py --r1mx` to apply patches a
 | **54b** | **3** | **`0x380430`** | **fn_38038c NULL-buffer guard pt 2: `bl 0x38029c` → `bc 12,30,0x380404` — NULL r29 skips to safe return, avoiding exception-vector corruption and infinite descriptor scan** |
 
 **sha256 of current r1mx patched binary (59/64 patches, `--r1mx`):**
-_Recompute with: `.venv/bin/python firmware/scripts/patch_firmware.py --r1mx && sha256sum firmware/reverse/build_32/extracted/software.patched.r1mx.bin`_
+_Recompute with: `make -C firmware/reverse/build_32/src verify` (builds and asserts the SHA)._
 
 > Patches #37-41 are bamboo-machine MMIO NOPs and are **skipped** by `--r1mx`
 > because `r1mx-virtex4` maps those peripherals with real device models.
@@ -2349,11 +2465,16 @@ period <n>,<func>   # call function every n ticks
 
 ```
 redone.su                  ← POSIX tar archive
-├── redone.1               ← AES-256-CBC encrypted gzip of software.bin
-├── redone.2               ← AES-256-CBC encrypted (splash screen or VP-FPGA)
-├── redone.3               ← AES-256-CBC encrypted gzip of fpga.bin (I/O FPGA)
-└── redone.4               ← AES-256-CBC encrypted (config / version manifest)
+├── redone.1               ← AES-256-CBC encrypted gzip of software.bin (8.55 MB)
+├── redone.2               ← RSA-1024 SIGNATURE over the software payload (128 B)
+├── redone.3               ← AES-256-CBC encrypted gzip of fpga.bin (I/O FPGA, 1.62 MB)
+└── redone.4               ← RSA-1024 SIGNATURE over the FPGA payload (128 B)
 ```
+
+> **Corrected 2026-06-04:** redone.2/4 are NOT splash/manifest — they are 128-byte
+> RSA-1024 signatures. The upgrade flow RSA-verifies them against an embedded public
+> key (`0x6726F0`) before flashing, so a modified redone.1 with the original redone.2
+> **fails verification**. Full analysis + install paths: `upgrade_install_analysis.md`.
 
 ### Decryption
 
@@ -2529,9 +2650,9 @@ apt install radare2
 Before booting, generate the patched binary:
 
 ```bash
-cd ~/src/r1mx/firmware
-python3 scripts/patch_firmware.py --r1mx
-# Applies 41 of 46 patches (5 bamboo-only patches skipped)
+cd ~/src/RED/r1mx/firmware/reverse/build_32/src
+make install
+# Applies 59 of 64 patches (5 DEVICE_GAP/bamboo patches skipped for r1mx)
 # Output: reverse/build_32/extracted/software.patched.r1mx.bin
 # SHA-256: d6bd531325652aae94d0690b8922fb5bd6134e7ee57712c596f387d17534c359
 ```

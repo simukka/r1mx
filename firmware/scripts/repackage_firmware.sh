@@ -68,7 +68,7 @@ echo ""
 # Validate inputs
 if [[ ! -f "$INPUT" ]]; then
     echo "ERROR: input not found: $INPUT" >&2
-    echo "  Run first: python3 scripts/patch_firmware.py" >&2
+    echo "  Run first: make -C reverse/build_32/src install" >&2
     exit 1
 fi
 
@@ -78,9 +78,17 @@ echo "    sha256: $(sha256sum "$INPUT" | cut -d' ' -f1)"
 echo ""
 
 # Locate supporting files
-# redone.2: usually splash screen or VP-FPGA — keep original
-# redone.3: I/O FPGA bitstream — keep original (we're only modifying software)
-# redone.4: version manifest — keep original
+# CORRECTED (see reverse/build_32/upgrade_install_analysis.md):
+# redone.2: RSA-1024 SIGNATURE over the software payload (128 bytes)
+# redone.3: I/O FPGA bitstream — AES-256-CBC( gzip(fpga.bin) ) — keep original
+# redone.4: RSA-1024 SIGNATURE over the FPGA payload (128 bytes)
+#
+# WARNING: keeping the original redone.2 while replacing redone.1 with MODIFIED
+# software yields a package that FAILS RSA verification on a real camera
+# ("Verifying %s's signature..." -> "Error Verifying Data"). This recipe is valid
+# only for repackaging the UNMODIFIED image. Installing modified firmware needs
+# RED's private key, a re-sign against an embedded key we control, or a hardware
+# reflash.
 
 check_file() {
     local path="$1"
@@ -117,9 +125,9 @@ if [[ -z "$SRC_DIR" ]]; then
 fi
 
 echo "[*] Supporting files from: $SRC_DIR"
-check_file "$SRC_DIR/redone.2" "redone.2 (splash/VP-FPGA)" || exit 1
+check_file "$SRC_DIR/redone.2" "redone.2 (RSA-1024 sig of software)" || exit 1
 check_file "$SRC_DIR/redone.3" "redone.3 (I/O FPGA bitstream)" || exit 1
-check_file "$SRC_DIR/redone.4" "redone.4 (version manifest)" || exit 1
+check_file "$SRC_DIR/redone.4" "redone.4 (RSA-1024 sig of FPGA)" || exit 1
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
