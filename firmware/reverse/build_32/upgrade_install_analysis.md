@@ -104,6 +104,34 @@ upgrade key is ours (and/or verify relaxed), then sign OTA upgrades ourselves.
      confirm the camera accepts it (sanity: our packaging is correct).
    - Then flash a reflashed modified image and an OTA upgrade signed by our key.
 
+## Cross-build security evolution (when signing was introduced)
+
+`firmware/scripts/build_security_matrix.sh` sweeps every archive in
+`firmware/builds/` (run it to reproduce):
+
+| Builds | Versions | Package | Encrypted | Sig files | RSA verify | Pubkeys |
+|--------|----------|---------|-----------|-----------|-----------|---------|
+| **13, 15** | v1.8.8 – v2.2.5 | `su.tar` | **no** | **no** | **no** | **0** |
+| **16 → 32** | v3.2.5 – v32.0.3 | `redone.su` | yes | 2 × 128 B | **yes** | 2 |
+
+- **Signing + encryption were introduced at Build 16 (v3.2.5).** Builds 13 and 15 are
+  plain gzipped `su.tar` with no AES, no signatures, and **no OpenSSL/verify stack in
+  the firmware at all**. (Corrects the old `analyze_build.py` note "≤16 unencrypted":
+  the real boundary is ≤15.)
+- **Key reuse:** only **two** distinct RSA-1024 public keys appear across *all* signed
+  builds 16→32 (sha256[:16] `5ab5989ca561bcd7`, `867c16beec236b18`) — never rotated in
+  ~5 years. So a single embedded-key swap (or key compromise) covers every signed build.
+- **Legacy `su.tar` lead (unverified):** Build 32's `UpgradeMC::SmartUpgrade` still
+  emits `"Upgrade file 'su.tar' detected"`. If the signed firmware still *processes* a
+  legacy unsigned `su.tar` (vs only the signed `redone.su`), that is a **signature
+  bypass** — modified firmware installable unsigned. TODO: trace SmartUpgrade to
+  confirm whether the `su.tar` path skips verification or is vestigial GUI text.
+
+Right-to-repair takeaways: Builds 13/15 are freely modifiable but only directly useful
+on a camera already running an unsigned build (a signed camera won't downgrade through
+the verified path). The high-value leads are the **legacy `su.tar` path** (if live) and
+the **embedded-key swap after a hardware reflash**.
+
 ## Components on disk
 Original `redone.su` is at `firmware/reverse/build_32/build_32_v32.0.3/upgrade/redone.su`
 (and `firmware/builds/build_32_v32.0.3.zip`). Extract `redone.1–4` from it for any
