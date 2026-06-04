@@ -267,3 +267,36 @@ The SSD must report (via ATA IDENTIFY):
 - VxWorks param registration API: `0x4B7BD8`, `0x4B600C`, `0x4B4B80`, `0x4B50DC`
 - Error/log fn: `0x4A6438`
 - Digmag module code: `0x4A0000–0x4E0000` (main), `0x5D0000–0x5D3000` (additional)
+
+---
+
+## Unlock trace — 2026-06-04 (corrects the "li r3,1" approach)
+
+Tracing the compatibility gate for a **source-level** (relink) unlock revealed that
+the naive approach is unsafe:
+
+- **`FUN_004d1b64` = `IsCompatible(obj)`** (88 B, **42 xrefs**) just forwards:
+  `return FUN_004ca1e0(*(*obj + 0x18));`. Its return is **the drive descriptor
+  pointer**, not a bool.
+- **Callers dereference and free that pointer:** `FUN_005d7480` does
+  `p = IsCompatible(); if (p) { iVar3 = *p; ... }` (deref); `FUN_005ce6dc` /
+  `FUN_00542398` pass it to `FUN_004b0780` (**free/destroy**). So forcing
+  `IsCompatible → 1` (fake non-null sentinel) **crashes** at any site that derefs or
+  frees it. The proven Site-A/Site-B `li r3,1` patches only worked because those two
+  mount/validate sites treat the result as boolean — **not** a safe global unlock.
+- **`FUN_004ca1e0`** (descriptor factory, 592 B) returns a real descriptor on
+  success; accept/reject is `iVar=FUN_004cc490(...); if (iVar) return desc;`.
+- **`FUN_004cc490`** (428 B) is **drive-*type* dispatch**, not the model whitelist:
+  `t=FUN_004b0504(type)`; `t==6 → FUN_004c5ed4`; `t==0x74 → FUN_004c3c24`; else error
+  `0xa3/0x7d` ("unsupported type"). Builds the descriptor for accepted types.
+- **Approved-model table `0xD2E3E8–0xD2E4A0`** is referenced only by six small
+  getters (return a model-name string per type), not an iterating compare:
+  `FUN_004bbfac`, `FUN_004bc014`, `FUN_004cfa78`, `FUN_004cfaa0`, `FUN_004d3f38`,
+  `FUN_004d3f60`. The actual `strncmp(model, approved, n)` decision is one level
+  deeper — **TODO: pin it** via callers of `strncmp 0x39ACEC` within
+  `0x4A0000–0x4E0000` (likely inside `FUN_004c5ed4`/`FUN_004c3c24`).
+
+**Correct unlock (next step):** relax the model/type acceptance *inside the factory*
+so a **valid, dereferenceable, freeable** descriptor is still returned for any drive —
+NOT `IsCompatible`'s return. Implement as a `src/units/` relink unit and verify the
+change is localized with `make verify-relink`.
