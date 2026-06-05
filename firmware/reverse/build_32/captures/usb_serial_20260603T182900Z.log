@@ -1,0 +1,12 @@
+# probe_serial.py capture — 2026-06-03T18:29:00Z
+port=/dev/ttyACM0  baud=[115200]  timeout=0.5s
+capture -> /home/simukka/src/RED/r1mx/firmware/reverse/build_32/captures/usb_serial_20260603T182900Z.log
+
+=== PASSIVE LISTEN  baud=115200  8.0s ===
+Power-cycle the camera now to catch any boot banner.
+  lines @ open: CTS=1 DSR=1 CD=1 RI=0
+  (silent — no bytes during listen window)
+
+No response on any stimulus.
+The VxWorks USB shell is likely dormant (DEBUG.USB.CONNECTION = 0).
+Next step: wake it via WDB over Ethernet — see wdb_probe.py / debug_interfaces.md

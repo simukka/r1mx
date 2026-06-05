@@ -184,6 +184,76 @@ xemaclite(0,0)host:vxWorks h=192.168.0.1 e=192.168.0.2 u=xemhost
 
 ---
 
+## 7. JTAG / On-Chip Debug — Physical Interfaces & Safe Procedure
+
+> Added 2026-06-05. The camera has **multiple independent JTAG chains** (one or more per
+> board). Map and exercise them on the known-broken / boot-looping unit first; only then
+> touch a working camera, using the read-only procedure below.
+
+### Boards in this unit (each a candidate JTAG chain)
+`audio_pci_board`, `cpu_io_board`, `power_board`, `sd_board`, `sensor_board`,
+`ssd_board`, `ssd_drive`, `ui_board`, **`video_processor_board`**.
+The **video_processor_board** is the prime unknown: it almost certainly carries the
+second Virtex (VP-FPGA), whose package bitstream `redone.2` is RSA-signed/encrypted — a
+*live* readback there would bypass the package entirely (see upgrade-rsa-signed memory).
+
+### Confirmed chain — CPU/IO board
+| Pos | Device | IDCODE | IR len | Notes |
+|-----|--------|--------|--------|-------|
+| 1 | XC2C256 (CoolRunner-II CPLD) | `0x16d4a093` | 8 | config/reset/power sequencing; design captured → `components/cpu_io_board/xc2c256_readback.jed` |
+| 2 | XC4VFX100 (Virtex-4 FX) | `0x01ee4093` | 14 | contains PPC405 (PVR `0x20011470`); config **unencrypted** (status reg: Decryptor security=0, DONE=1, mode pins M2:M1:M0=110 slave); XMD `connect ppc hw` works with no `jtagppc_cntlr` |
+
+DDR base `0x0`; firmware is flat-loaded so static-analysis VAs == live addresses. XMD
+address-map gotcha (launch standalone, no project) + read recipe: see jtag-xmd-live-access memory.
+
+### SAFE interfacing procedure (mandatory on a working camera)
+
+**A. Before touching the header — voltage is the #1 physical risk.**
+1. Identify the pinout (schematic or continuity): TCK, TMS, TDI, TDO, **Vref/Vtarget**, GND, (nTRST). Confirm pin 1.
+2. **Measure Vref** with a multimeter. Virtex-4 / CoolRunner JTAG banks are typically 2.5 V or 3.3 V — but verify (CoolRunner-II can run 1.8 V).
+3. Use a **Vref-sensing / adaptive cable** (Platform Cable USB II senses Vtarget). Confirm its Vref range covers the measured voltage. **Never** drive a fixed-voltage cable into a lower-voltage bank.
+
+**B. Connection hygiene.**
+4. Prefer **target powered OFF** when seating the connector; GND first; verify orientation; power on after the cable is seated.
+5. Start at a **conservative TCK** (750 kHz–1 MHz). One cable, one chain at a time.
+
+**C. Read-only command whitelist (safe on a live camera).**
+- iMPACT: *Initialize Chain*, *Get Device ID*, *ReadIdcode*, *Get Device Signature/Usercode*, *Read Device DNA*, *read Status Register*. (CPLD `.jed` readback is read-only.)
+- XMD: `connect ppc hw`, `mrd`, `rrd`, `dis`. Use `stop`/`con` only briefly; always `con` and clear breakpoints before leaving.
+
+**D. FORBIDDEN on a working camera (can crash, corrupt, or permanently brick).**
+- iMPACT: **Program, Erase, Blank Check, Verify(+program), Assign-and-Program, SVF/XSVF playback, eFUSE/BBRAM/key ops.** Erasing a CPLD or config PROM is *permanent* — we may have no reflashable image.
+- Avoid **Readback-with-capture** (issues GCAPTURE; perturbs live state). Plain static config readback needs a `.msk` we don't have.
+- XMD: **`rst`, `mwr`, `rwr`, `dow`/`dnld`**, long `stop` (watchdog), or leaving the CPU halted / breakpoints set.
+- Do **not** `Program` even with our generated `fpga.bit` — it would reconfigure the running FPGA.
+
+**E. Clean disconnect.** `con` (resume CPU) → `disconnect` all XMD targets → close the tool owning the cable → unplug.
+
+### Per-header enumeration steps (run on the broken sandbox unit)
+1. Locate header; measure Vref; set cable.
+2. iMPACT → **Initialize Chain**; record device list, **IDCODEs**, IR lengths, order.
+3. FPGAs: read **Status Register** (encryption? DONE? mode pins). CPLDs: ReadIdcode/usercode.
+4. If a PPC/MicroBlaze is present: XMD `connect ppc hw` (read-only) — note PVR.
+5. Record in the topology table below; save console logs.
+
+### JTAG topology — fill in as you probe
+| Board | Header (loc) | Vref | Devices (IDCODE) | PPC? | Status | Logged |
+|-------|-------------|------|------------------|------|--------|--------|
+| cpu_io_board | (connected) | measure | XC2C256 `16d4a093`, XC4VFX100 `01ee4093` | yes (PVR `20011470`) | FX100 unencrypted, DONE=1 | 2026-06-05 |
+| video_processor_board | (VP bd header) | FX JTAG bank | XC4VFX100 `01ee4093` (2nd FX100) | not probed | configured, DONE=1, **FPGA decryptor OFF** (loaded bitstream plaintext), slave mode (M=110), usercode `ffffffff` | 2026-06-05 |
+| sensor_board | — | — | none found | — | no JTAG header (bench survey) | 2026-06-05 |
+| power_board | (power bd header) | ~3.3 V (XPLA3) | XCR3064XL `0484c093` (CoolRunner XPLA3, 64 MC) | no | chain valid; readback + checksum FAILED (read-protected) | 2026-06-05 |
+| audio_pci_board | — | — | none found | — | **no JTAG header** (corrected 2026-06-05). Physically missing on the test unit (boot-loop cause), but not a JTAG target. | 2026-06-05 |
+| ui_board | (UI bd header) | ~3.3 V (XPLA3) | XCR3032XL `0480c093` (CoolRunner XPLA3, 32 MC) | no | chain valid; **readback FAILED** (INFO:2488 — likely read-protected); checksum failed too | 2026-06-05 |
+| sd_board / ssd_board | — | — | none found | — | no JTAG header (bench survey) | 2026-06-05 |
+
+**Survey status (2026-06-05): COMPLETE.** 4 of 9 boards carry JTAG TAPs — cpu_io,
+video_processor, ui, power. audio_pci / sensor / sd / ssd have **no JTAG header**. Only
+unrecovered design: the VP-FPGA config (needs a live readback — **procedure:
+`vp_fpga_readback.md`**). XPLA3 CPLDs (ui, power) are read-protected; CPU/IO XC2C256 was not.
+
+---
+
 ## Debug Access Quickstart
 
 ### Step 1: WDB (immediate, no camera modification needed)
@@ -243,8 +313,63 @@ unconditionally, but the VxWorks shell (`runTargetShell()`) is NOT active until
   `ProcessMessage`, `RunPhase`, `SocketWatch`, `runTargetShell`, `WriteMessage`,
   `ReadMessage`, `ParamRef`, `Set` — packed string constants, part of VxWorks task naming
 
+---
+
+## Live USB + WDB Session — Deep Probe (2026-06-03)
+
+Re-probed the connected camera with two new, self-contained tools and a much
+broader stimulus set than the 2026-05-09 pass.
+
+### Tooling (both in `firmware/scripts/`)
+- **`probe_serial.py`** (extended) — passive-listen mode, line-ending matrix
+  (`\r` / `\n` / `\r\n` / Ctrl-C), DTR/RTS toggling, BREAK, modem-line readback,
+  timestamped capture logs under `firmware/reverse/build_32/captures/`.
+- **`wdb_probe.py`** (new) — minimal WDB ONC-RPC/UDP client (stdlib only):
+  `TARGET_CONNECT` (agent/runtime/CPU/bootline/RAM-layout), `MEM_READ`, and a
+  gated `MEM_WRITE`. Wire format verified against Metasploit's WDBRPC mixin;
+  packet checksum self-validates as a correct one's-complement (folds to
+  `0xFFFF`). Includes a `--selftest` that reads RE-map addresses from live RAM.
+
+### USB CDC-ACM — what it can do (confirmed)
+- **CDC-ACM is virtual**: baud rate is a no-op over the NET2280 USB link, so the
+  old multi-baud sweep was redundant — silence at 115200 is conclusive.
+- **The device acknowledges the link at the control-line level.** At open it
+  reports `CTS=1`; once the host asserts **DTR**, the camera latches **`DSR=1`
+  and `CD=1` (carrier detect)**. So the USB stack and `UiUsbSerial` link layer
+  are alive — only the *shell data path* is gated.
+- **Zero data on every stimulus**: full line-ending matrix, Ctrl-C, all four
+  DTR/RTS combinations, BREAK, and an 8 s idle passive listen all returned
+  **0 bytes**. Captures:
+  `captures/usb_serial_20260603T182807Z.log` (active matrix),
+  `captures/usb_serial_20260603T182900Z.log` (passive listen).
+- **Conclusion:** consistent with `DEBUG.USB.CONNECTION = 0` — `runTargetShell()`
+  has not been called, so no shell is bound to the USB data endpoints.
+- **Not yet done:** a passive-listen capture across a *power-cycle* to catch any
+  early-boot banner (run `probe_serial.py --listen 60` while power-cycling).
+
+### WDB-over-Ethernet — ready, pending physical link
+`wdb_probe.py` is written and framing-validated but **not yet run against the
+camera**: the host is on `10.0.1.0/24` and the camera's WDB IP is `192.168.0.2`.
+To execute:
+```bash
+# wire Ethernet camera <-> host, then (sudo, separate iface keeps your LAN intact):
+sudo ip addr add 192.168.0.1/24 dev <iface>
+ip neigh                       # expect an ARP entry for 192.168.0.2 once it talks
+python3 firmware/scripts/wdb_probe.py            # connect + info + self-test
+```
+Self-test validates live RAM against the static map (e.g. `0xE9C4BC` should read
+`0x00004321`, the WDB UDP port). Once `MEM_READ` is confirmed, the path to waking
+the USB shell is: locate the runtime address backing `DEBUG.USB.CONNECTION`
+(still the open RE problem below) and `MEM_WRITE` a non-zero value.
+
+---
+
 ## Outstanding TODOs
 
+- [ ] **Run `wdb_probe.py` against the camera** (needs Ethernet link + host IP
+  `192.168.0.1/24`); confirm `MEM_READ` of `0xE9C4BC` == `0x00004321`
+- [ ] **Capture a power-cycle boot banner** over USB
+  (`probe_serial.py --listen 60` while rebooting the camera)
 - [ ] **Find actual BSS address of `DEBUG.USB.CONNECTION` variable** (to write via WDB)
   - The param is XML-driven; BSS addr requires either WDB symbol lookup or tracing
     the XML param registration path at runtime

@@ -1,0 +1,16 @@
+# probe_serial.py capture — 2026-06-03T18:28:07Z
+port=/dev/ttyACM0  baud=[115200]  timeout=0.4s
+capture -> /home/simukka/src/RED/r1mx/firmware/reverse/build_32/captures/usb_serial_20260603T182807Z.log
+
+=== ACTIVE PROBE  baud=115200 ===
+  lines @ open: CTS=1 DSR=0 CD=0 RI=0
+  [DTR=1 RTS=1] CTS=1 DSR=1 CD=1 RI=0  (silent)
+  [DTR=1 RTS=0] CTS=1 DSR=1 CD=1 RI=0  (silent)
+  [DTR=0 RTS=1] CTS=1 DSR=1 CD=1 RI=0  (silent)
+  [DTR=0 RTS=0] CTS=1 DSR=1 CD=1 RI=0  (silent)
+  [BREAK] (silent)
+  (silent on all stimuli @ baud=115200)
+
+No response on any stimulus.
+The VxWorks USB shell is likely dormant (DEBUG.USB.CONNECTION = 0).
+Next step: wake it via WDB over Ethernet — see wdb_probe.py / debug_interfaces.md

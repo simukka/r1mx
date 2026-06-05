@@ -28,7 +28,7 @@
 #   XEmacLite  : 0xe1020000 (XPS EthernetLite — WDB transport)
 #   WDB port   : UDP 17185 (0x4321) at camera IP 192.168.0.2
 #
-# Required patches before booting (see scripts/patch_firmware.py):
+# Required patches before booting (built from reverse/build_32/src; see its README):
 #   1. SP relocation: offset 0x84 — lis r1,1 → lis r1,0x800
 #   2. Canary NOP:    offset 0x36C388 — bne cr7,loop → NOP
 #   3. Canary NOP:    offset 0x36C394 — bne cr7,loop → NOP
@@ -97,7 +97,7 @@ if [[ ! -f "$FIRMWARE" ]]; then
     echo "ERROR: firmware not found: $FIRMWARE"
     if [[ $USE_PATCHED -eq 1 ]]; then
         echo "  Run first:"
-        echo "    python3 scripts/patch_firmware.py --r1mx"
+        echo "    make -C reverse/build_32/src install"
     fi
     exit 1
 fi

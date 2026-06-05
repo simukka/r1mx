@@ -17,8 +17,10 @@ FORK_BRANCH="r1mx"
 DEST="$HOME/src/qemu-r1mx"
 
 CLEAN=0
+LOCAL=0
 for arg in "$@"; do
   [[ "$arg" == "--clean" ]] && CLEAN=1
+  [[ "$arg" == "--local" ]] && LOCAL=1
 done
 
 if [[ $CLEAN -eq 1 && -d "$DEST" ]]; then
@@ -26,16 +28,18 @@ if [[ $CLEAN -eq 1 && -d "$DEST" ]]; then
   rm -rf "$DEST"
 fi
 
-if [[ ! -d "$DEST/.git" ]]; then
-  echo "-- Cloning ${FORK_URL} (branch: ${FORK_BRANCH})..."
-  git clone -b "$FORK_BRANCH" "$FORK_URL" "$DEST"
-  echo "-- Clone complete."
-else
-  echo "-- ${DEST} already exists."
-  echo "-- Pulling latest changes on branch ${FORK_BRANCH}..."
-  git -C "$DEST" fetch origin
-  git -C "$DEST" checkout "$FORK_BRANCH"
-  git -C "$DEST" merge --ff-only "origin/${FORK_BRANCH}"
+if [[ $LOCAL -eq 0 ]]; then
+  if [[ ! -d "$DEST/.git" ]]; then
+    echo "-- Cloning ${FORK_URL} (branch: ${FORK_BRANCH})..."
+    git clone --single-branch -b "$FORK_BRANCH" "$FORK_URL" "$DEST"
+    echo "-- Clone complete."
+  else
+    echo "-- ${DEST} already exists."
+    echo "-- Pulling latest changes on branch ${FORK_BRANCH}..."
+    git -C "$DEST" fetch origin
+    git -C "$DEST" checkout "$FORK_BRANCH"
+    git -C "$DEST" merge --ff-only "origin/${FORK_BRANCH}"
+  fi
 fi
 
 echo "-- Configuring QEMU (ppc-softmmu only, debug build)..."

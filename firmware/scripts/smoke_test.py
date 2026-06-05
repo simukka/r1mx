@@ -12,8 +12,13 @@ Checks performed (in order):
                         lr == 0x381a8c, r3 == 0x020390d0 (root-task entry + descriptor)
   [5] root_task_running -- after dispatch, the CPU is executing the root-task body
                         (PC in 0x380000..0x384000), NOT the old 0x124 halt loop
-  [6] msr_ee         -- MSR.EE == 0 while the root task spins (sysClkEnable not yet
-                        reached; the current downstream blocker -- see re_reference §0.3)
+  [6] msr_ee         -- MSR.EE == 0 while the root task runs (sysClkEnable is not
+                        reachable from this post-boot image -- see re_reference §0.3)
+  [7] cmd_interp_loop -- liveness: the dispatched task (PC 0x381a8c, forced by patches
+                        into OpenSSL X.509v3 code -- see re_reference §0.3) makes forward
+                        progress: r3 advances by 6 between two hits of fn_382bec (0x382bec),
+                        proving the dispatched code runs over the (zero) buffer, not a hang.
+                        NB: a patch-artifact steady state, not the camera's real boot path
 
 When a milestone BP times out the test halts QEMU with Ctrl-C and runs a set of
 assumption checks against the live CPU/memory state to explain the stall.
@@ -394,6 +399,25 @@ class GdbRsp:
         except socket.timeout:
             return None
 
+    def step(self, timeout: float = 5.0) -> Optional[str]:
+        """Single-step one instruction; return the stop reply or None.
+
+        Used to step off a breakpoint before resuming (QEMU re-triggers a
+        BP_GDB if you continue while still parked on it -- see §0.5 harness note).
+        """
+        self._sock.sendall(b"$s#73")
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                reply = self._recv(timeout=remaining)
+            except socket.timeout:
+                return None
+            if reply and reply[0] in ("T", "S", "W", "X"):
+                return reply
+
 
 # ---------------------------------------------------------------------------
 # UART monitor (runs in a background thread)
@@ -584,7 +608,20 @@ def _print_result(r: CheckResult) -> None:
 _TERMINAL_LABELS = {
     "root_task_running": "Root task is executing its body (0x380000..0x384000), not 0x124 halt",
     "msr_ee": "MSR.EE == 0 while root task spins (sysClkEnable not yet reached)",
+    "cmd_interp_loop": "Dispatched task advances (liveness): r3 += 6 at fn_382bec, not hung",
 }
+
+# Dispatched-task liveness (re_reference.md §0.3): patches #53a/b/c/55 force the
+# root-task PC to 0x381a8c, which is OpenSSL 0.9.8a X.509v3 parsing code (Wind
+# River Security Libraries) -- NOT a camera command interpreter (an earlier
+# reading was wrong).  Fed the zero-filled buffer at 0x020390d0, it parses an
+# empty value in a deterministic loop, the pointer in r3 advancing ~6 bytes per
+# pass through fn_382bec.  We hit fn_382bec twice and assert the +6 advance as a
+# LIVENESS check (the dispatched code runs and makes forward progress, not a
+# crash/halt).  The advance is real but it is patch-artifact behaviour, not the
+# camera's real boot path.
+CMD_ADVANCER_ADDR = 0x00382BEC   # fn_382bec (OpenSSL v3 parser inner step / loop tail)
+RECORD_STRIDE     = 6
 
 
 def _post_dispatch_check(
@@ -650,7 +687,57 @@ def _post_dispatch_check(
             regs=regs,
         ))
 
+    if "cmd_interp_loop" in enabled_checks:
+        results.append(_check_cmd_interp_loop(gdb, timeout_scale))
+
     return results
+
+
+def _check_cmd_interp_loop(gdb: GdbRsp, timeout_scale: float) -> CheckResult:
+    """Liveness check on the dispatched task (§0.3).
+
+    Hit fn_382bec (OpenSSL v3 parser inner step / loop tail) twice and assert the
+    pointer r3 advanced by exactly RECORD_STRIDE.  This proves the dispatched code
+    (OpenSSL X.509v3 parsing, forced to 0x381a8c by patches) runs and makes
+    deterministic forward progress over the zero-filled buffer at 0x020390d0,
+    rather than being hung/crashed.  (Patch-artifact behaviour, not the real boot.)
+    """
+    key = "cmd_interp_loop"
+    label = _TERMINAL_LABELS[key]
+    samples: list[int] = []
+    gdb.set_bp(CMD_ADVANCER_ADDR)
+    try:
+        for _ in range(2):
+            gdb.resume()
+            if gdb.wait_stop(5.0 * timeout_scale) is None:
+                return CheckResult(
+                    key=key, label=label, status=FAIL,
+                    detail=(f"fn_382bec (0x{CMD_ADVANCER_ADDR:06x}) not reached -- "
+                            "root task is not in the command-interpreter loop"),
+                )
+            r = gdb.get_regs()
+            if r.get("pc", 0) != CMD_ADVANCER_ADDR:
+                return CheckResult(
+                    key=key, label=label, status=FAIL,
+                    detail=f"stopped at 0x{r.get('pc',0):08x}, expected 0x{CMD_ADVANCER_ADDR:06x}",
+                    regs=r,
+                )
+            samples.append(r.get("r3", 0))
+            # step off the BP so the next resume advances (QEMU re-triggers a
+            # parked BP otherwise)
+            gdb.clear_bp(CMD_ADVANCER_ADDR)
+            gdb.step(5.0 * timeout_scale)
+            gdb.set_bp(CMD_ADVANCER_ADDR)
+    finally:
+        gdb.clear_bp(CMD_ADVANCER_ADDR)
+
+    delta = (samples[1] - samples[0]) & 0xFFFFFFFF
+    ok = delta == RECORD_STRIDE
+    return CheckResult(
+        key=key, label=label, status=PASS if ok else FAIL,
+        detail=(f"record ptr r3: 0x{samples[0]:08x} -> 0x{samples[1]:08x} "
+                f"(+{delta}); expected stride +{RECORD_STRIDE}"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -856,14 +943,14 @@ def run_smoke_test(
                 results.append(r)
                 _print_result(r)
 
-            # -- Root-task-running + MSR.EE (post-dispatch) ---------------
-            want_terminal = enabled_checks & {"root_task_running", "msr_ee"}
+            # -- Root-task-running + MSR.EE + cmd-interp loop (post-dispatch) --
+            want_terminal = enabled_checks & {"root_task_running", "msr_ee", "cmd_interp_loop"}
             if want_terminal and not prev_failed:
                 for r in _post_dispatch_check(gdb, enabled_checks, timeout_scale):
                     results.append(r)
                     _print_result(r)
             elif want_terminal:
-                for key in ("root_task_running", "msr_ee"):
+                for key in ("root_task_running", "msr_ee", "cmd_interp_loop"):
                     if key in enabled_checks:
                         results.append(CheckResult(
                             key=key, label=_TERMINAL_LABELS[key], status=SKIP,
@@ -892,7 +979,8 @@ def run_smoke_test(
 # Entry point
 # ---------------------------------------------------------------------------
 
-ALL_CHECK_KEYS = {"reset_loop", "root_task_running", "msr_ee"} | {m.key for m in MILESTONES}
+ALL_CHECK_KEYS = ({"reset_loop", "root_task_running", "msr_ee", "cmd_interp_loop"}
+                  | {m.key for m in MILESTONES})
 
 
 def main() -> int:
@@ -948,6 +1036,7 @@ def main() -> int:
             print(f"  {m.key:<12} -- {m.label} (BP @ 0x{m.addr:08x})")
         print(f"  {'root_task_running':<12} -- {_TERMINAL_LABELS['root_task_running']}")
         print(f"  {'msr_ee':<12} -- {_TERMINAL_LABELS['msr_ee']}")
+        print(f"  {'cmd_interp_loop':<12} -- {_TERMINAL_LABELS['cmd_interp_loop']}")
         return 0
 
     # Validate paths
@@ -957,7 +1046,7 @@ def main() -> int:
         return 1
     if not args.firmware.is_file():
         print(f"ERROR: firmware not found: {args.firmware}")
-        print("  Generate:  python firmware/scripts/patch_firmware.py --r1mx")
+        print("  Build:  make -C firmware/reverse/build_32/src install")
         return 1
 
     # Parse enabled checks

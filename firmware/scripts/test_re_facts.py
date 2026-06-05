@@ -40,10 +40,12 @@ _EXTRACTED = _REPO_ROOT / "firmware/reverse/build_32/extracted"
 
 # Canonical SHA-256 identities (re_reference.md §0.1).
 SHA_ORIGINAL = "416e148c9eb4b818bef004ebe6294dcbb1e74026604fdb964178fe9e2b65d9cd"
-# 2026-06-02: regenerated after DISABLING the wrong patch #57 (the NOP at
-# 0x5a8190 that broke root-task dispatch).  See patch_firmware.py #57 and
-# re_reference.md §0.
-SHA_PATCHED_R1MX = "281ef88ac558c459fa6ec500ea3be9c1dc253f9baa660a2e81b6d31502597d7c"
+# 2026-06-02: the default r1mx image is now the LEAN build (29 patch sections):
+# 27 bisected-redundant patches dropped, and #1/#2/#3 moved into the qemu-r1mx
+# machine (boot SP relocate + VxWorks canaries).  Built with
+# `make -C firmware/reverse/build_32/src install`.  `make full` rebuilds the
+# legacy 59-patch image (281ef88a…).  See re_reference.md §0 and src/README.md.
+SHA_PATCHED_R1MX = "f97e33a17d802f4a4e9bc3f16411dcc0475e7afd6e9e0b46263fa9f1f8685550"
 
 PPC_BLR = 0x4E800020   # blr  (branch to link register)
 
@@ -121,7 +123,7 @@ CHECKS: list[Check] = [
     # dispatch call survives patching so the root task is actually dispatched.
     Check("branch", "software.patched.r1mx.bin",
           "patched kernelInit @0x5a8190 still = bl taskActivate (patch #57 disabled)",
-          "re_reference.md §0; patch_firmware.py #57", addr=0x5A8190, want=0x5B11AC, link=True),
+          "re_reference.md §0; src/patches/patches.S #57", addr=0x5A8190, want=0x5B11AC, link=True),
 
     # -- function-entry prologues (sanity: these addresses are real entries) -
     Check("word", "software.bin", "usrInit entry @0x36c350 = mflr r0 (prologue)",

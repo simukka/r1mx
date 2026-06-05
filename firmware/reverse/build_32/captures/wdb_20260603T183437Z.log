@@ -1,0 +1,6 @@
+# wdb_probe.py capture — 2026-06-03T18:34:37Z
+target=192.168.0.2:17185
+
+=== WDB TARGET CONNECT ===
+  CONNECT FAILED: timed out
+  The WDB agent did not answer. Check: cable, host IP 192.168.0.1/24 on the right iface, `ip neigh` for an ARP entry for 192.168.0.2, and that the camera is booted.
