@@ -1,0 +1,40 @@
+{
+  "camera_id": "cam-working-01",
+  "phase": "2-task-walk",
+  "timestamp": "2026-06-08T09:17:50",
+  "d_text": "0x10180",
+  "task_id_current": "0x057e4ad0",
+  "active_list_head": "0x0228f768",
+  "tcb_layout": {
+    "sig_off": 8,
+    "sig_val": "0x810600",
+    "active_node_off": 80,
+    "prio_off": 72,
+    "saved_pc_off": 192,
+    "saved_sp_off": 200
+  },
+  "tasks": [
+    {
+      "tcb": "0x0240fe18",
+      "name": null,
+      "priority": 2,
+      "saved_pc": "0x001e9c20",
+      "saved_sp": "0x0240be18",
+      "stack_base": "0x024110d0",
+      "pc_func": "FUN_001d9aa0+0x0",
+      "pc_img": "0x001d9aa0",
+      "module": null
+    },
+    {
+      "tcb": "0x02281358",
+      "name": null,
+      "priority": 100,
+      "saved_pc": "0x0055f46c",
+      "saved_sp": "0x02280b58",
+      "stack_base": "0x02282610",
+      "pc_func": "FUN_0054f2dc+0x10",
+      "pc_img": "0x0054f2ec",
+      "module": null
+    }
+  ]
+}

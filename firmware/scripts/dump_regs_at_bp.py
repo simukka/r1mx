@@ -1,59 +1,17 @@
 #!/usr/bin/env python3
 """
-dump_regs_at_bp.py — Set a SW BP at --addr, wait for it to fire, dump
+dump_regs_at_bp.py — Set a HW BP at --addr, wait for it to fire, dump
 key registers (PC, LR, CTR, r1, r3, r30, r31), then detach.
+
+Works against QEMU (:1234) or live silicon via the XMD GDB stub (:2345 — see
+host_xmd_bridge.md). Uses hardware breakpoints (Z1/IAC), so it never patches
+target memory and is safe on the camera.
 """
-import argparse, socket, sys
+import argparse
+import sys
 
-def cksum(b):
-    return f"{sum(b) & 0xff:02x}".encode()
+from rsp import RSP
 
-def send(sock, p):
-    pkt = b"$" + p.encode() + b"#" + cksum(p.encode())
-    sock.sendall(pkt)
-    if sock.recv(1) != b"+":
-        raise RuntimeError("bad ack")
-
-def recv(sock, timeout=10):
-    sock.settimeout(timeout)
-    while True:
-        b = sock.recv(1)
-        if b == b"$":
-            break
-        if not b:
-            raise RuntimeError("closed")
-    buf = bytearray()
-    while True:
-        b = sock.recv(1)
-        if b == b"#":
-            sock.recv(2)
-            break
-        buf.extend(b)
-    sock.sendall(b"+")
-    return buf.decode("latin-1")
-
-def query(sock, p):
-    send(sock, p)
-    return recv(sock)
-
-PPC_REG_NAMES = (
-    [f"r{i}" for i in range(32)]
-    + ["pc", "msr", "cr", "lr", "ctr", "xer"]
-)
-
-def parse_g(hexstr):
-    regs = {}
-    pos = 0
-    for name in PPC_REG_NAMES:
-        chunk = hexstr[pos:pos + 8]
-        if len(chunk) < 8:
-            break
-        try:
-            regs[name] = int(chunk, 16)
-        except ValueError:
-            break
-        pos += 8
-    return regs
 
 def main():
     ap = argparse.ArgumentParser()
@@ -63,50 +21,33 @@ def main():
     ap.add_argument("--timeout", type=float, default=30.0)
     args = ap.parse_args()
 
-    addr = int(args.addr, 16) if args.addr.startswith("0x") else int(args.addr, 16)
-    sock = socket.create_connection((args.host, args.port), timeout=10)
+    addr = int(args.addr, 16)
+    t = RSP(args.host, args.port, timeout=args.timeout).connect()
 
     try:
-        send(sock, "?")
-        recv(sock)
-
-        r = query(sock, f"Z0,{addr:x},4")
-        if r != "OK":
-            print(f"[!] Failed to set BP at 0x{addr:08x}: {r!r}")
-            return 1
-
-        print(f"[*] BP set at 0x{addr:08x}, waiting up to {args.timeout}s...")
-        send(sock, "c")
-        stop = recv(sock, args.timeout)
-        print(f"[*] Stopped: {stop!r}")
-
-        query(sock, f"z0,{addr:x},4")
-
-        g = query(sock, "g")
-        regs = parse_g(g)
+        t.stop_reply()
+        print(f"[*] HW BP set at 0x{addr:08x}, waiting up to {args.timeout}s...")
+        regs = t.run_to(addr, hw=True, timeout=args.timeout)
 
         print(f"\n=== Registers at BP 0x{addr:08x} ===")
-        for name in ["pc", "lr", "ctr", "r1", "r3", "r4", "r28", "r29", "r30", "r31"]:
+        for name in ["pc", "lr", "ctr", "r1", "r3", "r4",
+                     "r28", "r29", "r30", "r31"]:
             print(f"  {name:<6} = 0x{regs.get(name, 0):08x}")
         print()
-        print(f"  [SP+0x24 = where LR is saved in fn_371cd0 frame]")
+        print("  [SP+0x24 = where LR is saved in fn_371cd0 frame]")
 
-        # Read memory at sp + 0x24 to see actual saved LR
         sp = regs.get("r1", 0)
         for offset in [0x00, 0x04, 0x20, 0x24]:
-            r = query(sock, f"m{sp+offset:x},4")
-            try:
-                val = int(r, 16)
-            except ValueError:
-                val = 0
-            print(f"  mem[SP+0x{offset:02x}] = mem[0x{sp+offset:08x}] = 0x{val:08x}")
-
+            val = t.read_word(sp + offset)
+            print(f"  mem[SP+0x{offset:02x}] = mem[0x{sp+offset:08x}] = "
+                  f"0x{val:08x}")
     finally:
         try:
-            send(sock, "D")
+            t.detach()
         except Exception:
             pass
-        sock.close()
+        t.close()
+
 
 if __name__ == "__main__":
     sys.exit(main())

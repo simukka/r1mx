@@ -11,8 +11,11 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QInputDialog,
+    QHeaderView,
     QMenu,
     QMessageBox,
+    QSlider,
+    QStyle,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -45,6 +48,8 @@ class BoardTreePanel(QWidget):
     visibilityChanged       = pyqtSignal(str, str, str, bool)    # board, layer, objtype, visible
     imageSelectRequested    = pyqtSignal(str, str)               # board, layer
     calibrateRequested      = pyqtSignal(str, str)               # board, layer
+    alignLayerRequested     = pyqtSignal(str, str)               # board, layer
+    layerOpacityChanged     = pyqtSignal(str, str, float)        # board, layer, opacity 0..1
     editLayerRequested      = pyqtSignal(str, str)               # board, layer
     componentSelected       = pyqtSignal(int)                    # object_id
     removeDataRequested     = pyqtSignal(str, str, str)          # board, layer, type_filter ("" = all)
@@ -58,17 +63,31 @@ class BoardTreePanel(QWidget):
     entityVerifyRequested   = pyqtSignal(int)                    # object_id
     mergeRequested          = pyqtSignal(list)                   # list[int] object_ids
 
+    # Default overlay opacity for a layer's first slider appearance.
+    _DEFAULT_OPACITY = 0.5
+
     def __init__(self, db: DB, parent=None):
         super().__init__(parent)
         self._db = db
         self._ignore_check = False
+        # Per-layer overlay opacity sliders, keyed by (board, layer).
+        self._opacity_sliders: dict[tuple[str, str], QSlider] = {}
+        # Shown on component rows that have no linked datasheet.
+        self._missing_ds_icon = self.style().standardIcon(
+            QStyle.StandardPixmap.SP_MessageBoxWarning
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
-        self._tree.setColumnCount(1)
+        self._tree.setColumnCount(2)
+        header = self._tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self._tree.setColumnWidth(1, 88)
         self._tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self._tree.itemClicked.connect(self._on_click)
         self._tree.itemChanged.connect(self._on_check)
@@ -114,7 +133,8 @@ class BoardTreePanel(QWidget):
         first_build = self._tree.topLevelItemCount() == 0
 
         self._ignore_check = True
-        self._tree.clear()
+        self._tree.clear()           # also drops any existing item widgets
+        self._opacity_sliders.clear()
         vs = vis_state or {}
 
         for board in self._db.list_boards():
@@ -194,6 +214,14 @@ class BoardTreePanel(QWidget):
                     ot_item = l_item.child(j)
                     objt = ot_item.data(0, _ROLE_OBJT)
                     ot_item.setExpanded((bname, f"{lname_i}::{objt}") in expanded)
+                # Attach the per-layer overlay-opacity slider (column 1)
+                opacity = (
+                    vs.get(bname, {}).get(lname_i, {}).get("__opacity__")
+                )
+                self._attach_opacity_slider(
+                    l_item, bname, lname_i,
+                    opacity if opacity is not None else self._DEFAULT_OPACITY,
+                )
 
         self._ignore_check = False
 
@@ -216,6 +244,20 @@ class BoardTreePanel(QWidget):
         shown = objs[:_CHILD_CAP]
         overflow = len(objs) > _CHILD_CAP
 
+        # For components, find which ones lack a linked datasheet (one query)
+        # so we can flag the gaps with a "missing" icon.
+        with_datasheet: set[int] = set()
+        if obj_type == "component":
+            with_datasheet = {
+                row["object_id"]
+                for row in self._db.conn().execute(
+                    "SELECT DISTINCT od.object_id FROM object_datasheets od "
+                    "JOIN objects o ON o.id = od.object_id "
+                    "WHERE o.layer_id=? AND o.type='component'",
+                    (layer_id,),
+                ).fetchall()
+            }
+
         for obj in shown:
             props_raw = self._db.conn().execute(
                 "SELECT properties FROM objects WHERE id=?", (obj["id"],)
@@ -237,6 +279,10 @@ class BoardTreePanel(QWidget):
             c_item.setData(0, _ROLE_OBJID, obj["id"])
             c_item.setData(0, _ROLE_ETYPE, obj_type)
             c_item.setForeground(0, QBrush(color))
+            # Flag components without a linked datasheet
+            if obj_type == "component" and obj["id"] not in with_datasheet:
+                c_item.setIcon(0, self._missing_ds_icon)
+                c_item.setToolTip(0, "No datasheet linked")
             parent_item.addChild(c_item)
 
         if overflow:
@@ -245,6 +291,35 @@ class BoardTreePanel(QWidget):
             more_item.setForeground(0, QBrush(THEME.tree_dim_color))
             more_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             parent_item.addChild(more_item)
+
+    def _attach_opacity_slider(
+        self, l_item: QTreeWidgetItem, board: str, layer: str, opacity: float
+    ) -> None:
+        """Place a compact overlay-opacity slider in column 1 of a layer row.
+
+        The slider sets the opacity used when this layer is shown as an overlay
+        (i.e. while another layer is active).  The active layer always renders
+        solid regardless of its slider value.
+        """
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, 100)
+        slider.setValue(int(round(max(0.0, min(1.0, opacity)) * 100)))
+        slider.setFixedWidth(80)
+        slider.setToolTip("Overlay opacity for this layer")
+        slider.valueChanged.connect(
+            lambda v, _b=board, _l=layer: self.layerOpacityChanged.emit(
+                _b, _l, v / 100.0
+            )
+        )
+        self._opacity_sliders[(board, layer)] = slider
+        self._tree.setItemWidget(l_item, 1, slider)
+
+    def layer_opacity(self, board: str, layer: str) -> float:
+        """Return the current overlay opacity (0..1) for a layer."""
+        slider = self._opacity_sliders.get((board, layer))
+        if slider is None:
+            return self._DEFAULT_OPACITY
+        return slider.value() / 100.0
 
     def get_full_vis_state(self) -> dict:
         """Return a nested dict of current checkbox states for persistence."""
@@ -259,7 +334,10 @@ class BoardTreePanel(QWidget):
                 l_item = b_item.child(li)
                 lname = l_item.data(0, _ROLE_LAYER)
                 l_checked = l_item.checkState(0) == Qt.CheckState.Checked
-                layer_dict: dict = {"__layer__": l_checked}
+                layer_dict: dict = {
+                    "__layer__": l_checked,
+                    "__opacity__": self.layer_opacity(bname, lname),
+                }
                 for oi in range(l_item.childCount()):
                     ot_item = l_item.child(oi)
                     key = ot_item.data(0, _ROLE_OBJT)
@@ -367,6 +445,8 @@ class BoardTreePanel(QWidget):
             sel_act.triggered.connect(lambda checked, _b=board, _l=layer: self.imageSelectRequested.emit(_b, _l))
             cal_act = menu.addAction("Calibrate…")
             cal_act.triggered.connect(lambda checked, _b=board, _l=layer: self.calibrateRequested.emit(_b, _l))
+            align_act = menu.addAction("Align to layer…")
+            align_act.triggered.connect(lambda checked, _b=board, _l=layer: self.alignLayerRequested.emit(_b, _l))
             menu.addSeparator()
             edit_act = menu.addAction("Edit layer…")
             edit_act.triggered.connect(lambda checked, _b=board, _l=layer: self.editLayerRequested.emit(_b, _l))

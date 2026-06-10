@@ -1,0 +1,89 @@
+{
+  "camera_id": "bench-broken",
+  "boards": {
+    "cpu": "revB",
+    "audio": "MISSING",
+    "sensor": "MISSING"
+  },
+  "timestamp": "2026-06-07T14:04:12",
+  "phases_run": [
+    "reloc",
+    "irq",
+    "memmap"
+  ],
+  "transport": "ChannelB/xmd_rpc",
+  "halt_pc": "0x00000000",
+  "reloc_candidates": 0,
+  "reloc_windows_real": 0,
+  "build_image": null,
+  "note_reloc": "no unique .text match \u2014 halt at a different context (more pages mapped) and retry, or the build image isn't among --image/--images-dir",
+  "xintc": {
+    "ISR": "err",
+    "IPR": "err",
+    "IER": "err",
+    "IAR": "err",
+    "SIE": "err",
+    "CIE": "err",
+    "IVR": "err",
+    "MER": "err"
+  },
+  "xintc_enabled_lines": null,
+  "note_xintc": "XIntc not readable at this context (MMU/TLB)",
+  "memory_map": {
+    "XUartLite": {
+      "base": "0xe0600000",
+      "state": "empty",
+      "words": []
+    },
+    "XUartNs550_1": {
+      "base": "0xe0640000",
+      "state": "empty",
+      "words": []
+    },
+    "XUartNs550_2": {
+      "base": "0xe0650000",
+      "state": "empty",
+      "words": []
+    },
+    "XIntc": {
+      "base": "0xe0800000",
+      "state": "empty",
+      "words": []
+    },
+    "XEmacLite": {
+      "base": "0xe1020000",
+      "state": "empty",
+      "words": []
+    },
+    "XIic": {
+      "base": "0xb2600000",
+      "state": "empty",
+      "words": []
+    },
+    "XPS_CentralDMA": {
+      "base": "0x64010000",
+      "state": "empty",
+      "words": []
+    },
+    "XPci_host": {
+      "base": "0xe1200000",
+      "state": "empty",
+      "words": []
+    },
+    "RED_hist_0": {
+      "base": "0xe0080000",
+      "state": "empty",
+      "words": []
+    },
+    "RED_hist_1": {
+      "base": "0xe0100000",
+      "state": "empty",
+      "words": []
+    },
+    "NOR_flash": {
+      "base": "0xf0000000",
+      "state": "empty",
+      "words": []
+    }
+  }
+}

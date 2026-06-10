@@ -1,0 +1,141 @@
+{
+  "camera_id": "cam-working-01",
+  "boards": {},
+  "timestamp": "2026-06-08T08:57:04",
+  "phases_run": [
+    "reloc",
+    "data_reloc",
+    "irq",
+    "memmap"
+  ],
+  "transport": "ChannelB/xmd_rpc",
+  "halt_pc": "0x005bb0dc",
+  "reloc_candidates": 5,
+  "reloc_windows_real": 0,
+  "build_image": null,
+  "note_reloc": "no unique .text match \u2014 halt at a different context (more pages mapped) and retry, or the build image isn't among --image/--images-dir",
+  "note_D_data": "skipped (need D_text and capstone)",
+  "xintc": {
+    "ISR": "0x00000000",
+    "IPR": "0x00000000",
+    "IER": "0x00000000",
+    "IAR": "0x00000000",
+    "SIE": "0x00000000",
+    "CIE": "0x00000000",
+    "IVR": "0x00000000",
+    "MER": "0x80000000"
+  },
+  "xintc_enabled_lines": [],
+  "memory_map": {
+    "XUartLite": {
+      "base": "0xe0600000",
+      "state": "real",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000014",
+        "0x00000000"
+      ]
+    },
+    "XUartNs550_1": {
+      "base": "0xe0640000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "XUartNs550_2": {
+      "base": "0xe0650000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "XIntc": {
+      "base": "0xe0800000",
+      "state": "filler",
+      "words": [
+        "0x0532d3dc",
+        "0x0532d3dc",
+        "0x0532d3dc",
+        "0x0532d3dc"
+      ]
+    },
+    "XEmacLite": {
+      "base": "0xe1020000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "XIic": {
+      "base": "0xb2600000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "XPS_CentralDMA": {
+      "base": "0x64010000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "XPci_host": {
+      "base": "0xe1200000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "RED_hist_0": {
+      "base": "0xe0080000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "RED_hist_1": {
+      "base": "0xe0100000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    },
+    "NOR_flash": {
+      "base": "0xf0000000",
+      "state": "zero",
+      "words": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ]
+    }
+  }
+}
