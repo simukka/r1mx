@@ -230,16 +230,39 @@ class RSP:
         return layout[name]
 
     def write_reg(self, name: str, value: int, *, nbytes=4):
-        """Write a single register via the RSP 'P' packet (Pn=value). `name` is
-        a logical register (e.g. 'r3', 'pc'); the wire value is big-endian to
-        match the 'g' block. Guarded like write_mem."""
+        """Write a single register. `name` is logical (e.g. 'r3', 'pc'); the wire
+        value is big-endian to match the 'g' block. Guarded like write_mem.
+
+        Primary path is a 'G' read-modify-write (splice the value at the register's
+        BYTE offset in the full block). Addressing by position is robust to the
+        'P'/'p' register-NUMBER vs 'g'-block WORD-INDEX mismatch: gdb numbers PPC
+        registers with the FPRs always at 32..63 (so pc=64), but this FPU-less 405's
+        'g' block omits the FPRs and compacts pc to word-index 32. Writing by the
+        word-index as a 'P' regnum therefore hits the wrong register (e.g. `P32`
+        replies 'OK' but does not move pc — pc is `P64`). 'G' sidesteps this and is
+        target-agnostic (also correct for the 146-word XMD block). Falls back to a
+        single-register 'P' write only if the stub rejects 'G'; verifies the value
+        actually took (for the common 4-byte case) and raises if not."""
         if not self.allow_write:
             raise WriteDisabled(f"[{self.label}] write_reg disabled (read-only)")
         idx = self._reg_index(name)
         mask = (1 << (8 * nbytes)) - 1
-        val_hex = (value & mask).to_bytes(nbytes, "big").hex()
+        val = value & mask
+        val_hex = val.to_bytes(nbytes, "big").hex()
+
+        # primary: G read-modify-write at byte offset idx*4 (= idx*8 hex chars)
+        g = self.query("g")
+        off = idx * 8
+        if off + nbytes * 2 <= len(g):
+            new_g = g[:off] + val_hex + g[off + nbytes * 2:]
+            if self.query("G" + new_g) == "OK":
+                if nbytes != 4 or self.regs().get(name) == val:
+                    return True
+
+        # fallback: single-register P packet (works for GPRs even where G is absent)
         r = self.query(f"P{idx:x}={val_hex}")
-        if r != "OK":
-            raise RSPError(f"[{self.label}] write_reg {name} (P{idx:x}) failed: "
-                           f"{r!r} — stub may not support 'P' (try --method patch)")
-        return True
+        if r == "OK" and (nbytes != 4 or self.regs().get(name) == val):
+            return True
+        raise RSPError(f"[{self.label}] write_reg {name} (idx {idx}) did not stick "
+                       f"via G or P (P reply {r!r}); stub may not support register "
+                       f"writes for this register")

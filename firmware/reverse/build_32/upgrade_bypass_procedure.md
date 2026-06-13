@@ -58,55 +58,77 @@ on the splash is unambiguous proof it worked.
 
 ## 2. Build the packages
 
-Work in a scratch dir. Extract the four members once:
+Both packages are built with **`firmware/scripts/repackage_firmware.sh`**, which does the
+gzip + AES-256-CBC re-encrypt + tar (with the exact member names `redone.1`..`redone.4`
+the firmware looks for) and keeps the original `redone.2`/`redone.3`/`redone.4`. Its
+`--verify` flag decrypts the output back and checks the SHA round-trip.
+
+First, stage the original components and the decrypted payload once (paths are relative to
+`firmware/`):
 
 ```bash
-cd firmware/reverse/build_32
-mkdir -p /tmp/su && cd /tmp/su
-tar xf <repo>/firmware/reverse/build_32/build_32_v32.0.3/upgrade/redone.su
-ls   # redone.1 redone.2 redone.3 redone.4
+cd firmware
 PASS='M1H5gwOXh757rIRVY6Gj2tN080AYSX03'   # AES key (public; transport obfuscation only)
+
+# extract the original redone.1..4 into the dir the script reads (--build-dir)
+mkdir -p reverse/build_32/extracted
+tar xf reverse/build_32/build_32_v32.0.3/upgrade/redone.su -C reverse/build_32/extracted
+
+# decrypt the software payload so we can edit it (reused by both stages)
+openssl enc -d -aes-256-cbc -md md5 -pass "pass:$PASS" \
+    -in reverse/build_32/extracted/redone.1 | gunzip \
+    > reverse/build_32/extracted/software.bin
 ```
 
 ### 2a. Stage-A package (UNMODIFIED — for the dry run)
 
-Re-tar the originals **unchanged**, with the exact member names the firmware looks for
-(`redone.1`..`redone.4`, no `.new` suffix):
+Repackage the **unmodified** payload. This exercises the same packaging path we'll use for
+Stage B (re-encryption uses a fresh salt, but the plaintext — and therefore the signature —
+is unchanged), and `--verify` confirms the round-trip:
 
 ```bash
-mkdir -p /tmp/su/A && cp redone.1 redone.2 redone.3 redone.4 /tmp/su/A/
-( cd /tmp/su/A && tar cf redone.su redone.1 redone.2 redone.3 redone.4 )
+cd firmware
+scripts/repackage_firmware.sh \
+    --input     reverse/build_32/extracted/software.bin \
+    --build-dir reverse/build_32/extracted \
+    --output    /tmp/redone.A.su \
+    --verify
 ```
 
 ### 2b. Stage-B package (MODIFIED — bump the version)
 
-```bash
-# decrypt + decompress the software payload
-openssl enc -d -aes-256-cbc -md md5 -pass "pass:$PASS" -in redone.1 | gunzip > software.bin
+Edit the version **byte-length-preserving**, then repackage. The script keeps the original
+`redone.2` (now mismatched against the modified payload — that's exactly what Stage B is
+designed to defeat):
 
-# find the version string and bump it BYTE-LENGTH-PRESERVING (e.g. 32.0.3 -> 32.0.4)
-grep -abo '32\.0\.3' software.bin        # note the offset(s)
-cp software.bin software.patched.bin
-printf '32.0.4' | dd of=software.patched.bin bs=1 seek=<OFFSET> conv=notrunc
+```bash
+cd firmware
+# find the version string and bump it in place (same byte length)
+grep -abo '32\.0\.3' reverse/build_32/extracted/software.bin    # note the OFFSET(s)
+cp reverse/build_32/extracted/software.bin reverse/build_32/extracted/software.patched.bin
+printf '32.0.4' | dd of=reverse/build_32/extracted/software.patched.bin \
+    bs=1 seek=<OFFSET> conv=notrunc
 # (repeat for each occurrence you intend to change; the splash one is what you'll read)
 
-# re-encrypt -> redone.1, KEEP the original redone.2 (now mismatched — that's the point)
-mkdir -p /tmp/su/B
-gzip -c software.patched.bin | \
-    openssl enc -e -aes-256-cbc -md md5 -pass "pass:$PASS" -out /tmp/su/B/redone.1
-cp redone.2 redone.3 redone.4 /tmp/su/B/
-( cd /tmp/su/B && tar cf redone.su redone.1 redone.2 redone.3 redone.4 )
+scripts/repackage_firmware.sh \
+    --input     reverse/build_32/extracted/software.patched.bin \
+    --build-dir reverse/build_32/extracted \
+    --output    /tmp/redone.B.su \
+    --verify
 ```
 
 > The version string lives inside `software.bin` (it may appear more than once; the one
 > shown on the splash comes from `SYSTEM.VERSION.RED_RELEASE`). Keep the replacement the
 > **same byte length** so nothing else shifts. Do **not** touch `redone.3`/`redone.4`.
+> `--verify` here only confirms the AES round-trip (our encryption), not the RSA signature
+> — the camera is what will reject the bad signature unless we intervene in Stage B.
 
-Put the package on the stick under a root-level `upgrade/` folder:
+Put the package for the stage you're running on the stick under a root-level `upgrade/`
+folder (`/tmp/redone.A.su` for Stage A, `/tmp/redone.B.su` for Stage B):
 
 ```bash
 # FAT32 stick mounted at /media/usb
-mkdir -p /media/usb/upgrade && cp /tmp/su/B/redone.su /media/usb/upgrade/redone.su
+mkdir -p /media/usb/upgrade && cp /tmp/redone.B.su /media/usb/upgrade/redone.su
 sync
 ```
 

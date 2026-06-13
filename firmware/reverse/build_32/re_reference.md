@@ -5,9 +5,58 @@ Load this document at the start of any RE session. No need to hunt through PDFs 
 
 **Firmware binary:** `firmware/reverse/build_32/extracted/software.bin`
 **CPU:** PowerPC 405F6 (Xilinx Virtex-4 FX hard-macro core), 32-bit, big-endian
-**OS:** VxWorks WIND kernel 2.10 (Wind River Platform ~6.x)
-**Build date:** September 7, 2013
+**OS:** VxWorks 6.4 (WIND kernel 2.10)
+**Build date:** May 16, 2013, 16:35:13  (corrected 2026-06-11 — was erroneously "September 7, 2013")
 **SHA-256:** `416e148c9eb4b818bef004ebe6294dcbb1e74026604fdb964178fe9e2b65d9cd`
+
+> Full build provenance / toolchain era in **§0.0 Build Provenance & Toolchain** below.
+
+---
+
+## 0.0 Build Provenance & Toolchain  (evidence-backed, 2026-06-11)
+
+Everything here is confirmed by strings embedded in `extracted/software.bin` — not
+inferred. The era to match when hunting documentation/drivers/source:
+**Wind River Workbench 2.6 + VxWorks 6.4 (GNU/gcc edition), PPC405 target, built
+May 2013 against a Sundance rev-B BSP.**
+
+| Component | Value | Evidence string in `software.bin` |
+|-----------|-------|-----------------------------------|
+| Firmware version | **v32.0.3 (Build 32)** | `32.0.3#32` |
+| Build timestamp | **May 16 2013, 16:35:13** | `May 16 2013` + `16:35:13` (`__DATE__`/`__TIME__`; firmware banner `Build time : %s %s`). No `Sep 2013` string exists. |
+| OS | **VxWorks 6.4** | `VxWorks 6.4` |
+| Microkernel | **WIND kernel 2.10** | `WIND version 2.10` |
+| WR copyright | **1984–2006** | `Copyright Wind River Systems, Inc., 1984`…`-2006` (6.4 is a 2007-era release) |
+| Toolchain root | **`C:/WindRiver2.6/vxworks-6.4/`** | `C:/WindRiver2.6/vxworks-6.4/target/config/comps/src/{edrStub.c,usrMmuInit.c}` |
+| Compiler | **Wind River GNU (gcc), *not* Diab** | `gcc2_compiled.`, `gcc_personality_sj0` (SJLJ exceptions), `libstdc++ v3` / `libsupc++` symbols. NB: `DCCR`/`DccrGet` = PPC *Data Cache Control Register*, not the Diab compiler. |
+| BSP | **Sundance `bsp_ppc405_0_revB`** | `C:/sundance/SW/32_0_3/Sundance/bsp_ppc405_0_revB/ppc405_0_drv_csp/xsrc/…` |
+
+**Canonical breadcrumbs** (anything matching these exact version strings is the right era):
+`C:\WindRiver2.6\vxworks-6.4\`  and  `C:\sundance\SW\32_0_3\`.
+
+### Xilinx EDK driver set (the *original* build's drivers)
+The BSP wraps Xilinx EDK driver sources; exact versions are extracted under
+`firmware/reverse/build_32/drivers/`:
+
+```
+cpu_ppc405_v1_10_a   uartns550_v1_11_a   uartlite_v1_12_a
+emaclite_v1_12_a     iic_v1_13_b         intc_v1_10_c
+```
+
+These `vX_YY_z` suffixes are **Xilinx EDK ~10.1 (2008)** driver versions for the
+Virtex-4 FX / PPC405. (CLAUDE.md points at ISE/EDK 14.7 drivers for the *QEMU rebuild*;
+the original firmware was built against this older EDK-10-era set.)
+
+### Documentation to find, by component
+- **VxWorks 6.4 / Workbench 2.6:** *Kernel Programmer's Guide 6.4*, *Application
+  Programmer's Guide 6.4*, *BSP Developer's Guide 6.4*, and the *Wind River GNU
+  Compiler/Toolchain User's Guide* for that release. (Repo already has nearby 6.2/6.8
+  guides + WB 2.4/2.5 migration guides; the 6.4-exact set is the gap.)
+- **GNU toolchain:** VxWorks 6.4's GNU compiler is gcc 3.4.x-based (`gnu`/`sfgnu`
+  toolchain) — match it for identical codegen / C++ name-mangling on any rebuild.
+- **Xilinx:** Virtex-4 FX + PPC405 hard core → *UG018* (PPC405 Processor Block Ref) and
+  the EDK 10.1 *OS & Libraries / driver* docs; driver sources = the `xemaclite /
+  xuartns550 / xiic / …` versions listed above.
 
 ---
 
@@ -34,7 +83,7 @@ QEMU `r1mx-virtex4`, fixed breakpoint harness (steps off each BP — see harness
 | kernelInit entry | `0x5a7f30` | ✅ reached | smoke_test PASS |
 | **rfi context-switch INTO root task** | `0x372838` | ✅ **fires** (`lr=0x381a8c`, `r3=0x020390d0`) | smoke_test `dispatch` PASS |
 | root task body running | `0x380000`–`0x383fff` | ✅ executing (e.g. PC `0x381938`) | smoke_test `root_task_running` PASS |
-| `sysClkEnable` | `0x942c` | ❌ not reachable from this image | only via `usrRoot` (rootRtn `0x37C440`); this post-boot snapshot dispatches into OpenSSL X.509v3 code at `0x381a8c` instead — see §0.3 |
+| `sysClkEnable` | `0x942c` | ❌ not reached on the current QEMU boot | only via `usrRoot` (rootRtn `0x37C440`); with patches #53a/c the boot dispatches into OpenSSL X.509v3 code at `0x381a8c` instead — a patch artifact, see §0.3 |
 
 - **No reset loop.** Free-run emits **1** `^^^` line, then the root task runs silently.
 - **kernelInit no longer returns** — it dispatches the root task and hands off to the scheduler.
@@ -86,35 +135,135 @@ beyond the `0xe8bf20` image), so the parser walks an empty value forever, `MSR.E
 It does not crash and does not reach `sysClkEnable`.
 
 **Why this is a patch artifact, not the real boot:** the dispatch to `0x381a8c` is *forced* by
-patches #53a/b/c/55. The image's root-task TCB has `TCB+0x94 = 0` (stale, snapshot) which equals
-the stale global `*(0xE3A790)=0`, so `fn_371cd0` takes its if-path and the patches overwrite the
+patches #53a/b/c/55. At this point in the QEMU boot the root-task TCB has `TCB+0x94 = 0`, which
+equals the global `*(0xE3A790)=0`, so `fn_371cd0` takes its if-path and the patches overwrite the
 PC slot with the hard-coded `0x381a8c` — a valid in-image code address the patch author landed on
 and misread as a "command dispatcher." The **natural** root routine is `usrRoot` (rootRtn
 `0x37C440`, passed by usrInit at `0x36c424`: `lis r3,0x38; addi r3,r3,-0x3bc0`), and the natural
-`taskInit` entry is `0x0ff96280` — a heap pointer (`= pStackBase − stackSize`), zero in QEMU,
-which is exactly why the patches reroute it. The cold `usrRoot`/`sysClkEnable` path already ran on
-the live camera before the dump.
+`taskInit` entry is `0x0ff96280` — a heap pointer (`= pStackBase − stackSize`). That address lies
+above the `0xE8BF20` file end, so it reads zero in QEMU because the heap is allocated at runtime by
+a cold boot that has not run here — which is exactly why the patches reroute it. On real hardware a
+cold boot builds that state and runs the `usrRoot`/`sysClkEnable` path normally.
 
-**Snapshot insight (confirmed):** `software.bin` (decrypted from `redone.1`, the distributed
-`redone.su` upgrade) was built from a **memory image of a booted camera** — `.data`/heap carry
-running-state (`intCnt=0x552F30` patch #47; `sysMemTop=0x4CCECBD7`, `sysPhysMemTop=0x395944A3`
-caches at `0xE0C37C/0x80`). The heap region (`0x01153480–0x0FFFFFFF`) is **beyond the captured
-file**, so the data the real root task would have used (and the relocated code at `0x0ff96280`)
-is simply not present.
+**Image-vs-runtime insight (confirmed):** `software.bin` is the **firmware program image RED
+ships** — extracted from the official `redone.su` Build 32 upgrade installer (`redone.su` tar →
+AES-256-CBC `redone.1` → gzip → `software.bin`; gzip CRC validates, so `.data` is exactly what RED
+ships). It is the image flashed to the camera's NOR and loaded into RAM at cold boot — **NOT a
+memory dump of a running/booted camera.** It contains code + initialized `.data` up to the
+`0xE8BF20` file end; BSS (`0xE9BF20–0x1153480`) and the heap (`0x01153480–0x0FFFFFFF`) lie *above*
+that end and are populated at runtime by the cold-boot init sequence — normal for any program
+image, not a "capture gap." Several `.data` slots hold values that *look* like running state
+(`intCnt=0x552F30` patch #47; `sysMemTop=0x4CCECBD7`, `sysPhysMemTop=0x395944A3` at `0xE0C37C/0x80`),
+but these are a **structural build property, not captured runtime**: decrypting Build 31 the same
+way yields an *identical* null-guard fingerprint with the same strings at shifted addresses, and two
+independently-built versions cannot share runtime state (see [[firmware-image-and-framing]],
+[[cold-boot-first-divergence]]). What the real root task needs (and the relocated entry at
+`0x0ff96280`) is built at runtime by a cold boot that has not completed here.
 
 **What populates `0x020390d0`? Nothing, in this emulation** (verified): a write-watchpoint on the
 buffer caught **0 writes** across the full boot — the dispatched code only reads it. The pointer
 is delivered as the task's GPR3 (arg1) via `taskArgsSet` (`fn_371bac`, writes `TCB+0x1cc`); the
-value is never a file constant. Its contents were produced by an agent outside the captured state
-(another task/loader, gated behind interrupts that never fire here) and lived in the uncaptured heap.
+value is never a file constant. Its contents are produced at runtime by another task/loader (gated
+behind interrupts that never fire here), in the runtime heap that a completed cold boot would populate.
 
 **Ruled out (experiment):** that #53a/b/c/55 are wrong like #57. Disabling all four → **reset
 loop** (`kernelInit → taskActivate → rfi(lr=0) → kernelInit`, ×9): the natural else-path of
 `fn_371cd0` (`fn_371c74` → stale fn-ptr `*(0xE293F4)=0x542974`) does not yield a working task
-given the snapshot's stale TCB/globals. So #53a/b/c/55 are **load-bearing** (force a non-crashing
+given the not-yet-initialized TCB/globals. So #53a/b/c/55 are **load-bearing** (force a non-crashing
 dispatch). Reverted; committed binary unchanged (`281ef88a…`).
 
-**Realistic next steps** (cold `sysClkEnable` is not reconstructable from this post-boot image):
+**Forced-`usrRoot` experiment (2026-06-11, `probe_usrroot.py`):** distinct from the "disable
+#53a/b/c/55" experiment above (which let the firmware's *stale-TCB* dispatch run → reset loop),
+this one boots normally to the artifact entry `0x381a8c`, then **directly sets PC = `usrRoot`
+(`0x37C440`)** keeping the live root-task stack, bypassing the broken dispatch logic. Result: the
+**real** `usrRoot` path executes and advances ~`0x1470` deep before spinning in a kernel
+**linked-list walk at `0x37d8b0`** (`lwz r31,0(r31)` / `cmpw r31,r30` / test `flags & 0x10` at
+`+0x1c`). The list base is `r4 = 0x0DCF5120` — **above the `0xE8BF20` file end, i.e. runtime heap
+that reads zero in QEMU** — so the walk never terminates. This is empirical confirmation of the §0.3
+thesis on the *authentic* boot path (not the OpenSSL artifact): `usrRoot` itself runs, but the kernel
+data structures it traverses live in the heap that a completed cold boot would have built and that
+this partial QEMU boot has not.
+  (Tooling note: this required fixing `rsp.py` `write_reg` — PC writes now use a `G` read-modify-
+  write; the old `P{word-index}` form silently hit the wrong register because gdb numbers pc as
+  regnum 64 while the compacted `g` block places it at word-index 32. See rsp.py docstring.)
+
+**Seeding the missing structures (2026-06-11, `firmware/scripts/seed_boot.py`):** iterative
+harness — boot to artifact entry, write cold-boot-correct values for the BSS/heap globals
+`usrRoot` needs, force `usrRoot`, trace to the next divergence. Findings so far:
+- **#1 deferred-write list @ `0xE9C5C0`** (walked by `FUN_0037d87c`; nodes carry `{addr@+0xc,
+  val@+0x10, flags@+0x1c}` and the walk *writes val→addr* via `FUN_0036c134` — eventpoint/bp-
+  restore style). Cold-boot state is an **empty self-referential circular list**; because the init
+  that would build it has not run here, head→next points into not-yet-allocated heap. Seed
+  `*0xE9C5C0 = *0xE9C5C4 = 0xE9C5C0` → walk returns,
+  boot advances. ✓
+- **#2 allocator fn-ptrs** — `zalloc` (`FUN_00555488`) calls `(*0xE9C34C)()`; NULL → `bctrl 0` →
+  **Program exc 0x700** (caller `lr=0x5554b0`). `0xE9C34C`/`0xE9C648` are set to `0x5652D0`/`0x565518`
+  by module-init `FUN_005555ec`. Seeding the two pointers gets *past* `zalloc` — but then the
+  allocator `0x5652D0` itself faults (next `0x700`), because **its memory pool/partition isn't
+  initialized** (the first genuinely heap-resident structure, not just a ptr/empty-list).
+
+**Root cause (generalized):** forcing `PC=usrRoot` jumps *past the C++ static-constructor /
+module-init phase*. Those once-guarded inits (e.g. `FUN_00552bf4` → `FUN_005555ec` + a
+`semBCreate` + table setup) build the allocator pool, the lists, and the object globals — all of
+which are NULL/empty in BSS here (BSS is above the `0xE8BF20` file end → zero in QEMU) and whose
+heap results a completed cold boot would build. This is the precise mechanism behind
+[[cold-boot-first-divergence]]. **Keystone = the custom memory partition** behind `0x5652D0`:
+once a real pool exists, the allocator works and the ctor cascade can build everything else.
+
+Three ways forward (decision pending): **(A)** find & run the top-level ctor/module-init runner
+before `usrRoot` (highest leverage, but risks cascading faults + double-init vs the state kernelInit
+has already set up); **(B)** keep incremental seeding — next, hand-construct `0x5652D0`'s partition descriptor
+over a reserved RAM region; **(C)** treat the mechanism as the RE win (now proven) and pivot
+remaining effort to the Phase-5 timer + live-camera reference, per the conclusion below.
+
+**Paths B and A both resolved against the same wall (2026-06-11).** Pulling the real functions
+on demand (the corpus was missing them — see below) showed `0x5652D0`/`0x565518` are two entry
+points into one 18 KB function `FUN_005651E8`, and it is **not a memory allocator** but a
+**device/channel-context manager**: `param_1` indexes a table `iRam00E3A624[ ]` of N device
+contexts (each ~0x14c48 = 84 KB), count in `uRam00E3A630`. With count `0` it returns `-7` (our
+fault). The table is built by `FUN_00563B58` → per-entry `FUN_00560544` (mallocs 0x14c48, fills
+from a device-descriptor table at `0x10CF458` and *probes the device*). The loop bound is the
+global `*(0xE26978)`, whose `.data` value here is `0x01000000` — **non-cold garbage** (it sits in a
+`0x10101010` fill region); the true cold value is a small device count set by HW enumeration, which
+this image doesn't carry. So **(B)** is impractical (the keystone is a device table, not a
+free-list), and **(A)** can't be run *as-is* because the count + descriptors are non-cold and the
+per-entry builder probes devices QEMU doesn't model. (NB: an earlier note here mis-took the
+`0x01000000` value literally — that "huge table" framing was wrong; the value is simply garbage.)
+Whether a *forced small count* lets the init build any entries is an open empirical question. All four boot-reconstruction
+approaches (natural dispatch, forced-`usrRoot`+seed, build-partition, run-init) converge on the same
+wall: **the cold-boot init sequence (C++ ctors / module-init / device enumeration) has not run, so
+the runtime heap + device contexts it would build are absent, and QEMU doesn't model the device
+layer that enumeration probes.** **Recommendation stands: Path C.**
+
+**Tooling recovered this session** (the analysis above was only possible after fixing the corpus
+gap): Ghidra's DB has ~12.3 k functions but `ghidra_decompile_all.py` exported only 10,554 — an
+*export* shortfall, not analysis. `firmware/scripts/callgraph.py` builds the call graph straight
+from the binary (`bl`-targets ∪ symtab; `--callers/--func/--climb/--dump-entries`), and
+`firmware/scripts/ghidra_decompile_addrs.py` pulls any missing function on demand via pyghidra
+(no `analyzeHeadless`: `GHIDRA_INSTALL_DIR=~/Downloads/ghidra_12.0.4_PUBLIC .venv/bin/python …`).
+
+**Experiment — forced table init (2026-06-11), VERIFIED FACTS ONLY:**
+- `*(0xE9C34C)` (set to `0x5652D0` by `FUN_005555EC`) is the fn-ptr that `FUN_00555488`
+  and `FUN_005552A4` `bctrl`. Calling it in isolation **returns `-7`** (`r3=0xFFFFFFF9`),
+  so `FUN_00563B58` builds nothing (count/base stay 0). Reproduced with count forced to 1.
+- `0x5652D0` is **mid-function** (no prologue; the bytes before it are a `*(r28+9)` state
+  machine, part of `FUN_005651E8` @`0x5651E8`). It reads `r28`/`r27` (`lbz r12,9(r28)`,
+  `lwzx r3,r27,0x14bf4`) **without loading them** → it needs a valid context already in
+  those regs.
+- At the **normal** root-task dispatch, `r27=r28=r13=r2=0`, then `r27`/`r28` take **stack
+  values** as ordinary callee-saved locals. So they are **not** reserved global registers,
+  and `0x5652D0` is reached legitimately only via a caller chain that establishes its
+  context first.
+
+**Retractions (over-reaches corrected):** this allocator is NOT a simple memory partition,
+NOT a 16 M-entry/"1.4 TB" device table (that used a non-cold `.data` value literally), and
+`r27`/`r28` are NOT global registers. What is actually true is only the bullets above. A
+correct model needs a careful trace of the *real* call path that sets `r27`/`r28` before
+`0x5652D0` — e.g. breakpoint `0x5652D0` during a legitimate run and capture the context —
+rather than another quick theory.
+
+**Realistic next steps** (reaching cold `sysClkEnable` requires running the early init + device
+layer, which QEMU does not yet model):
 - Treat `0x381a8c…0x383fff` as **upstream OpenSSL 0.9.8a** (WR Security Libraries); map addresses
   to `crypto/x509v3/*.c` + `crypto/asn1/*.c` rather than hand-decompiling. The dispatch into it is
   an artifact and is not on the camera's real boot path.
@@ -166,8 +315,8 @@ redirected toward the real root task, re-evaluate (which is why they remain in `
 
 #### What was moved to qemu-r1mx, and what stays
 
-Applying the test "does this patch compensate for an *emulator inaccuracy* (vs. the image being a
-RAM snapshot, or un-emulatable crypto)?":
+Applying the test "does this patch compensate for an *emulator inaccuracy* (vs. the cold-boot init
+sequence not having run, or un-emulatable crypto)?":
 
 - **Moved (#1/#2/#3):** boot-environment items — the flat-load boot stack (#1) and the missing
   init-agent canaries (#2/#3). Now in the machine (`r1mx_apply_boot_env_fixups`); dropped from the
@@ -177,8 +326,9 @@ RAM snapshot, or un-emulatable crypto)?":
 - **`#62`/`#63` are not emulator gaps** — bisection shows they're redundant (no program exception
   fires on this path). The real CPU-emulation fixes already live in qemu-r1mx (cputlb truncation,
   mmu_helper cast, SLER abort, FSL stubs).
-- **Everything else stays firmware:** snapshot `.data`/BSS, dispatch scaffolding, and crypto — not
-  emulator responsibilities (post-boot RAM snapshot; crypto needs keys/hardware).
+- **Everything else stays firmware:** the image's pre-cold-boot `.data`/BSS values, dispatch
+  scaffolding, and crypto — not emulator responsibilities (these stand in for init that hasn't run /
+  heap state built at runtime; crypto needs keys/hardware).
 
 **Result: the default image is 29 patch sections** (`f97e33a1…`); `make full` keeps the legacy 59
 (`281ef88a…`). Both require the patched `r1mx-virtex4` machine.
@@ -192,6 +342,7 @@ RAM snapshot, or un-emulatable crypto)?":
 | "tight reset loop, 18,701 ^^^, kernelInit never reached" | `session_blocker_investigation.md` | old binary `76ca28…`; current boots fine |
 | "root task created, dispatched, 60 ms loop" | `plan.md` (session 20) | **reproduced again** after disabling patch #57 |
 | "kernelInit never returns" | `qemu_howto.md`, build32_static_analysis | now TRUE in QEMU too (matches HW) |
+| "`software.bin` is a post-boot RAM snapshot of a booted camera" | earlier §0.3 wording (pre-2026-06-05) | **retracted**: it is the firmware program image RED ships (decrypted from the `redone.su` Build 32 installer), flashed to NOR and loaded into RAM at cold boot. `.data` "running-looking" values are a structural build property (identical fingerprint across Build 31/32), not captured runtime. BSS/heap are runtime-populated by a cold boot that hasn't completed in QEMU. See [[firmware-image-and-framing]] |
 
 ### 0.5 Tests as source of truth  (all three layers built — run `firmware/scripts/run_tests.py`)
 
@@ -1397,7 +1548,7 @@ Build with `make -C firmware/reverse/build_32/src install` to produce `software.
 | **44** | **2** | **`0x458a40`** | **KEY FIX: bctrl → `li r3,0` in fn_458a14 — bypasses dispatch to fn_37cd4c (stack frame mismatch crash)** |
 | 45 | 2 | `0x44c720` | NOP self-referential `bctrl` at fn_44c720 (CTR points to itself → infinite loop) |
 | 46 | 2 | `0x44c6a8` | NOP `stw r11, 0x7c(r12=0)` — null-deref corrupting exception vector at 0x7c |
-| **47** | **2** | **`0xE2942C` (data)** | **Zero pre-seeded `intCnt` — snapshot value `0x00552F30` causes taskInit to fail (`intCnt>0` guard), preventing root task creation → 0x124 spin loop** |
+| **47** | **2** | **`0xE2942C` (data)** | **Zero pre-seeded `intCnt` — the image `.data` value `0x00552F30` causes taskInit to fail (`intCnt>0` guard), preventing root task creation → 0x124 spin loop** |
 | 48-51 | 2 | Various (sessions 12-18) | XIntc timer, workQ, and scheduler fixes (see session 12-18 notes) |
 | **52** | **3** | **`0x5ab128`** | **Scheduler null-deref: `lwz r31,0xd4c(r29)` → `li r31,0` — TCB+0x94=0 caused read of boot-code addr (0+0xd4c=0x9001004c) as fake TCB, rfi to PC=0** |
 | **53a** | **3** | **`0x371d64`** | **Root-task initial PC: fn_371cd0 stored epilogue addr 0x381aec → fixed to prologue 0x381a8c** |
@@ -1707,7 +1858,7 @@ Dispatching to 0x381aec executes `blr` with LR=0 → crash. Fixed to `0x381a8c` 
 
 **Patch #53b (0x381ad0): NOP fast-exit branch in fn_381a8c.**
 `bc 4,30 0x381b14` (skip to epilogue when r4 != 0) fired at first dispatch because ctx+0x10
-(GPR4) = `0x0dcf5120` (non-zero interrupt-captured value). NOP forces the normal `bl 0x381a38` path.
+(GPR4) = `0x0dcf5120` (a non-zero value the not-yet-run cold-boot init would have cleared). NOP forces the normal `bl 0x381a38` path.
 
 **Patch #53c (0x371d6c): initialise ctx+0x84 (LR slot).**
 fn_371cd0 had a spare slot (`li r11, 1`) replaced with `stw r12, 0x244(r31)` to write

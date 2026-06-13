@@ -1,0 +1,2 @@
+# The toolchain tree is bind-mounted at run time, never copied into the image.
+wr-gcc-3.4.4-ppc/

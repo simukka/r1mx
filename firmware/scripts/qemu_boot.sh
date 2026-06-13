@@ -3,11 +3,25 @@
 #
 # Usage:
 #   ./scripts/qemu_boot.sh [--debug] [--patched] [--net] [--build13]
+#                          [--background] [--stop] [--serial-log=PATH] [--pidfile=PATH]
 #
-# --debug    Halt at PC=0x0 and open GDB stub on port 1234 for r2/gdb-multiarch
-# --patched  Use software.patched.bin instead of the original
-# --net      Enable TAP networking for WDB Ethernet access (requires tap0 to exist)
-# --build13  Use Build 13 SundanceBootable.bin instead (legacy)
+# --debug        Halt at PC=0x0 and open GDB stub on port 1234 for r2/gdb-multiarch
+# --patched      Use software.patched.bin instead of the original
+# --net          Enable TAP networking for WDB Ethernet access (requires tap0 to exist)
+# --build13      Use Build 13 SundanceBootable.bin instead (legacy)
+# --background   Daemonize: detach from stdio, serial→log file, write a pidfile.
+#   (aka --daemon, -d)  Use this for automated/scripted runs (driving the gdb stub
+#                from another process). A backgrounded -nographic QEMU has no TTY and
+#                dies instantly, so this mode swaps in -display none / -serial file /
+#                -daemonize.  Default serial log: /tmp/r1mx-qemu-serial.log
+# --stop         Cleanly terminate a backgrounded instance (via pidfile, else by exact
+#                process name — never `pkill -f`, which would also kill this script).
+# --serial-log=PATH / --pidfile=PATH   Override the background log / pidfile locations.
+#
+# Example (background + gdb stub, then drive it):
+#   ./scripts/qemu_boot.sh --patched --debug --background
+#   python3 scripts/smoke_test.py        # or any rsp.py client on :1234
+#   ./scripts/qemu_boot.sh --stop
 #
 # Debugger attach (in a second terminal):
 #   r2 -a ppc -b 32 -e cfg.bigendian=true \
@@ -72,12 +86,20 @@ DEBUG=0
 USE_PATCHED=0
 USE_NET=0
 BUILD13=0
+BACKGROUND=0
+STOP=0
+PIDFILE="${R1MX_QEMU_PIDFILE:-/tmp/r1mx-qemu.pid}"
+SERIAL_LOG="${R1MX_QEMU_SERIAL:-/tmp/r1mx-qemu-serial.log}"
 
 for arg in "$@"; do
     case "$arg" in
         --debug)   DEBUG=1 ;;
         --patched) USE_PATCHED=1 ;;
         --net)     USE_NET=1 ;;
+        --background|--daemon|-d) BACKGROUND=1 ;;
+        --stop)    STOP=1 ;;
+        --serial-log=*) SERIAL_LOG="${arg#*=}" ;;
+        --pidfile=*)    PIDFILE="${arg#*=}" ;;
         --build13)
             BUILD13=1
             FW_DIR="$REPO_ROOT/reverse/Upgrade_Build 13/Upgrade"
@@ -86,6 +108,26 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# --stop: cleanly terminate a backgrounded instance. Match by PID file, or fall
+# back to the EXACT process name (never `pkill -f`, which also matches this very
+# script's command line and would kill the caller).
+if [[ $STOP -eq 1 ]]; then
+    QPID=""
+    [[ -f "$PIDFILE" ]] && QPID="$(cat "$PIDFILE" 2>/dev/null)"
+    if [[ -n "$QPID" ]] && kill -0 "$QPID" 2>/dev/null; then
+        kill "$QPID" && echo "[*] stopped QEMU pid $QPID"
+        rm -f "$PIDFILE"
+    elif pgrep -x qemu-system-ppc >/dev/null; then
+        # No valid pidfile — fall back to exact process name (never `pkill -f`,
+        # which would also match this script's own command line and kill the caller).
+        pkill -x qemu-system-ppc && echo "[*] stopped qemu-system-ppc (by name)"
+        rm -f "$PIDFILE"
+    else
+        echo "[*] no running r1mx QEMU found"
+    fi
+    exit 0
+fi
 
 if [[ $USE_PATCHED -eq 1 ]]; then
     FIRMWARE="$FW_DIR/$PATCHED_NAME"
@@ -105,17 +147,32 @@ fi
 QEMU_ARGS=(
     -machine r1mx-virtex4
     -m 2G
-    -nographic
 
     # Load firmware flat binary at physical 0x00000000.
     # The PPC405 reset vector (hreset_vector) is patched to 0x0 in r1mx_virtex4.c
     # so no separate PC-setter loader is needed — and such a loader would clobber
     # the first instruction of the firmware by writing data to address 0x0.
     -device "loader,file=$FIRMWARE,addr=0x0,force-raw=on"
-
-    # XUartLite console: -nographic already maps serial0→stdio (mon:stdio mux)
-    # Adding -serial stdio here would conflict and fail; let QEMU use the default.
 )
+
+# Console handling differs by mode:
+#   foreground : -nographic maps the XUartLite console + monitor onto stdio (mux).
+#   background : stdio has no controlling TTY, so a backgrounded `-nographic` QEMU
+#                dies immediately. Detach every chardev (display/monitor off, serial
+#                to a log file) and let QEMU daemonize itself with a PID file.
+if [[ $BACKGROUND -eq 1 ]]; then
+    # NB: QEMU's own -pidfile is unreliable with -daemonize (the forking parent can
+    # unlink it on exit), so we write our own pidfile from pgrep after launch.
+    QEMU_ARGS+=(
+        -display none
+        -monitor none
+        -serial "file:$SERIAL_LOG"
+        -daemonize
+    )
+else
+    # -nographic: serial0 → stdio (mon:stdio mux). Don't add -serial stdio too.
+    QEMU_ARGS+=(-nographic)
+fi
 
 if [[ $USE_NET -eq 1 ]]; then
     if ! ip link show tap0 &>/dev/null; then
@@ -153,5 +210,24 @@ echo "[*] Firmware: $FIRMWARE"
 echo "[*] QEMU: $QEMU"
 echo "[*] Launching: ${QEMU} ${QEMU_ARGS[*]}"
 echo ""
+
+if [[ $BACKGROUND -eq 1 ]]; then
+    # -daemonize double-forks; this invocation returns once QEMU is initialized.
+    "$QEMU" "${QEMU_ARGS[@]}" </dev/null
+    rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "ERROR: QEMU failed to start (rc=$rc)"; exit $rc
+    fi
+    # Record the daemon's PID ourselves (newest qemu-system-ppc) for clean --stop.
+    sleep 0.3
+    QPID="$(pgrep -nx qemu-system-ppc || true)"
+    [[ -n "$QPID" ]] && echo "$QPID" > "$PIDFILE"
+    echo "[*] QEMU daemonized."
+    [[ -n "$QPID" ]] && echo "[*]   PID:    $QPID  (pidfile: $PIDFILE)"
+    echo "[*]   serial: $SERIAL_LOG"
+    [[ $DEBUG -eq 1 ]] && echo "[*]   gdb stub: tcp::1234"
+    echo "[*] Stop with: $0 --stop${PIDFILE:+ --pidfile=$PIDFILE}"
+    exit 0
+fi
 
 exec "$QEMU" "${QEMU_ARGS[@]}"

@@ -6,7 +6,8 @@
 |------------------|-----------------------------------------------------------------------|
 | Camera           | RED ONE MX                                                            |
 | Build            | 32, version 32.0.3                                                    |
-| Release date     | September 7, 2013                                                     |
+| Build timestamp  | May 16, 2013, 16:35:13 (embedded `__DATE__`/`__TIME__` in software.bin) |
+| Release date     | September 7, 2013 *(unverified — not in the binary; source unknown)*  |
 | Firmware format  | Encrypted (`redone.su`), AES-256-CBC, MD5 KDF                        |
 | Decryption pass  | `M1H5gwOXh757rIRVY6Gj2tN080AYSX03`                                   |
 | CPU              | PowerPC 405GP, 32-bit, big-endian                                     |

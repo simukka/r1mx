@@ -364,6 +364,94 @@ the USB shell is: locate the runtime address backing `DEBUG.USB.CONNECTION`
 
 ---
 
+## Static Trace of `DEBUG.USB.CONNECTION` → shell (2026-06-10)
+
+Goal: get from the param to a runtime address we can write, or a callable we can
+invoke over JTAG. Result: **there is no static address backing the param**, and the
+trigger chain is table-driven. Details:
+
+### Why every xref search comes up empty
+- **No code references the param string** `0xD35928` (nor the XML def `0xC769DA`),
+  and **no code references the C++ method-name strings** (`runTargetShell`@`0x64F518`,
+  etc.) — neither as 32-bit pointers nor as `lis`/`addi`/`ori` immediates (verified by a
+  full `.text` decode tracking per-register constants). The param registry and the
+  message/method dispatch are **data-table-driven** (accessed by base+index), so the
+  names are pure data, not code operands.
+- The decompiled corpus (`src/all_functions/`, 10 554 fns) is **incomplete** — the
+  `UiUsbSerial` application methods were not auto-detected, which is the other reason
+  greps miss them.
+
+### What the symbol table does/doesn't give
+- The image carries the full **VxWorks symbol table** (entry = `{flags, 0, namePtr,
+  value, 0}`, stride `0x14`; name pointers are absolute file offsets == VAs). It
+  resolves **C symbols** to addresses, but the C++ method names (`runTargetShell`,
+  `ProcessUsbDebugChange`) are **not** value-bearing entries — only a few class symbols
+  are (vtable name, and the functor thunk below).
+- Resolved, confirmed addresses (C symbols, live == file offset):
+  | Addr | Symbol | Role |
+  |------|--------|------|
+  | `0x28E9B8` | `CBMemberTranslator1<ParamRef,UiUsbSerial,…>::thunk` | the functor fired when the param changes; tail-calls the stored PMF (`ProcessUsbDebugChange`) |
+  | `0x1B9E5C` | `shellBackgroundInit` | low-level shell-session spawn |
+  | `0x001BB014` | (shellGenericInit core) | builds session, calls `shellBackgroundInit` |
+  | `0x001BBB14` | (shellGenericInit public wrapper) | stack-builds shell config; **the shell-spawn entry `runTargetShell` ultimately calls** |
+  | `0x472D3C` | `usbTcdNET2280_SundanceExec` | device-side USB target-controller driver (NET2280) |
+  | `0xE1E13C` | `shellLoginInstall` | login gate (note `ClearAuthentication` method exists) |
+
+### Trigger chain (mechanism, confirmed)
+`param set "DEBUG.USB.CONNECTION"=n` → registry fires listener → `CBMemberTranslator
+thunk (0x28E9B8)` → `UiUsbSerial::ProcessUsbDebugChange(ParamRef&)` → `runTargetShell()`
+→ shellGenericInit (`0x1BBB14`) bound to the USB CDC-ACM tty. The VxWorks shell library
+is **fully linked** (`shell*` symbols present).
+
+### Consequence for the JTAG bootstrap
+Poking a static address won't work (the param value lives in a **heap Param object**
+created at runtime, and a raw write wouldn't fire the listener anyway). Two viable
+live-target routes, both single sanctioned calls over XMD:
+1. **Faithful:** call the param-registry set-by-name with `"DEBUG.USB.CONNECTION", 1`
+   (fires the listener → shell). Needs the param-set entry fn (next TODO).
+2. **Direct:** bypass the param entirely — open the USB tty and call the shell-spawn
+   entry (`0x1BBB14` family) on that fd. Needs the live tty fd + correct config args.
+
+Either way the keystone is now a *live* step (read the heap registry / call a fn), not a
+further static address — the static trace is as complete as it can be.
+
+### Direct shell-spawn route — pinned pieces (2026-06-10)
+The faithful param route needs the registry set-by-name entry, which is **not cleanly
+isolable statically** (the network "Set" handler `ProcessMessage_Cmnd@0x70900` is a log
+formatter, not the setter; the registry is a deep C++ object graph and its set/find
+methods are among the corpus's missing functions; `FUN_002AE9E8` is only the internal
+path-node resolver, splits on `/`=0x2F). **Recommend the direct route instead** — it is
+~90% pinned:
+
+- **CDC-ACM tty device name = `/tyCo/cdc0`** (`@0xd2a9d8`). This is the USB Type-B serial
+  port (matches the live `/dev/ttyACM0`, EP4/EP5 enum). HW UARTs are `/tyCo/0` (`@0xd28bb4`)
+  and `/tyCo/1` (`@0xd465cc`); shell device prefix `/dev/shell/` (`@0x47104a`).
+- **Shell-spawn chain (addresses confirmed):**
+  `shellGenericInit` public `@0x1BBB14` → core `@0x1BB014` → `shellBackgroundInit @0x1B9E5C`.
+  Public-entry call sites: `0x1B3D98`, `0x1B4684` (shell-lib config/login wrappers — the
+  standard `shellGenericInit` path). Login gate: `shellLoginInstall @0xE1E13C`.
+- NB: device names (incl. `/tyCo/cdc0`) are **not** code immediates either — they live in
+  the I/O device table, referenced by data pointer. Same table-driven pattern as the params.
+
+**Live JTAG call (direct route):** `fd = open("/tyCo/cdc0", O_RDWR, 0)` then a
+`shellGenericInit`-family call (`0x1BBB14`) bound to `fd` for in/out/err. The exact arg
+vector should be taken from the VxWorks 6.4 `shellGenericInit` prototype **or** by reading
+an existing live shell session's config over JTAG (cheaper/safer than further static RE).
+
+**Tooling:** `firmware/scripts/usb_shell_enable.py` (on `rsp.py`). Two phases:
+`capture` (read-only) dumps the live config block `0xE1350C..0xE13544` + name buf
+`0x10CF434`, verifies `/tyCo/cdc0`, and resolves `open()` from the in-RAM symtab; `arm`
+(`--allow-write`, idle camera, confirm) runs `open("/tyCo/cdc0")` + `shellGenericInit
+(0x1BBB14)` via a reusable `call_remote()` function-call-over-RSP harness (saves/restores
+regs, HW-bp return-catcher, never patches memory). Resolve `--open-addr` from `capture`
+first; `--dry-run` prints the shellGenericInit arg vector before committing.
+
+**Arg-vector status:** `0x1BBB14` is a **config-struct session creator**, not the clean
+9-arg `shellGenericInit` — its call sites (`0x1B3D98`, `0x1B4684`) feed a fat block read
+from the `0xE135xx` globals + name buffer. `open()`/`iosOpen()` are **absent from the
+(partial) static symtab**, so both `open()`'s address and the exact fd-slot mapping are
+finalized on the live target by the `capture` phase, not fabricated here.
+
 ## Outstanding TODOs
 
 - [ ] **Run `wdb_probe.py` against the camera** (needs Ethernet link + host IP

@@ -1,0 +1,4 @@
+# The extracted Wind River toolchain is ~34 MB of vendor binaries — not committed.
+# Re-extract from libraries/GCC3.4.4_VxWorks6.4/cum.vxw6-3.4.4-ppc.2009aug07.zip
+# (see README.md).
+wr-gcc-3.4.4-ppc/

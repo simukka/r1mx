@@ -38,8 +38,8 @@ Program-Exception handler) the disassembly is genuine PPC mnemonics.
 | Group (`-DGROUP_*`) | r1mx default | What it is |
 |---|---|---|
 | `CPU_CORE` | on | PPC405 core / boot-stub / exception-vector adaptations. #62/#63 may indicate real qemu-r1mx TCG gaps. |
-| `SNAPSHOT_DATA` | on | Fixes for stale values baked into the RAM-snapshot image (BSS sentinels, C++ vtable ptrs, sysMemTop/intCnt caches, the bctrl bypasses those cause). |
-| `DISPATCH_SCAFFOLD` | on | Forces a non-crashing first context switch given the snapshot's corrupted root-task TCB/globals (lands in OpenSSL X.509v3 — a patch artifact). |
+| `SNAPSHOT_DATA` | on | Fixes for `.data`/BSS values a cold boot would set but that QEMU hasn't run the init to produce (BSS sentinels, C++ vtable ptrs, sysMemTop/intCnt slots, the bctrl bypasses those cause). *Group name is legacy:* `software.bin` is the shipped firmware program image, **not** a RAM snapshot — see re_reference §0.3 / [[firmware-image-and-framing]]. |
+| `DISPATCH_SCAFFOLD` | on | Forces a non-crashing first context switch given the not-yet-initialized root-task TCB/globals (lands in OpenSSL X.509v3 — a patch artifact). |
 | `CRYPTO_BYPASS` | on | Bypasses signature / SSD-compat / SSL-callback checks that can't complete in emulation. |
 | `DEVICE_GAP` | **off** | Workarounds for MMIO unmapped on the OLD generic 'bamboo' machine (XUartLite, RAM-size). The r1mx-virtex4 machine maps the real devices, so these are skipped. |
 | `INCLUDE_DISABLED` | off | Patches proven WRONG, kept for the record only (e.g. #57). |
