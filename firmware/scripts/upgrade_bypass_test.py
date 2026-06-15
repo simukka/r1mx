@@ -59,6 +59,34 @@ PATCH_BYTES = bytes.fromhex("38600000" "4e800020")
 CANARY_ADDR = 0x00E269A4
 CANARY_VAL = 0x12348765
 
+# Upgrade-verify error flag (upgrade_install_analysis.md §"How verification works"):
+# the per-file verify sets *(0x00E9E85C)=1 on a failed EVP_VerifyFinal. It lives in
+# BSS (absolute live address, > image size) so it's only readable on the live core.
+ERROR_FLAG_ADDR = 0x00E9E85C
+
+# Upgrade pipeline waypoints — IMAGE offsets (flat image; live = img + --reloc).
+# Ordered early -> late; all four have low caller counts so each is a clean trap,
+# and there are exactly four, matching the PPC405's four IAC (PC) breakpoints that
+# XMD exposes. Tracing which fire (and in what order) shows how far an upgrade got.
+#   extract  FUN_000a8bdc  lib/libflashutils/extract.c — extract/decrypt/verify entry
+#   verify   FUN_00210800  per-file signature verify (calls the wrapper at its entry)
+#   wrapper  FUN_000af634  verify wrapper — the result gate / OVERRIDE POINT
+#   flash    FUN_000adc28  flash erase/program (only reached if verification passes)
+WAYPOINT_DEFAULTS = {
+    "extract": 0x000A8BDC,
+    "verify":  0x00210800,
+    "wrapper": 0x000AF634,
+    "flash":   0x000ADC28,
+}
+WAYPOINT_DESC = {
+    "extract": "extract/decrypt/verify entry (extract.c FUN_000a8bdc)",
+    "verify":  "per-file signature verify (FUN_00210800)",
+    "wrapper": "verify wrapper — OVERRIDE POINT (FUN_000af634)",
+    "flash":   "flash erase/program (FUN_000adc28)",
+}
+# Early -> late ordering used for the trace summary / interpretation.
+WAYPOINT_ORDER = ["extract", "verify", "wrapper", "flash"]
+
 
 # ----------------------------------------------------------------------------
 # operator interaction
@@ -122,6 +150,35 @@ def check_port(host, port):
         return False
 
 
+def selftest_breakpoint(t, pc, timeout=5.0):
+    """Confirm a hardware (Z1/IAC) breakpoint actually arms and fires on this
+    stub. The core is halted (usually in the idle loop) when we're called: set a
+    bp at the current PC, continue, and check it re-traps. Non-fatal — it only
+    annotates whether later 'no waypoint hit' results can be trusted."""
+    if not t.set_bp(pc, hw=True):
+        print(f"  [warn] hw breakpoint NOT accepted @0x{pc:08x} — XMD may not "
+              f"honor Z1; the waypoint trace will be unreliable.")
+        return False
+    t.send("c")
+    try:
+        stop = t.recv(timeout)
+    except (TimeoutError, socket.timeout):
+        # It never came back — re-halt and clean up so preflight can continue.
+        t.interrupt(10.0)
+        t.clear_bp(pc, hw=True)
+        print(f"  [warn] hw breakpoint did NOT fire @0x{pc:08x} within {timeout}s "
+              f"(target may not have re-reached it, or Z1 is a no-op on this "
+              f"stub). A later 'no waypoint hit' would be inconclusive.")
+        return False
+    rp = t.regs().get("pc", 0) & 0xFFFFFFFF
+    t.clear_bp(pc, hw=True)
+    ok = stop.startswith(("T", "S")) and rp == pc
+    print(f"  [{'ok' if ok else 'warn'}] hw breakpoint "
+          f"{'fired' if ok else 'returned'} @0x{rp:08x} "
+          f"{'— Z1 works on this stub.' if ok else f'(expected 0x{pc:08x}).'}")
+    return ok
+
+
 def preflight_bridge(args):
     """Gate Stage B on a live JTAG bridge. Returns a connected, write-enabled
     RSP client, or exits with guidance."""
@@ -163,6 +220,11 @@ def preflight_bridge(args):
                   f"(expect 0x{CANARY_VAL:08x})")
         except RSPError as e:
             print(f"  [warn] canary read failed: {e}")
+        # Prove the instrument before we rely on it: a hardware breakpoint must
+        # actually arm AND fire on this XMD stub, else a "no waypoint hit" later
+        # is meaningless (we couldn't tell "path not taken" from "bp never armed").
+        if pc is not None and not args.no_bp_selftest:
+            selftest_breakpoint(t, pc)
         t.send("c")  # resume; we re-arm at the breakpoint below
     except Exception:
         t.close()
@@ -199,74 +261,139 @@ def run_stage_a(args):
 
 
 def run_stage_b(args):
-    addr = (args.wrapper_addr + args.reloc) & 0xFFFFFFFF
-    banner("STAGE B — modified package + JTAG signature bypass")
-    print(f"  verifier wrapper : 0x{args.wrapper_addr:08x}")
-    print(f"  + .text reloc    : 0x{args.reloc:08x}")
-    print(f"  breakpoint @     : 0x{addr:08x}")
+    # Resolve the pipeline waypoints to live addresses (img offset + reloc) and
+    # build the reverse map so we can name a breakpoint by the PC it traps at.
+    wp_img = dict(WAYPOINT_DEFAULTS)
+    wp_img["extract"] = args.extract_addr
+    wp_img["verify"] = args.verify_addr
+    wp_img["wrapper"] = args.wrapper_addr   # the override point
+    wp_img["flash"] = args.flash_addr
+    live = {n: (a + args.reloc) & 0xFFFFFFFF for n, a in wp_img.items()}
+    by_pc = {a: n for n, a in live.items()}
+
+    banner("STAGE B — modified package + JTAG signature-bypass trace")
+    print(f"  .text reloc      : 0x{args.reloc:08x}")
     print(f"  method           : {args.method}"
           f"{'  (NEGATIVE CONTROL — no override)' if args.negative_control else ''}")
+    print("  pipeline breakpoints (img + reloc = live):")
+    for n in WAYPOINT_ORDER:
+        mark = "  <- override" if n == "wrapper" else ""
+        print(f"    {n:8} 0x{wp_img[n]:08x} -> 0x{live[n]:08x}  "
+              f"{WAYPOINT_DESC[n]}{mark}")
 
     t = preflight_bridge(args)
+    reached = []          # ordered list of waypoint names that trapped
+    flashed = False
     try:
-        # 1) Get the operator to the on-screen upgrade prompt, THEN arm the bp
-        #    (so the armed window is small and we can't miss the verify).
+        # 1) Operator navigates to (but does not select) UPDATE SW; THEN we arm
+        #    all four pipeline breakpoints so we can trace how far the upgrade
+        #    gets. XMD exposes four IAC slots — exactly enough for the set.
         def arm():
             t.interrupt(10.0)
             regs = t.regs()
             print(f"  [halt] PC=0x{regs.get('pc',0):08x} — camera reachable.")
-            if not t.set_bp(addr, hw=True):
-                print(f"  [verify] could not set hw breakpoint @0x{addr:08x}")
+            armed = []
+            for n in WAYPOINT_ORDER:
+                if t.set_bp(live[n], hw=True):
+                    armed.append(n)
+                    print(f"  [arm]  {n:8} @0x{live[n]:08x}")
+                else:
+                    print(f"  [warn] could not set bp for {n} @0x{live[n]:08x} "
+                          f"(out of IAC slots, or Z1 refused).")
+            if not armed:
+                print("  [verify] no breakpoints armed — cannot trace.")
                 t.send("c")
                 return False
-            print(f"  [arm]  hardware breakpoint set @0x{addr:08x}")
-            t.send("c")  # free-run until the verifier is reached
+            t.send("c")  # free-run; the upgrade pipeline will trap as it runs
             return True
 
         confirm_and_verify(
-            "Insert the MODIFIED-package USB, power-cycle, and wait until the\n"
-            "    on-screen UPGRADE prompt appears. Do NOT confirm it yet.",
+            "Insert the MODIFIED-package USB, then on the camera press SYSTEM ->\n"
+            "    SETUP -> MAINTENANCE and HIGHLIGHT 'UPDATE SW' (do NOT select it\n"
+            "    yet).",
             arm)
 
-        # 2) Operator confirms in the UI; we wait for the verifier to trap.
-        confirm("Now CONFIRM the upgrade in the camera UI to start verification.")
-        print(f"  [wait] watching for the verifier breakpoint @0x{addr:08x} ...")
-        stop = t.recv(args.bp_timeout)
-        if not (stop.startswith("T") or stop.startswith("S")):
-            sys.exit(f"  [FAIL] unexpected stop reply: {stop!r}")
-        regs = t.regs()
-        pc = regs.get("pc", 0) & 0xFFFFFFFF
-        if pc != addr:
-            print(f"  [warn] halted at 0x{pc:08x}, expected 0x{addr:08x} "
-                  f"(reloc wrong? other bp?).")
-        print(f"  [HIT]  verifier reached: PC=0x{pc:08x} "
-              f"r3=0x{regs.get('r3',0):08x} LR=0x{regs.get('lr',0):08x}")
+        # 2) Operator triggers the upgrade; we trace every waypoint it hits.
+        confirm("Now select 'UPDATE SW' in the camera UI to start the upgrade.")
+        print(f"  [wait] tracing the upgrade pipeline "
+              f"(up to {args.bp_timeout:.0f}s per step) ...")
+        try:
+            while True:
+                stop = t.recv(args.bp_timeout)
+                if not (stop.startswith("T") or stop.startswith("S")):
+                    print(f"  [warn] unexpected stop reply: {stop!r}")
+                    break
+                regs = t.regs()
+                pc = regs.get("pc", 0) & 0xFFFFFFFF
+                name = by_pc.get(pc, f"?@0x{pc:08x}")
+                reached.append(name)
+                try:
+                    flag = f"errflag=0x{t.read_word(ERROR_FLAG_ADDR):08x}"
+                except Exception:
+                    flag = "errflag=?"
+                print(f"  [HIT]  {name:8} PC=0x{pc:08x} r3=0x{regs.get('r3',0):08x} "
+                      f"LR=0x{regs.get('lr',0):08x} {flag}")
 
-        # 3) Apply (or deliberately withhold) the bypass.
-        if args.negative_control:
-            print("  [ctrl] NEGATIVE CONTROL: leaving the verifier untouched — "
-                  "the firmware should REJECT this package.")
-        elif args.method == "regs":
-            t.write_reg("r3", 0)                    # wrapper success value
-            t.write_reg("pc", regs.get("lr", 0))    # return to caller now
-            print("  [ovr]  r3<-0, PC<-LR : verifier forced to return success.")
-        else:  # patch
-            t.write_mem(addr, PATCH_BYTES)
-            print(f"  [ovr]  patched 0x{addr:08x} <- li r3,0; blr "
-                  f"({PATCH_BYTES.hex()})")
-            print("  [warn] PPC405 does not snoop I-cache on JTAG writes; if the "
-                  "verifier was already cached this patch may not take effect. "
-                  "Prefer --method regs.")
+                if name == "flash":
+                    print("  [done] reached flash erase/program — verification "
+                          "passed or was overridden. Resuming to let it flash.")
+                    flashed = True
+                    for a in live.values():
+                        t.clear_bp(a, hw=True)
+                    t.send("c")
+                    break
 
-        t.clear_bp(addr, hw=True)
-        t.send("c")  # let the flasher run
-        print("  [run]  resumed — the upgrader should now erase+write flash.")
+                if name == "wrapper" and not args.negative_control:
+                    if args.method == "regs":
+                        t.write_reg("r3", 0)                 # wrapper success value
+                        t.write_reg("pc", regs.get("lr", 0))  # return to caller now
+                        print("  [ovr]  r3<-0, PC<-LR : verifier forced to return "
+                              "success (wrapper runs once per signed file).")
+                    else:  # patch
+                        t.write_mem(pc, PATCH_BYTES)
+                        print(f"  [ovr]  patched 0x{pc:08x} <- li r3,0; blr "
+                              f"({PATCH_BYTES.hex()})")
+                        print("  [warn] PPC405 ignores I-cache on JTAG writes; "
+                              "prefer --method regs if this has no effect.")
+                elif name == "wrapper":
+                    print("  [ctrl] NEGATIVE CONTROL: wrapper left untouched — "
+                          "the firmware should REJECT this package.")
+
+                t.send("c")  # continue tracing the next waypoint
+        except (TimeoutError, socket.timeout):
+            print(f"  [wait] no further breakpoint within {args.bp_timeout:.0f}s "
+                  "— pipeline appears to have stopped advancing.")
     finally:
         try:
             t.detach()
         except Exception:
             pass
         t.close()
+
+    # 3) Trace summary + interpretation — this is what tells you what the camera
+    #    actually did, independent of the splash version.
+    banner("STAGE B — pipeline trace")
+    seen = set(reached)
+    for n in WAYPOINT_ORDER:
+        mark = "HIT " if n in seen else " -- "
+        print(f"  [{mark}] {n:8} 0x{live[n]:08x}  {WAYPOINT_DESC[n]}")
+    if reached:
+        print("  order: " + " -> ".join(reached))
+    if flashed:
+        print("\n  => upgrade reached flashing.")
+    elif "wrapper" in seen or "verify" in seen:
+        print("\n  => reached signature verification but did NOT flash — the "
+              "override is missing/ineffective, or a stage after verify rejected "
+              "it. Check the errflag values and try --method patch vs regs.")
+    elif "extract" in seen:
+        print("\n  => extraction started but never reached signature verify — the "
+              "modified package fails during decrypt/gunzip/parse (a packaging "
+              "problem, NOT the signature). Re-check the Stage-B repackage.")
+    else:
+        print("\n  => NONE of the upgrade waypoints fired. If the preflight bp "
+              "self-test PASSED, the menu 'UPDATE SW' path does not run this "
+              "SmartUpgrade/extract.c pipeline (wrong trigger or wrong --reloc); "
+              "if the self-test FAILED, the JTAG breakpoint never armed.")
 
     # 4) Confirm the outcome from the splash.
     banner("STAGE B — result")
@@ -304,20 +431,33 @@ def main():
     ap.add_argument("--vm-name", default="r1mx_32")
     ap.add_argument("--no-vm-check", action="store_true",
                     help="skip the VBoxManage running-VM check")
-    ap.add_argument("--wrapper-addr", type=auto_int, default=0xAF634,
-                    help="verifier wrapper file offset (FUN_000af634)")
+    ap.add_argument("--wrapper-addr", type=auto_int,
+                    default=WAYPOINT_DEFAULTS["wrapper"],
+                    help="verifier wrapper file offset (FUN_000af634) — the "
+                         "override point")
+    ap.add_argument("--extract-addr", type=auto_int,
+                    default=WAYPOINT_DEFAULTS["extract"],
+                    help="extract/decrypt/verify entry file offset (FUN_000a8bdc)")
+    ap.add_argument("--verify-addr", type=auto_int,
+                    default=WAYPOINT_DEFAULTS["verify"],
+                    help="per-file signature verify file offset (FUN_00210800)")
+    ap.add_argument("--flash-addr", type=auto_int,
+                    default=WAYPOINT_DEFAULTS["flash"],
+                    help="flash erase/program file offset (FUN_000adc28)")
     ap.add_argument("--reloc", type=auto_int, default=0x0,
-                    help="per-unit .text relocation added to --wrapper-addr "
-                         "(see working-camera-reloc)")
+                    help="per-unit .text relocation added to every waypoint "
+                         "offset (see working-camera-reloc; cam-working-01=0x10180)")
     ap.add_argument("--method", choices=["regs", "patch"], default="regs",
                     help="regs = override r3/PC at the bp (recommended); "
                          "patch = in-RAM li r3,0;blr (I-cache caveat)")
     ap.add_argument("--negative-control", action="store_true",
-                    help="arm the bp but do NOT override — prove rejection")
+                    help="arm the bps but do NOT override — prove rejection")
+    ap.add_argument("--no-bp-selftest", action="store_true",
+                    help="skip the preflight hardware-breakpoint self-test")
     ap.add_argument("--expect-version", default="32.0.4",
                     help="version expected on the splash after the test")
     ap.add_argument("--bp-timeout", type=float, default=600.0,
-                    help="seconds to wait for the verifier breakpoint to hit")
+                    help="seconds to wait at each step for the next waypoint")
     args = ap.parse_args()
 
     if args.stage == "a":

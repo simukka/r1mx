@@ -89,7 +89,25 @@ class RSP:
     def connect(self):
         self.sock = socket.create_connection((self.host, self.port),
                                              timeout=self.timeout)
+        self._drain()   # flush any stale bytes a prior client left mid-stream
         return self
+
+    def _drain(self):
+        """Discard pending inbound bytes. The XMD gdb stub can leave a
+        half-finished packet in the socket after an abrupt disconnect, which
+        desyncs the next query ('bad ack'). No-op on a clean stub."""
+        if not self.sock:
+            return
+        self.sock.setblocking(False)
+        try:
+            while True:
+                if not self.sock.recv(4096):
+                    break
+        except (BlockingIOError, OSError):
+            pass
+        finally:
+            self.sock.setblocking(True)
+            self.sock.settimeout(self.timeout)
 
     def close(self):
         if self.sock:
@@ -113,8 +131,14 @@ class RSP:
     def send(self, payload: str):
         pkt = b"$" + payload.encode() + b"#" + cksum(payload.encode())
         self.sock.sendall(pkt)
-        if self.sock.recv(1) != b"+":
-            raise RSPError(f"[{self.label}] bad ack for {payload!r}")
+        ack = self.sock.recv(1)
+        if ack != b"+":
+            # stale-byte desync (XMD stub): drain and resend once.
+            self._drain()
+            self.sock.sendall(pkt)
+            ack = self.sock.recv(1)
+            if ack != b"+":
+                raise RSPError(f"[{self.label}] bad ack for {payload!r}")
 
     def recv(self, timeout=None) -> str:
         self.sock.settimeout(timeout if timeout is not None else self.timeout)
@@ -178,8 +202,16 @@ class RSP:
         return self.recv(timeout)
 
     def interrupt(self, timeout=None) -> str:
+        """Halt the target and return its stop reply. If the core is already
+        halted (the XMD stub presents the PPC405 stopped right after
+        `connect ppc hw`), the Ctrl-C produces no stop-reply packet — fall
+        back to '?' which always reports the current stop reason."""
         self.sock.sendall(b"\x03")
-        return self.recv(timeout)
+        try:
+            return self.recv(timeout)
+        except (TimeoutError, socket.timeout):
+            self._drain()
+            return self.stop_reply(timeout)
 
     def detach(self):
         # 'D' resumes and detaches; safe (read-only).

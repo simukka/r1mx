@@ -21,10 +21,26 @@ r1mx_apply_boot_env_fixups in the QEMU machine.
 Requires: qemu_boot.sh --patched --debug --background  (stub on :1234).
 """
 import sys, time
+from pathlib import Path
 from rsp import RSP, RSPError
 
 ROOT_ARTIFACT = 0x00381A8C
 USRROOT       = 0x0037C440
+DISPATCH_FN   = 0x00371CD0   # FUN_00371cd0 — task-context setup / dispatch branch
+
+# ---- DISPATCH CRACK (harvested from cam-working-01, 2026-06-14) --------------
+# FUN_00371cd0: `if (*0xE3A790 == TCB+0x94)` -> if-path = OpenSSL artifact (what
+# patches #53/55 chase); else-path -> saved PC = TCB+0xC0 = usrRoot (0x37C440).
+# TIMING MATTERS: TCB+0x94 is COPIED from *0xE3A790 at task setup. So these seeds
+# only force the else-path when applied AT THE DISPATCH (run_to DISPATCH_FN, then
+# write — after taskInit captured TCB+0x94=0, before the branch reads *0xE3A790).
+# At boot they'd propagate into TCB+0x94 and re-match -> if-path. The standalone
+# QEMU fix instead FORCES the else-path by patching the branch at 0x371D5C
+# (bne -> b) in r1mx_apply_boot_env_fixups; see boot_reconstruction_status.md.
+DISPATCH_SEEDS = [
+    (0x00E3A790, 0x00FC9580, "selector: non-zero so root TCB+0x94(=0) != sel -> else-path (apply AT dispatch)"),
+    (0x00E293F4, 0x00000000, "else-path fn-ptr: NULL so FUN_00371c74 skips it (cold 0x542974 is stale)"),
+]
 
 # ---- the growing seed table -------------------------------------------------
 # Each entry: (addr, value, note). 32-bit big-endian writes applied before usrRoot.
@@ -41,6 +57,34 @@ SEEDS = [
     (0x00E9C648, 0x00565518, "free/companion fn-ptr (FUN_005555ec: *0xE9C648=0x565518)"),
 ]
 
+# ---- PCI config mechanism (device-layer prerequisite) -----------------------
+# What the firmware's PCI subsystem init WOULD set so config cycles work against
+# the QEMU XPci_v3 bridge (which now hosts the ISP1562 USB stubs — see
+# hw/pci-host/xilinx_opb_pci.c).  Verified (2026-06-13): with these set, the
+# firmware's own scanner FUN_00000b3c(0x0c03a0/0x0c0320) FINDS the modelled
+# devices (bus0/dev1 + bus0/dev2).  CAR/CDR are the bridge cfg-cycle ports.
+#
+# NB: these are NOT YET load-bearing in this harness.  The cold-boot device
+# enumeration (FUN_00367f54) that consumes them needs a working heap allocator
+# (FUN_0045b974 -> object *0xE295C4), and that allocator OBJECT is still
+# uninitialised in the forced-usrRoot context (its method slot reads rodata
+# garbage -> 0x700).  So enumeration faults (0x600/0x700) regardless of these.
+# Kept here as the ready prerequisite for once the allocator/C++-ctor phase is
+# solved (the current frontier; see boot_reconstruction_status.md 2026-06-13).
+PCI_SEEDS = [
+    (0x00E0BDFC, 0x00000000, "PCI config gate open (FUN_000005a4 guard)"),
+    (0x00E0BDF8, 0x00000001, "PCI config mechanism #1"),
+    (0x00E0BDF4, 0x00000000, "PCI max bus number = 0"),
+    (0x00E9C708, 0xE120010C, "PCI CONFIG_ADDRESS (XPci_v3 CAR, base+0x10C)"),
+    (0x00E9C70C, 0xE1200110, "PCI CONFIG_DATA    (XPci_v3 CDR, base+0x110)"),
+    (0x00E26978, 0x00000000, "device count := 0 (FUN_00367f54 increments; .data garbage)"),
+    (0x00E3A624, 0x00000000, "device table base := 0 (FUN_00563b58 allocates; .data garbage)"),
+    (0x00E3A630, 0x00000000, "device-context count := 0"),
+]
+
+# Toggle to also apply PCI_SEEDS (off by default — gated on allocator, see above).
+APPLY_PCI_SEEDS = False
+
 # landmark + exception-vector net (same as probe_usrroot.py)
 SYSCLKENABLE = 0x0000942C
 VECTORS = {
@@ -53,22 +97,54 @@ LANDMARKS = {SYSCLKENABLE: "sysClkEnable"}
 RET_CATCH = 0x00000004
 
 
+def load_harvest(path):
+    """Load a harvest_slots.py report and return its seedable rows as
+    (addr, value, note) tuples (class in code/data/bss/null)."""
+    import json
+    rep = json.loads(Path(path).read_text())
+    out = []
+    for a, s, n in rep.get("seed_table", []):
+        out.append((a, s, n))
+    return out
+
+
 def main():
-    t = RSP("127.0.0.1", 1234, allow_write=True, timeout=20.0, label="qemu").connect()
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--harvest", action="append", default=[],
+                    help="harvest_slots.py JSON report(s); merge its seed_table into SEEDS")
+    ap.add_argument("--root-entry", default=None,
+                    help="force PC here (QEMU addr) instead of usrRoot 0x37C440 — e.g. the "
+                         "harvested root TCB+0xC0 value if it differs")
+    ap.add_argument("--pci", action="store_true", help="also apply PCI_SEEDS")
+    ap.add_argument("--port", type=int, default=1234)
+    args = ap.parse_args()
+
+    entry = int(args.root_entry, 0) if args.root_entry else USRROOT
+    harvested = []
+    for h in args.harvest:
+        rows = load_harvest(h)
+        harvested += rows
+        print(f"[*] loaded {len(rows)} seed(s) from {h}")
+
+    t = RSP("127.0.0.1", args.port, allow_write=True, timeout=20.0, label="qemu").connect()
     try:
         print("[*] boot -> artifact entry 0x%08x" % ROOT_ARTIFACT)
         regs = t.run_to(ROOT_ARTIFACT, hw=True, timeout=60.0)
         print(f"    sp=0x{regs['r1']:08x}")
 
-        print(f"[*] applying {len(SEEDS)} seed(s):")
-        for addr, val, note in SEEDS:
+        seeds = SEEDS + harvested + (PCI_SEEDS if (APPLY_PCI_SEEDS or args.pci) else [])
+        print(f"[*] applying {len(seeds)} seed(s):")
+        for addr, val, note in seeds:
             t.write_mem(addr, (val & 0xFFFFFFFF).to_bytes(4, "big"))
             rb = int.from_bytes(t.read_mem(addr, 4), "big")
             ok = "OK" if rb == (val & 0xFFFFFFFF) else f"MISMATCH(read 0x{rb:08x})"
             print(f"    0x{addr:08x} <- 0x{val:08x}  [{ok}]  {note}")
 
-        print("[*] forcing PC = usrRoot 0x%08x" % USRROOT)
-        t.write_reg("pc", USRROOT)
+        label = "usrRoot" if entry == USRROOT else "root-entry"
+        print(f"[*] forcing PC = {label} 0x{entry:08x}")
+        t.write_reg("pc", entry)
         t.write_reg("lr", RET_CATCH)
 
         bps = list(VECTORS) + list(LANDMARKS) + [RET_CATCH]

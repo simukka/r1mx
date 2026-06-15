@@ -1,13 +1,94 @@
 {
- "generated": "2026-06-12T12:03:21",
+ "generated": "2026-06-13T12:40:28",
  "summary": {
-  "reconstructed": 15,
-  "byte_exact": 11,
-  "draft": 4,
+  "reconstructed": 30,
+  "byte_exact": 19,
+  "functional": 3,
+  "draft": 8,
   "red_total": 93,
-  "red_reconstructed": 1
+  "red_reconstructed": 11
  },
  "functions": [
+  {
+   "name": "FUN_004d82e8",
+   "addr": "0x004d82e8",
+   "size": 56,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 85,
+   "fidelity": "functional",
+   "unit": "common_diag_thunks.c"
+  },
+  {
+   "name": "FUN_004d83c8",
+   "addr": "0x004d83c8",
+   "size": 64,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 65,
+   "fidelity": "functional",
+   "unit": "common_diag_thunks.c"
+  },
+  {
+   "name": "FUN_004d8d58",
+   "addr": "0x004d8d58",
+   "size": 60,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 56,
+   "fidelity": "functional",
+   "unit": "common_diag_thunks.c"
+  },
+  {
+   "name": "FUN_004caf48",
+   "addr": "0x004caf48",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "common_utils_thunks.c"
+  },
+  {
+   "name": "FUN_004caf70",
+   "addr": "0x004caf70",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "common_utils_thunks.c"
+  },
+  {
+   "name": "FUN_004caf98",
+   "addr": "0x004caf98",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "common_utils_thunks.c"
+  },
+  {
+   "name": "FUN_004cafc0",
+   "addr": "0x004cafc0",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "common_utils_thunks.c"
+  },
+  {
+   "name": "FUN_004cafe8",
+   "addr": "0x004cafe8",
+   "size": 44,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "common_utils_thunks.c"
+  },
   {
    "name": "FUN_0039ac2c",
    "addr": "0x0039ac2c",
@@ -139,6 +220,26 @@
    "unit": "red_app_proof.c"
   },
   {
+   "name": "FUN_001b1c70",
+   "addr": "0x001b1c70",
+   "size": 96,
+   "provenance": "red",
+   "module": "lib/libsensor",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "sensor_slot_ioctl.c"
+  },
+  {
+   "name": "FUN_001b1cd0",
+   "addr": "0x001b1cd0",
+   "size": 96,
+   "provenance": "red",
+   "module": "lib/libsensor",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "sensor_slot_ioctl.c"
+  },
+  {
    "name": "FUN_000af634",
    "addr": "0x000af634",
    "size": 204,
@@ -157,6 +258,56 @@
    "match": 93,
    "fidelity": "draft",
    "unit": "upgrade_verify.c"
+  },
+  {
+   "name": "FUN_00029ddc",
+   "addr": "0x00029ddc",
+   "size": 104,
+   "provenance": "?",
+   "module": "",
+   "match": 62,
+   "fidelity": "draft",
+   "unit": "xmlsocket_conn_ops.c"
+  },
+  {
+   "name": "FUN_0002ba90",
+   "addr": "0x0002ba90",
+   "size": 96,
+   "provenance": "?",
+   "module": "",
+   "match": 36,
+   "fidelity": "draft",
+   "unit": "xmlsocket_conn_ops.c"
+  },
+  {
+   "name": "FUN_0002df3c",
+   "addr": "0x0002df3c",
+   "size": 124,
+   "provenance": "?",
+   "module": "",
+   "match": 37,
+   "fidelity": "draft",
+   "unit": "xmlsocket_conn_ops.c"
+  },
+  {
+   "name": "FUN_0002ed24",
+   "addr": "0x0002ed24",
+   "size": 72,
+   "provenance": "?",
+   "module": "",
+   "match": 40,
+   "fidelity": "draft",
+   "unit": "xmlsocket_conn_ops.c"
+  },
+  {
+   "name": "FUN_0003975c",
+   "addr": "0x0003975c",
+   "size": 32,
+   "provenance": "?",
+   "module": "",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "xmlsocket_conn_ops.c"
   }
  ]
 }

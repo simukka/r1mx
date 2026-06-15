@@ -1,0 +1,13 @@
+# Manual functional-tier badges (read by recon_status.py).
+#
+# Each line: FUN_<addr>  <reason>   -- a function reconstructed in units/ that is NOT
+# byte-identical but is PROVEN behaviourally equivalent to the original. recon_status
+# upgrades these from `draft` to `functional`. A function that compiles byte-exact is
+# always reported byte_exact regardless of being listed here.
+#
+# Use only with evidence: a funcmatch diff that is solely reordered independent
+# instructions, or a passing funcdiff / lockstep_diff run. Keep the reason specific.
+
+FUN_004d82e8  forwarding thunk; funcmatch diff is only prologue mr/stw scheduling order, identical opcodes+operands
+FUN_004d83c8  forwarding thunk; funcmatch diff is only a lis/lwz argument-setup scheduling swap, identical opcodes+operands
+FUN_004d8d58  forwarding thunk; funcmatch diff is only mr/stw argument-shuffle scheduling order, identical opcodes+operands

@@ -36,6 +36,19 @@ def main():
     mach = fm.detect_machine()
     work = fm.BUILD / "recon"; work.mkdir(exist_ok=True)
 
+    # Manual functional-tier overrides: units/functional.txt lists `FUN_xxxx  reason`
+    # for functions that are NOT byte-identical but are PROVEN behaviourally
+    # equivalent (e.g. a byte diff that is only reordered independent instructions, or
+    # a function validated via funcdiff/lockstep). A listed function that turns out
+    # byte-exact still reports byte_exact -- the override only upgrades draft.
+    functional = set()
+    ffile = fm.UNITS / "functional.txt"
+    if ffile.exists():
+        for line in ffile.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                functional.add(line.split()[0])
+
     units = sorted(list(fm.UNITS.glob("*.c")) + list(fm.UNITS.glob("*.S")))
     funcs = []
     for src in units:
@@ -48,15 +61,17 @@ def main():
             neq = sum(a == b for a, b in zip(orig, got))
             pct = 100 * neq // max(ln, 1)
             r = by_name.get(sym, {})
+            fid = ("byte_exact" if ident else
+                   "functional" if sym in functional else "draft")
             funcs.append(dict(name=sym, addr=f"0x{addr:08x}", size=ln,
                               provenance=r.get("provenance") or "?",
                               module=r.get("module") or "", match=pct,
-                              fidelity=("byte_exact" if ident else "draft"),
-                              unit=src.name))
+                              fidelity=fid, unit=src.name))
     funcs.sort(key=lambda f: (f["unit"], int(f["addr"], 16)))
 
     nbe = sum(1 for f in funcs if f["fidelity"] == "byte_exact")
-    ndr = len(funcs) - nbe
+    nfu = sum(1 for f in funcs if f["fidelity"] == "functional")
+    ndr = len(funcs) - nbe - nfu
     red_total = sum(1 for r in recs if r["provenance"] == "red")
     red_done = sum(1 for f in funcs if f["provenance"] == "red")
 
@@ -70,7 +85,8 @@ def main():
         print(f"  {f['addr']}  {col}{f['fidelity']:<10}{Z} {m:>5}  "
               f"{f['provenance']:<8} {(f['module'] or '-'):<20} {f['unit']:<18} {f['name']}")
 
-    print(f"\n  {B}byte_exact{Z} {G}{nbe}{Z}   {B}draft{Z} {Y}{ndr}{Z}   "
+    print(f"\n  {B}byte_exact{Z} {G}{nbe}{Z}   {B}functional{Z} {Y}{nfu}{Z}   "
+          f"{B}draft{Z} {Y}{ndr}{Z}   "
           f"reconstructed total {len(funcs)} / {len(recs)} image fns")
     print(f"  RED-provenance reconstructed: {red_done}/{red_total} "
           f"({100*red_done//max(red_total,1)}%)"
@@ -79,8 +95,8 @@ def main():
     out = fm.SRC / "recon_status.json"
     out.write_text(json.dumps(dict(
         generated=datetime.datetime.now().isoformat(timespec="seconds"),
-        summary=dict(reconstructed=len(funcs), byte_exact=nbe, draft=ndr,
-                     red_total=red_total, red_reconstructed=red_done),
+        summary=dict(reconstructed=len(funcs), byte_exact=nbe, functional=nfu,
+                     draft=ndr, red_total=red_total, red_reconstructed=red_done),
         functions=funcs), indent=1))
     print(f"\n  wrote {out.relative_to(fm.REPO)}")
     return 0
