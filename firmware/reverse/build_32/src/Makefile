@@ -128,10 +128,28 @@ manifest:
 	python3 $(SCRIPTS)/build_provenance_map.py
 
 relink: manifest
-	python3 $(SCRIPTS)/relink.py
+	$(WR) python3 $(SCRIPTS)/relink.py
 
 verify-relink: manifest
-	python3 $(SCRIPTS)/relink.py --verify
+	$(WR) python3 $(SCRIPTS)/relink.py --verify
+
+# --- byte-for-bit unit matching with the ORIGINAL compiler -----------------
+# Compiles units/ with Wind River ccppc 3.4.4 (in the i386 container) and asserts each
+# reconstructed function rebuilds to the original firmware bytes. The two real-target
+# unit files must be 100% byte-exact; units/libc_leaves.c holds illustrative vendor
+# near-matches (run it explicitly). See ../toolchain/ and scripts/funcmatch.py.
+include ../toolchain/toolchain.mk
+.PHONY: verify-units recon-status
+verify-units:
+	$(WR) python3 $(SCRIPTS)/funcmatch.py units/mmio_leaves.c units/red_app_proof.c \
+		units/common_utils_thunks.c units/sensor_slot_ioctl.c
+
+# Reconstruction dashboard: rebuild every units/ function with the original compiler,
+# report byte_exact/draft coverage, and write recon_status.json (the manifest fidelity
+# source). funcdiff.py (behavioural validation) needs a live QEMU target -- run it by
+# hand against firmware/scripts/qemu_boot.sh --debug.
+recon-status:
+	$(WR) python3 $(SCRIPTS)/recon_status.py
 
 $(BUILDDIR):
 	@mkdir -p $(BUILDDIR)

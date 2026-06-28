@@ -1,0 +1,190 @@
+{
+  "camera_id": "cam-working-01",
+  "timestamp": "20260614T160424",
+  "d_text": 65920,
+  "host": "127.0.0.1",
+  "port": 2345,
+  "bin": "/home/simukka/src/RED/r1mx/firmware/reverse/build_32/extracted/software.bin",
+  "n_slots": 8,
+  "slots": [
+    {
+      "slot": 14849012,
+      "label": "dispatch_fnptr",
+      "live_value": 14849008,
+      "class": "data",
+      "qemu_seed": 14849008,
+      "readings": [
+        0,
+        14849008,
+        14849008
+      ],
+      "candidate_code_qemu": 14783088,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": []
+    },
+    {
+      "slot": 14919568,
+      "label": "dispatch_selector",
+      "live_value": 14919564,
+      "class": "data",
+      "qemu_seed": 14919564,
+      "readings": [
+        16553344,
+        14919564,
+        14919564
+      ],
+      "candidate_code_qemu": 14853644,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": []
+    },
+    {
+      "slot": 14849476,
+      "label": "allocator_obj",
+      "live_value": 14849472,
+      "class": "data",
+      "qemu_seed": 14849472,
+      "readings": [
+        16524592,
+        14849472,
+        14849472
+      ],
+      "candidate_code_qemu": 14783552,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": []
+    },
+    {
+      "slot": 15319884,
+      "label": "alloc_fnptr",
+      "live_value": 15319880,
+      "class": "bss",
+      "qemu_seed": 15319880,
+      "readings": [
+        5657296,
+        15319880,
+        15319880
+      ],
+      "candidate_code_qemu": 15253960,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": null
+    },
+    {
+      "slot": 15320648,
+      "label": "free_fnptr",
+      "live_value": 15320644,
+      "class": "bss",
+      "qemu_seed": 15320644,
+      "readings": [
+        5657880,
+        15320644,
+        15320644
+      ],
+      "candidate_code_qemu": 15254724,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": null
+    },
+    {
+      "slot": 14838136,
+      "label": "dev_count",
+      "live_value": 14838132,
+      "class": "data",
+      "qemu_seed": 14838132,
+      "readings": [
+        1,
+        14838132,
+        14838132
+      ],
+      "candidate_code_qemu": 14772212,
+      "looks_like_code": false,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": []
+    },
+    {
+      "slot": 14919204,
+      "label": "dev_table",
+      "live_value": 14919200,
+      "class": "data",
+      "qemu_seed": 14919200,
+      "readings": [
+        89998912,
+        14919200,
+        14919200
+      ],
+      "candidate_code_qemu": 14853280,
+      "looks_like_code": true,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": [
+        "0x00e2a4a0: xoris r0, r8, 0x4d69",
+        "0x00e2a4a4: andi. r19, r27, 0x696e",
+        "0x00e2a4a8: oris r0, r25, 0x6f70"
+      ]
+    },
+    {
+      "slot": 14919216,
+      "label": "dev_ctx_count",
+      "live_value": 14919212,
+      "class": "data",
+      "qemu_seed": 14919212,
+      "readings": [
+        1,
+        14919212,
+        14919212
+      ],
+      "candidate_code_qemu": 14853292,
+      "looks_like_code": true,
+      "in_reloc_text_range": false,
+      "file_disasm_at_code": [
+        "0x00e2a4ac: oris r18, r11, 0x6174",
+        "0x00e2a4b0: xori r14, r11, 0x6720",
+        "0x00e2a4b4: andi. r25, r27, 0x7374"
+      ]
+    }
+  ],
+  "seed_table": [
+    [
+      14849012,
+      14849008,
+      "harvested dispatch_fnptr (data)"
+    ],
+    [
+      14919568,
+      14919564,
+      "harvested dispatch_selector (data)"
+    ],
+    [
+      14849476,
+      14849472,
+      "harvested allocator_obj (data)"
+    ],
+    [
+      15319884,
+      15319880,
+      "harvested alloc_fnptr (bss)"
+    ],
+    [
+      15320648,
+      15320644,
+      "harvested free_fnptr (bss)"
+    ],
+    [
+      14838136,
+      14838132,
+      "harvested dev_count (data)"
+    ],
+    [
+      14919204,
+      14919200,
+      "harvested dev_table (data)"
+    ],
+    [
+      14919216,
+      14919212,
+      "harvested dev_ctx_count (data)"
+    ]
+  ],
+  "heap_objects": []
+}

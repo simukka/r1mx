@@ -620,7 +620,7 @@ def parse_args():
                     help="HTTP port for the assets server (default: 8000)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--sensor-mx",   dest="sensor_orig", action="store_false",
-                   default=False, help="SENSOR.REVISION_NUMBER=1 — MX splash (default)")
+                   default=True, help="SENSOR.REVISION_NUMBER=1 — MX splash (default)")
     g.add_argument("--sensor-orig", dest="sensor_orig", action="store_true",
                    help="SENSOR.REVISION_NUMBER=0 — original RED ONE splash")
     ap.add_argument("--version", default="32.0.3#1",

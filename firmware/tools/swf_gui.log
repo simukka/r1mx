@@ -1,155 +1,56 @@
-swf_gui  2026-05-25T20:44:15.002045
-Mock:     /home/simukka/src/RED/r1mx/.venv/bin/python3 /home/simukka/src/RED/r1mx/firmware/tools/mock_camera_server.py --port 49152 --http-port 8080 --assets-dir /home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets
-Ruffle:   libraries/ruffle http://127.0.0.1:8080/swf_gui_1.swf --base http://127.0.0.1:8080/ --filesystem-access-mode allow --tcp-connections allow
-Base URL: http://127.0.0.1:8080/
-RUST_LOG: info
+swf_gui  2026-06-22T17:58:25.211238
+Mock:     /usr/bin/python3 /home/simukka/src/RED/r1mx/firmware/tools/mock_camera_server.py --port 49152 --http-port 8000 --assets-dir /home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets
+Ruffle:   libraries/ruffle http://127.0.0.1:8000/swf_gui_1.swf --base http://127.0.0.1:8000/ --filesystem-access-mode allow --tcp-connections allow
+Base URL: http://127.0.0.1:8000/
+RUST_LOG: warn
 ──────────────────────────────────────────────────────────────────
-[20:44:15.003][swf_gui] Waiting for mock server (PID 155209)...
-[20:44:15.088][MOCK  ] Loading parameters from firmware/tools/factory_defaults.xml...
-[20:44:15.091][MOCK  ]   Loaded 893 parameters.
-[20:44:15.091][MOCK  ]   Splash:  Mysterium-X (MX)
-[20:44:15.091][MOCK  ]   Version: 32.0.3#1
-[20:44:15.091][MOCK  ]   Serial:  RED ONE 00000000000001234567890
-[20:44:15.093][MOCK  ] HTTP assets: http://127.0.0.1:8080/  (serving /home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets)
-[20:44:15.093][MOCK  ] 
-[20:44:15.093][MOCK  ] Listening on 0.0.0.0:49152
-[20:44:15.094][swf_gui] Ruffle PID=155211 — enter IP 127.0.0.1, click Camera
-[20:44:15.094][swf_gui] Button commands go to the mock server stdin (type here)
-[20:44:15.094][MOCK  ] Run Ruffle (file, recommended):
-[20:44:15.094][MOCK  ]   libraries/ruffle firmware/reverse/build_32/assets/swf_gui_1.swf --base 'file:///home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets/' --filesystem-access-mode allow --tcp-connections allow
-[20:44:15.094][MOCK  ] Run Ruffle (HTTP alternative):
-[20:44:15.094][MOCK  ]   libraries/ruffle 'http://127.0.0.1:8080/swf_gui_1.swf' --base 'http://127.0.0.1:8080/' --tcp-connections allow
-[20:44:15.094][MOCK  ] Enter IP:    127  .  0  .  0  .  1  then click Camera
-[20:44:15.094][MOCK  ] Button injection ready. Type 'help' for available commands.
-[20:44:15.277][MOCK  ] 127.0.0.1 - - [25/May/2026 20:44:15] "GET /swf_gui_1.swf HTTP/1.1" 200 -
-[20:44:19.643][MOCK  ] [+] Client connected: ('127.0.0.1', 52286)
-[20:44:19.650][MOCK  ] [-] Client disconnected: ('127.0.0.1', 52286)
-[20:44:20.155][MOCK  ] [+] Client connected: ('127.0.0.1', 41186)
-[20:44:20.186][MOCK  ] [-] Client disconnected: ('127.0.0.1', 41186)
-[20:44:20.808][MOCK  ] [+] Client connected: ('127.0.0.1', 58812)
-[20:44:20.826][MOCK  ] [-] Client disconnected: ('127.0.0.1', 58812)
-[20:44:21.314][MOCK  ] [+] Client connected: ('127.0.0.1', 58828)
-[20:44:21.343][MOCK  ] [-] Client disconnected: ('127.0.0.1', 58828)
-[20:44:22.380][MOCK  ] [+] Client connected: ('127.0.0.1', 58840)
-[20:44:22.394][MOCK  ]   [auth] AUTH_INIT seed=1023236436
-[20:44:22.411][MOCK  ]   [auth] password → role=admin
+[17:58:25.212][swf_gui] Waiting for mock server (PID 10746)...
+[17:58:25.299][MOCK  ] Loading parameters from firmware/tools/factory_defaults.xml...
+[17:58:25.303][MOCK  ]   Loaded 893 parameters.
+[17:58:25.303][MOCK  ]   Splash:  Original RED ONE
+[17:58:25.303][MOCK  ]   Version: 32.0.3#1
+[17:58:25.303][MOCK  ]   Serial:  RED ONE 00000000000001234567890
+[17:58:25.304][MOCK  ] HTTP assets: http://127.0.0.1:8000/  (serving /home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets)
+[17:58:25.304][MOCK  ] 
+[17:58:25.304][MOCK  ] Listening on 0.0.0.0:49152
+[17:58:25.306][swf_gui] Ruffle PID=10748 — enter IP 127.0.0.1, click Camera
+[17:58:25.306][swf_gui] Button commands go to the mock server stdin (type here)
+[17:58:25.306][MOCK  ] Run Ruffle (file, recommended):
+[17:58:25.306][MOCK  ]   libraries/ruffle firmware/reverse/build_32/assets/swf_gui_1.swf --base 'file:///home/simukka/src/RED/r1mx/firmware/reverse/build_32/assets/' --filesystem-access-mode allow --tcp-connections allow
+[17:58:25.306][MOCK  ] Run Ruffle (HTTP alternative):
+[17:58:25.306][MOCK  ]   libraries/ruffle 'http://127.0.0.1:8000/swf_gui_1.swf' --base 'http://127.0.0.1:8000/' --tcp-connections allow
+[17:58:25.306][MOCK  ] Enter IP:    127  .  0  .  0  .  1  then click Camera
+[17:58:25.308][MOCK  ] Exception in callback _UnixReadPipeTransport._add_reader()
+[17:58:25.308][MOCK  ] handle: <Handle _UnixReadPipeTransport._add_reader()>
+[17:58:25.308][MOCK  ] Traceback (most recent call last):
+[17:58:25.308][MOCK  ]   File "/usr/lib/python3.13/asyncio/events.py", line 89, in _run
+[17:58:25.308][MOCK  ]     self._context.run(self._callback, *self._args)
+[17:58:25.308][MOCK  ]     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[17:58:25.308][MOCK  ]   File "/usr/lib/python3.13/asyncio/unix_events.py", line 532, in _add_reader
+[17:58:25.308][MOCK  ]     self._loop._add_reader(fd, callback)
+[17:58:25.308][MOCK  ]     ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+[17:58:25.308][MOCK  ]   File "/usr/lib/python3.13/asyncio/selector_events.py", line 279, in _add_reader
+[17:58:25.308][MOCK  ]     self._selector.register(fd, selectors.EVENT_READ,
+[17:58:25.308][MOCK  ]     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+[17:58:25.308][MOCK  ]                             (handle, None))
+[17:58:25.308][MOCK  ]                             ^^^^^^^^^^^^^^^
+[17:58:25.308][MOCK  ]   File "/usr/lib/python3.13/selectors.py", line 345, in register
+[17:58:25.308][MOCK  ]     self._selector.register(key.fd, poller_events)
+[17:58:25.308][MOCK  ]     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+[17:58:25.308][MOCK  ] PermissionError: [Errno 1] Operation not permitted
+[17:58:25.308][MOCK  ] Button injection ready. Type 'help' for available commands.
+[17:58:25.687][MOCK  ] 127.0.0.1 - - [22/Jun/2026 17:58:25] "GET /swf_gui_1.swf HTTP/1.1" 200 -
+[17:58:43.324][swf_gui] --timeout 18s elapsed
+[17:58:43.355][swf_gui] Ruffle stopped
+[17:58:43.359][swf_gui] mock stopped
 
-==================================================================
-  >>> AUTH OK — admin session
-==================================================================
-
-[20:44:22.427][MOCK  ]   [sync] SYNC_EVENT_0
-[20:44:22.436][MOCK  ]   [GET_FILE] FactoryDefaults.xml
-[20:44:22.437][MOCK  ]   [sync] SYNC_EVENT_1
-[20:44:22.486][MOCK  ]   [GET_PARAM *] sending 893 params
-[20:44:22.487][MOCK  ]   [sync] SYNC_EVENT_2
-
-==================================================================
-  >>> BOOT COMPLETE — GoSplash / GoCamera about to run
-==================================================================
-
-[20:44:22.522][MOCK  ]   [param set] GUI.MONITOR.VIEW_MODE = 'REDcolor3'
-[20:44:22.522][MOCK  ]   [param set] SYSTEM.DEV.MONITOR_HDMI.ENABLE848 = 'false'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_FULL_SCALE = 'false'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_HALF_SCALE = 'false'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_QUARTER_SCALE = 'false'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_EIGHTH_SCALE = 'false'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_FULL_SCALE = 'true'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_HALF_SCALE = 'true'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_QUARTER_SCALE = 'true'
-[20:44:22.526][MOCK  ]   [param set] VIDEO.PROXY.GENERATE_EIGHTH_SCALE = 'true'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.XPOS = '0'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.YPOS = '0'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.WIDTH = '4096'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.HEIGHT = '2048'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.GUIDE_NAME = 'RECORD_AREA'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE = 'false'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE = 'true'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE = 'false'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.TV_SAFE_AREA.ENABLE = 'true'
-[20:44:22.526][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.XPOS1 = '482'
-[20:44:22.527][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.YPOS1 = '270'
-[20:44:22.527][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.WIDTH1 = '3131'
-[20:44:22.527][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.HEIGHT1 = '1762'
-[20:44:22.527][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.XPOS2 = '704'
-[20:44:22.535][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.YPOS2 = '300'
-[20:44:22.535][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.WIDTH2 = '2688'
-[20:44:22.535][MOCK  ]   [param set] GUI.OSD.RETICLE.FRAME_GUIDE.DETAILS.HEIGHT2 = '1702'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_YEAR = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_MONTH = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_DAY = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_HOUR = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_MINUTE = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MODIFY_SECOND = 'false'
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.YEAR = ''
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.MONTH = ''
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.DAY = ''
-[20:44:22.535][MOCK  ]   [param set] GUI.SYSTEM_DATE.HOUR = ''
-[20:44:22.536][MOCK  ]   [param set] GUI.SYSTEM_DATE.MINUTE = ''
-[20:44:22.536][MOCK  ]   [param set] GUI.SYSTEM_DATE.SECOND = ''
-[20:44:22.536][MOCK  ]   [param set] SYSTEM.TIME.GMTOFFSET_MINUTES = '0'
-[20:44:22.536][MOCK  ]   [param set] SYSTEM.TIME.REFRESH = 'true'
-[20:44:22.536][MOCK  ]   [param set] SYSTEM.DEV.GPIO.SETTING.OUTPUT_1 = 'false'
-[20:44:22.536][MOCK  ]   [param set] SYSTEM.DEV.GPIO.SETTING.OUTPUT_2 = 'false'
-[20:44:22.536][MOCK  ]   [param set] IMAGE_ANALYSIS.FOCUS_ASSIST.SAMPLE_Y = '270'
-[20:44:22.536][MOCK  ]   [param set] IMAGE_ANALYSIS.FOCUS_ASSIST.SAMPLE_STRIDE = '6'
-[20:44:22.536][MOCK  ]   [param set] IMAGE_ANALYSIS.FOCUS_ASSIST.SAMPLE_Y = '272.5'
-[20:44:22.536][MOCK  ]   [param set] IMAGE_ANALYSIS.SPOT_METER.POSITION_X = '50'
-[20:44:22.536][MOCK  ]   [param set] IMAGE_ANALYSIS.SPOT_METER.POSITION_Y = '50'
-[20:44:22.555][MOCK  ] 127.0.0.1 - - [25/May/2026 20:44:22] "GET /panels.xml HTTP/1.1" 200 -
-[20:44:22.576][MOCK  ]   [param set] IMAGE_ANALYSIS.SPOT_METER.SIZE = '4'
-[20:44:22.576][MOCK  ]   [param set] GUI.SOFTKEY.S4I_LENS_PORT_ACTIVE = 'INTERNAL'
-[20:44:22.576][MOCK  ]   [param set] IMAGE_ANALYSIS.METER = 'RGB Comp Histo'
-[20:44:22.576][MOCK  ]   [param set] IMAGE_ANALYSIS.ENABLE = 'true'
-[20:44:22.576][MOCK  ]   [param set] GUI.RECORD.SHUTTER_SPEED = '48'
-[20:44:22.576][MOCK  ]   [param set] VIDEO.RECORD.SHUTTER_SPEED.REQUESTED = '48'
-[20:44:22.576][MOCK  ]   [param set] GUI.SOFTKEY.MODE_MATRIX.FRAME_RATE = '23.98'
-[20:44:22.576][MOCK  ]   [param set] VIDEO.RECORD.FRAME_RATE.REQUESTED = '24'
-[20:44:22.688][MOCK  ]   [param set] SYSTEM.DEV.EVF.RAWOUTPUT.LED_1 = 'OFF'
-[20:44:22.689][MOCK  ]   [param set] GUI.RAWOUTPUT.LED_1 = 'OFF'
-[20:44:22.689][MOCK  ]   [param set] GUI.RAWOUTPUT.LED_2 = 'ON'
-[20:44:22.689][MOCK  ]   [param set] GUI.RUN_STATE = 'GUI_STATE_2_ACTIVATE_CALLBACKS'
-
-==================================================================
-  >>> GOREADY FIRED — panels.xml parsed, splash clearing
-==================================================================
-
-[20:44:22.689][MOCK  ]   [param set] VIDEO.RECORD.FRAME_RATE.REQUESTED = '23.98'
-[20:44:22.689][MOCK  ]   [param set] GUI.RECORD.TIMELAPSE.ENABLED = 'false'
-[20:44:22.689][MOCK  ]   [param set] VIDEO.RECORD.VARISPEED.ENABLED = 'false'
-[20:44:22.689][MOCK  ]   [param set] VIDEO.RECORD.VARISPEED.RAMP.ENABLED = 'false'
-[20:44:22.689][MOCK  ]   [param set] GUI.RECORD.PRERECORD.ENABLED = 'false'
-[20:44:22.689][MOCK  ]   [param set] VIDEO.RECORD.MODE = 'CONTINUOUS'
-[20:44:22.689][MOCK  ]   [param set] AUDIO.ENABLED = 'true'
-[20:44:22.689][MOCK  ]   [param set] VIDEO.RECORD.VARISPEED.RAMP.ACTIVE = 'NONE'
-[20:44:22.689][MOCK  ]   [param set] GUI.GUI_MODE = 'RECORD'
-[20:44:22.690][MOCK  ]   [param set] GUI.RUN_STATE = 'GUI_STATE_4_ACTIVATE_USER_INPUT'
-[20:44:22.690][MOCK  ]   [param set] GUI.BUTTON_INPUT_ENABLED = 'true'
-[20:44:22.690][MOCK  ]   [param set] GUI.RUN_STATE = 'GUI_STATE_5_READY'
-
-==================================================================
-  >>> FULLY READY — button injection enabled
-==================================================================
-
-[20:44:22.765][MOCK  ]   [param set] CAMERA.SLAVE_MODE_FOR_BLINKING = '0'
-[20:44:24.904][MOCK  ]   [inject] dev → GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H
-[20:44:27.162][MOCK  ]   [inject] menu → GUI.RAWINPUT.BUTTON.MENU.SYSTEM
-[20:44:27.176][MOCK  ]   [param set] IMAGE_ANALYSIS.ENABLE = 'false'
-[20:45:04.033][MOCK  ]   [param set] MEDIA.DIGMAG.FLUSH_LOG = 'true'
-[20:45:09.910][MOCK  ]   [inject] dev → GUI.RAWINPUT.BUTTON.COMBOKEY.USER_H
-[20:45:12.959][MOCK  ]   [inject] exit → GUI.RAWINPUT.BUTTON.COMBOKEY.EXIT
-[20:45:15.116][MOCK  ]   [inject] menu → GUI.RAWINPUT.BUTTON.MENU.SYSTEM
-[20:45:22.561][MOCK  ]   [param set] SYSTEM.MANUFACTURING.RUNTIME = '1'
-[20:46:07.731][swf_gui] Ruffle stopped
-[20:46:07.735][swf_gui] mock stopped
-
-[20:46:07.735][swf_gui] ── Session summary ──
-  ✓ AUTH OK — admin session
+[17:58:43.359][swf_gui] ── Session summary ──
+  ✗ AUTH OK — admin session
   ✗ AUTH OK — user session
   ✗ AUTH FAILED — wrong password
-  ✓ BOOT COMPLETE — GoSplash / GoCamera about to run
-  ✓ GOREADY FIRED — panels.xml parsed, splash clearing
+  ✗ BOOT COMPLETE — GoSplash / GoCamera about to run
+  ✗ GOREADY FIRED — panels.xml parsed, splash clearing
   ✗ INIT GUI STATE
-  ✓ FULLY READY — button injection enabled
+  ✗ FULLY READY — button injection enabled
 
-[20:46:07.736][swf_gui] Log: /home/simukka/src/RED/r1mx/firmware/tools/swf_gui.log
+[17:58:43.359][swf_gui] Log: /home/simukka/src/RED/r1mx/firmware/tools/swf_gui.log

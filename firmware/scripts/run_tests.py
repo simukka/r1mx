@@ -29,6 +29,7 @@ _HERE = Path(__file__).resolve().parent
 
 # (title, script, needs_qemu)
 LAYERS = [
+    ("Layer 0: hardware-safety (read-only)", "test_hw_safety.py",  False),
     ("Layer 1: static / RE facts",    "test_re_facts.py",         False),
     ("Layer 2: firmware boot (QEMU)", "smoke_test.py",            True),
     ("Layer 3: emulator devices",     "test_emulator_devices.py", True),

@@ -279,6 +279,8 @@ class DB:
         self.migrate_add_component_pinouts()
         # source column added for kicad_library vs datasheet distinction
         self.migrate_add_pinout_source()
+        # cross-layer alignment transform (registers vias/holes across layers)
+        self.migrate_add_layer_alignment()
         c.commit()
 
     # ── Boards ─────────────────────────────────────────────────────────────
@@ -463,6 +465,33 @@ class DB:
             (json.dumps(calibration), int(layer_id), int(board_id)),
         )
         self.conn().commit()
+
+    def save_layer_alignment(self, layer_id: int, alignment: dict | None) -> None:
+        """Persist the cross-layer alignment JSON for a layer.
+
+        ``alignment`` carries the 2x3 affine matrix mapping this layer's
+        warped-pixel coords into the reference layer's frame, plus the source
+        point-pairs.  Passing ``None`` clears the alignment (layer becomes the
+        reference / identity).
+        """
+        c = self.conn()
+        c.execute(
+            "UPDATE layers SET alignment=? WHERE id=?",
+            (json.dumps(alignment) if alignment is not None else None, int(layer_id)),
+        )
+        c.commit()
+
+    def get_layer_alignment(self, layer_id: int) -> dict | None:
+        """Return the parsed alignment dict for a layer, or None if unaligned."""
+        row = self.conn().execute(
+            "SELECT alignment FROM layers WHERE id=?", (int(layer_id),)
+        ).fetchone()
+        if not row or not row["alignment"]:
+            return None
+        try:
+            return json.loads(row["alignment"])
+        except Exception:
+            return None
 
     def list_layers(self, board_id: int) -> list[sqlite3.Row]:
         return self.conn().execute(
@@ -1493,6 +1522,19 @@ class DB:
             self.conn().execute(
                 "ALTER TABLE component_pinouts ADD COLUMN source TEXT DEFAULT 'datasheet'"
             )
+            self.conn().commit()
+
+    def migrate_add_layer_alignment(self) -> None:
+        """Idempotent migration: add ``alignment`` column to ``layers``.
+
+        Stores a JSON blob describing the affine transform that maps this
+        layer's warped-pixel coordinates into a shared "board" frame (the
+        reference layer's coordinate space).  NULL means the layer is the
+        reference (identity transform).
+        """
+        cols = {row[1] for row in self.conn().execute("PRAGMA table_info(layers)")}
+        if "alignment" not in cols:
+            self.conn().execute("ALTER TABLE layers ADD COLUMN alignment TEXT")
             self.conn().commit()
 
     # ── Workflow runs ──────────────────────────────────────────────────────

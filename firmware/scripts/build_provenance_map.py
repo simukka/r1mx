@@ -200,20 +200,26 @@ for fn, r in funcs.items():
     for a, b, prov in REGIONS:
         if a <= fn < b: setp(fn, prov, None, "region"); break
 
+# fidelity overlay from recon_status.py (run in the toolchain container); default raw.
+RECON = REPO / "firmware/reverse/build_32/src/recon_status.json"
+recon = ({e["name"]: e.get("fidelity", "raw")
+          for e in json.loads(RECON.read_text()).get("functions", [])}
+         if RECON.exists() else {})
 for r in funcs.values():
     r["confidence"] = CONF[r["method"]]
     r["reconstruct"] = (r["provenance"] == "red")
+    r["fidelity"] = recon.get(r["name"], "raw")
 
 # --- 7. emit + summary -------------------------------------------------------
 recs = [funcs[a] for a in faddrs]
 OUT_JSON.write_text(json.dumps(recs, indent=1))
 with OUT_CSV.open("w", newline="") as f:
     w = csv.writer(f)
-    w.writerow(["addr","name","size","xrefs","provenance","module","method","confidence","reconstruct"])
+    w.writerow(["addr","name","size","xrefs","provenance","module","method","confidence","reconstruct","fidelity"])
     for r in recs:
         w.writerow([f"0x{r['addr']:08x}", r["name"], r["size"], r["xrefs"],
                     r["provenance"] or "unknown", r["module"] or "", r["method"],
-                    r["confidence"], int(r["reconstruct"])])
+                    r["confidence"], int(r["reconstruct"]), r.get("fidelity","raw")])
 
 def kb(b): return f"{b/1024:8.1f} KB"
 print("\n=== provenance (fns / bytes) ===")

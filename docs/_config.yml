@@ -9,33 +9,35 @@ repository: "simukka/r1mx"
 theme: null
 
 # Collections / defaults
+collections:
+  journal:
+    output: true
+    permalink: /journal/:slug/
+
 defaults:
   - scope:
       path: ""
       type: "pages"
     values:
       layout: "page"
+  - scope:
+      path: ""
+      type: "journal"
+    values:
+      layout: "journal-entry"
 
 # Navigation
 nav:
   - title: "Overview"
     url: "/"
-  - title: "Specifications"
-    url: "/specs"
-  - title: "Components"
-    url: "/components"
-  - title: "Hardware"
-    url: "/hardware"
-  - title: "Firmware"
-    url: "/firmware"
   - title: "Guides"
     url: "/guides"
   - title: "Roadmap"
     url: "/roadmap"
   - title: "Made on R1"
     url: "/made-on-r1"
-  - title: "Resources"
-    url: "/resources"
+  - title: "RE Journal"
+    url: "/journal"
 
 # Markdown / syntax
 markdown: kramdown

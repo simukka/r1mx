@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from toolkit.analysis.calibrate import CalibrationGUI, find_all_images, save_calibration, run_coord_calibration
 from toolkit.db import DB
+from toolkit.gui.dialogs.align_layers import AlignLayersDialog
 from toolkit.gui.dialogs.datasheet_find import DatasheetFindDialog
 from toolkit.gui.dialogs.datasheet_scan import DatasheetScanDialog
 from toolkit.gui.dialogs.edit_layer import EditLayerDialog
@@ -30,8 +31,6 @@ from toolkit.gui.dialogs.image_picker import ImagePickerDialog
 from toolkit.gui.dialogs.merge_entities import MergeEntitiesDialog
 from toolkit.gui.dialogs.pinout_wizard import DatasheetPinoutWizard
 from toolkit.gui.dialogs.probe_wizard import ProbeWizardDialog
-from toolkit.gui.dialogs.scan_layer import ScanLayerWizard, ScanLayerResult
-from toolkit.gui.dialogs.scan_preview import ScanPreviewDialog
 from toolkit.gui.items.footprint_overlay import FootprintOverlayItem
 from toolkit.gui.panels.inspector import InspectorPanel
 from toolkit.gui.panels.log import WorkflowLog
@@ -40,7 +39,6 @@ from toolkit.gui.scene import LayerScene, OBJECT_TYPES
 from toolkit.gui.theme import THEME
 from toolkit.gui.viewer import ImageViewer
 from toolkit.gui.widgets.service_status import ServiceStatusBar
-from toolkit.gui.widgets.status_lcd import StatusLCDWidget
 from toolkit.paths import REPO_ROOT
 from toolkit.services.manager import ServiceManager, ServiceMonitor
 from toolkit.workers.base import SubprocessWorker
@@ -69,6 +67,9 @@ class MainWindow(QMainWindow):
         self._layer_scenes: dict[tuple[str, str], LayerScene] = {}  # (board,layer) → LayerScene
         self._active_board: str | None = None
         self._active_layer: str | None = None
+        # Once the viewport has been fit for a board, layer switches preserve
+        # the zoom/pan so you stay on the same (now aligned) physical spot.
+        self._view_initialized: bool = False
         self._probe_wizard: ProbeWizardDialog | None = None
         self._canvas_mode: CanvasMode = CanvasMode.NORMAL
         self._add_target_object_id: int | None = None  # object being outlined
@@ -134,6 +135,8 @@ class MainWindow(QMainWindow):
         self._tree.visibilityChanged.connect(self._on_visibility_changed)
         self._tree.imageSelectRequested.connect(self._pick_layer_image)
         self._tree.calibrateRequested.connect(self._calibrate_layer)
+        self._tree.alignLayerRequested.connect(self._align_layer)
+        self._tree.layerOpacityChanged.connect(self._on_layer_opacity_changed)
         self._tree.editLayerRequested.connect(self._edit_layer)
         self._tree.componentSelected.connect(self._on_component_selected)
         self._tree.removeDataRequested.connect(self._remove_layer_data)
@@ -187,20 +190,6 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, bottom_dock)
 
-        # Status LCD dock (hidden by default; show via View > Status LCD)
-        self._lcd_widget = StatusLCDWidget(parent=self)
-        lcd_dock = QDockWidget("Status LCD", self)
-        lcd_dock.setWidget(self._lcd_widget)
-        lcd_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        lcd_dock.setMinimumWidth(200)
-        lcd_dock.hide()
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, lcd_dock)
-        self._lcd_dock = lcd_dock
-
         self._status = QStatusBar()
         self.setStatusBar(self._status)
 
@@ -253,15 +242,6 @@ class MainWindow(QMainWindow):
         zoom_100_act.triggered.connect(self._viewer.zoom_reset)
         view_menu.addAction(zoom_100_act)
 
-        view_menu.addSeparator()
-        lcd_act = QAction("Status LCD", self)
-        lcd_act.setCheckable(True)
-        lcd_act.setChecked(False)
-        lcd_act.setShortcut("Ctrl+Shift+L")
-        lcd_act.triggered.connect(self._toggle_lcd_dock)
-        self._lcd_dock.visibilityChanged.connect(lcd_act.setChecked)
-        view_menu.addAction(lcd_act)
-
         # Help
         help_menu = mb.addMenu("&Help")
         help_menu.addAction("About r1mx Toolkit", self._show_about)
@@ -284,17 +264,9 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
 
         # Analyze
-        ana_label = QLabel("  Analyze: ")
+        ana_label = QLabel("  Components: ")
         ana_label.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
         tb.addWidget(ana_label)
-
-        ext_act = QAction("Scan Layer", self)
-        ext_act.setToolTip(
-            "Unified PCB layer scan: choose vias, pads, traces, outline, or text/components.\n"
-            "Results are previewed before saving — you can add missed items or re-tune parameters."
-        )
-        ext_act.triggered.connect(self._run_scan_layer)
-        tb.addAction(ext_act)
 
         # "Add entity" dropdown
         from PyQt6.QtWidgets import QToolButton, QMenu as _QMenu
@@ -413,6 +385,8 @@ class MainWindow(QMainWindow):
         self._status.showMessage(f"Board: {board_name}")
         self._save_db_state()
         self._refresh_unresolved_count()
+        # First layer opened for this board should fit the viewport.
+        self._view_initialized = False
 
         # Auto-open the first calibrated layer
         board_id = self._db.get_or_create_board(board_name)
@@ -427,7 +401,13 @@ class MainWindow(QMainWindow):
 
         Solo behaviour: hide all other loaded layer scenes and uncheck them
         in the tree so only the selected layer is shown.  The user can then
-        re-check other layers via the tree to overlay them.
+        re-check other layers via the tree to overlay them (rendered at their
+        per-layer opacity, non-interactive).
+
+        Because layers are registered into a shared board frame (see
+        ``LayerScene.set_board_transform``), the viewport is *not* re-fit on a
+        switch — the zoom/pan is preserved so you stay on the same physical
+        spot.  Only the first layer opened for a board fits the view.
         """
         self._active_board = board_name
         self._active_layer = layer_name
@@ -438,20 +418,47 @@ class MainWindow(QMainWindow):
         for ls in self._layer_scenes.values():
             ls.clear_highlight()
 
-        # Solo: uncheck everything except this layer, update scene visibility
+        # Solo: uncheck everything except this layer in the tree
         self._tree.set_solo_layer(board_name, layer_name)
-        for (b, l), ls in self._layer_scenes.items():
-            ls.set_all_visible(b == board_name and l == layer_name)
 
         key = (board_name, layer_name)
         if key not in self._layer_scenes:
             self._load_layer_into_scene(board_name, layer_name)
-        else:
-            self._viewer.scene().update()
 
+        # Apply solo visibility + active/overlay roles across all layers
+        for (b, l), ls in self._layer_scenes.items():
+            ls.set_all_visible(b == board_name and l == layer_name)
+        self._apply_overlay_roles()
+
+        self._viewer.scene().update()
         # Persist the new solo state
         self._save_visibility_state()
-        self._viewer.fit_image()
+
+        if not self._view_initialized:
+            self._viewer.fit_image()
+            self._view_initialized = True
+
+    def _apply_overlay_roles(self) -> None:
+        """Set each loaded layer's render role: active = solid/interactive,
+        every other layer = semi-transparent non-interactive overlay at its
+        tree opacity."""
+        for (b, l), ls in self._layer_scenes.items():
+            is_active = (b == self._active_board and l == self._active_layer)
+            ls.set_overlay(None if is_active else self._tree.layer_opacity(b, l))
+
+    def _on_layer_opacity_changed(self, board: str, layer: str, opacity: float) -> None:
+        """Live-update an overlay layer's opacity from its tree slider.
+
+        The active layer always renders solid, so its slider has no immediate
+        effect (it takes hold once the layer is used as an overlay)."""
+        ls = self._layer_scenes.get((board, layer))
+        if ls is None:
+            return
+        is_active = (board == self._active_board and layer == self._active_layer)
+        if not is_active:
+            ls.set_overlay(opacity)
+            self._viewer.scene().update()
+        self._save_visibility_state()
 
     def _load_layer_into_scene(self, board_name: str, layer_name: str):
         board_id = self._db.get_or_create_board(board_name)
@@ -496,10 +503,15 @@ class MainWindow(QMainWindow):
         for obj_key, _, _ in OBJECT_TYPES:
             scene.set_visible(obj_key, layer_vis.get(obj_key, True))
 
-        # Fit viewport to the scene contents
+        # Register this layer into the shared board frame (None = reference layer)
+        alignment = self._db.get_layer_alignment(layer_row["id"])
+        scene.set_board_transform(alignment.get("matrix") if alignment else None)
+
+        # Keep the scene rect spanning all (now aligned) content so scrollbars
+        # and the initial fit work; the actual fit is decided by the caller so
+        # layer switches preserve the current zoom/pan.
         rect = self._viewer.scene().itemsBoundingRect()
         self._viewer.scene().setSceneRect(rect)
-        self._viewer.fit_image()
         self._log.append(f"  Loaded  {board_name}/{layer_name}")
 
     # ── Visibility toggles ────────────────────────────────────────────────
@@ -523,6 +535,11 @@ class MainWindow(QMainWindow):
         else:
             key = (board, layer)
             ls = self._layer_scenes.get(key)
+            # Re-checking a layer that was never loaded: load it now so it can
+            # be shown as an overlay.
+            if ls is None and visible and not objtype:
+                self._load_layer_into_scene(board, layer)
+                ls = self._layer_scenes.get(key)
             if ls is not None:
                 if not objtype:
                     # Layer-level toggle: apply per-objtype state when enabling
@@ -535,6 +552,9 @@ class MainWindow(QMainWindow):
                 else:
                     ls.set_visible(objtype, visible)
 
+        # Re-apply active/overlay roles so any newly-shown layer ghosts at its
+        # opacity and the active layer stays solid.
+        self._apply_overlay_roles()
         self._viewer.scene().update()
         self._save_visibility_state()
 
@@ -1478,117 +1498,7 @@ class MainWindow(QMainWindow):
                 del self._layer_scenes[key]
             self._open_layer(self._active_board, self._active_layer)
 
-    def _require_board_and_layer(self) -> tuple[str | None, str | None]:
-        if not self._active_board:
-            QMessageBox.warning(self, "No board selected", "Select a board first.")
-            return None, None
-        if not self._active_layer:
-            QMessageBox.warning(self, "No layer selected",
-                                "Select a layer in the tree first.")
-            return None, None
-        return self._active_board, self._active_layer
-
-    def _run_scan_layer(self, initial_scan_type: str | None = None, initial_opts: dict | None = None):
-        """Open the unified Scan Layer wizard, run the scan, show preview, save on confirm."""
-        board, layer = self._require_board_and_layer()
-        if not board or not layer:
-            return
-
-        board_id  = self._db.get_or_create_board(board)
-        layer_row = self._db.get_layer(board_id, layer)
-        if not layer_row or not layer_row["calibrated"]:
-            QMessageBox.warning(
-                self, "Not calibrated",
-                f"{board} / {layer} must be calibrated before scanning.\n"
-                "Right-click the layer → Calibrate…"
-            )
-            return
-
-        wizard = ScanLayerWizard(board, layer, parent=self)
-        if initial_scan_type:
-            wizard.set_scan_type(initial_scan_type)
-        if initial_opts:
-            wizard.set_opts(initial_opts)
-
-        if wizard.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        scan_result = wizard.result()
-        if scan_result is None:
-            return
-
-        # Show the preview dialog
-        preview = ScanPreviewDialog(scan_result, parent=self)
-        preview_code = preview.exec()
-
-        if preview.needs_retry():
-            # Re-open wizard with same scan type + opts
-            retry_opts = preview.retry_opts()
-            self._run_scan_layer(
-                initial_scan_type=scan_result.scan_type,
-                initial_opts=retry_opts,
-            )
-            return
-
-        if preview_code != QDialog.DialogCode.Accepted:
-            return
-
-        confirmed = preview.confirmed_items()
-        self._on_scan_layer_confirmed(scan_result.scan_type, confirmed, board, layer)
-
-    def _on_scan_layer_confirmed(
-        self,
-        scan_type: str,
-        items: list,
-        board: str,
-        layer: str,
-    ):
-        """Persist confirmed scan results to DB and refresh the canvas + tree."""
-        board_id  = self._db.get_or_create_board(board)
-        layer_row = self._db.get_layer(board_id, layer)
-        if not layer_row:
-            return
-
-        layer_id = layer_row["id"]
-        cal       = json.loads(layer_row["calibration"] or "{}")
-        px_per_mm = cal.get("px_per_mm", 20.0)
-
-        if scan_type == "text":
-            # Convert any manually-added dict items to a BomEntry-compatible
-            # object so save_scan_results can handle them uniformly.
-            from types import SimpleNamespace
-            wrapped = []
-            for item in items:
-                if isinstance(item, dict):
-                    wrapped.append(SimpleNamespace(
-                        label=item.get("label", ""),
-                        reference=item.get("label", ""),
-                        ref_type=item.get("ref_type", "RefDes"),
-                        x_mm=float(item.get("x_mm", -1)),
-                        y_mm=float(item.get("y_mm", -1)),
-                        confidence=float(item.get("confidence", 1.0)),
-                        engine="manual",
-                        raw_text=item.get("label", ""),
-                    ))
-                else:
-                    wrapped.append(item)
-            n = self._db.save_scan_results(board_id, layer_id, wrapped)
-        else:
-            n = self._db.save_feature_objects(layer_id, scan_type, items, layer_key=layer)
-
-        self._log.append(
-            f"✓ Scan Layer ({scan_type}) — saved {n} objects to DB for {board}/{layer}"
-        )
-
-        # Reload canvas overlays and tree
-        key = (board, layer)
-        if key in self._layer_scenes:
-            self._layer_scenes[key].load_objects(self._db, layer_id, px_per_mm)
-            self._viewer.scene().update()
-
-        vis = self._tree.get_full_vis_state()
-        self._tree.refresh(vis)
-
+    
     def _on_component_selected(self, obj_id: int):
         """Show component details in the inspector panel and vignette-highlight the item."""
         # Highlight in the active layer scene
@@ -1666,6 +1576,16 @@ class MainWindow(QMainWindow):
         if not board or not layer:
             return
         self._set_canvas_mode(CanvasMode.SET_ORIENTATION, target_object_id=object_id)
+
+    def _require_board_and_layer(self) -> tuple[str | None, str | None]:
+        if not self._active_board:
+            QMessageBox.warning(self, "No board selected", "Select a board first.")
+            return None, None
+        if not self._active_layer:
+            QMessageBox.warning(self, "No layer selected",
+                                "Select a layer in the tree first.")
+            return None, None
+        return self._active_board, self._active_layer
 
     def _get_object_scene_rect(self, object_id: int) -> tuple[float, float, float, float] | None:
         """Return the (x, y, w, h) scene-pixel rect of an object, or None."""
@@ -1898,8 +1818,9 @@ class MainWindow(QMainWindow):
             f"Linked {linked} datasheet(s) to {part_number} ({board}/{layer})"
         )
 
-        # Refresh inspector to show the newly linked datasheets
+        # Refresh inspector + tree (clears the "missing datasheet" icon)
         self._on_component_selected(object_id)
+        self._tree.refresh(self._tree.get_full_vis_state())
 
     def _find_datasheet(self, object_id: int, part_number: str, mode: str) -> None:
         """Open the DatasheetFindDialog for *object_id* in the given *mode*."""
@@ -1925,6 +1846,7 @@ class MainWindow(QMainWindow):
             f"Linked datasheet '{dlg.selected_path.name}' to {part_number} ({board})"
         )
         self._on_component_selected(object_id)
+        self._tree.refresh(self._tree.get_full_vis_state())
 
     # ── Pinout wizard ──────────────────────────────────────────────────────
 
@@ -2462,6 +2384,47 @@ class MainWindow(QMainWindow):
             self._active_layer = new_name
             self._open_layer(board_name, new_name)
 
+    def _align_layer(self, board_name: str, layer_name: str):
+        """Open the cross-layer alignment dialog for *layer_name*.
+
+        The user picks matching vias/holes against a reference layer; on save an
+        affine transform is stored and applied so the layers register (vias line
+        up, switches preserve the view, overlays ghost in place)."""
+        board_id = self._db.get_or_create_board(board_name)
+        layer_row = self._db.get_layer(board_id, layer_name)
+        if not layer_row or not layer_row["calibrated"]:
+            QMessageBox.warning(
+                self, "Calibrate first",
+                f"Layer '{layer_name}' must be calibrated before it can be aligned.",
+            )
+            return
+        others = [
+            l["name"] for l in self._db.list_layers(board_id)
+            if l["calibrated"] and l["name"] != layer_name
+        ]
+        if not others:
+            QMessageBox.warning(
+                self, "Need a reference layer",
+                "Aligning needs at least one other calibrated layer to register "
+                "against.",
+            )
+            return
+
+        dlg = AlignLayersDialog(self._db, board_name, layer_name, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Re-apply the stored transforms to every loaded scene of this board so
+        # the new registration takes effect immediately (without re-fitting).
+        for (b, l), ls in self._layer_scenes.items():
+            if b != board_name:
+                continue
+            row = self._db.get_layer(board_id, l)
+            alignment = self._db.get_layer_alignment(row["id"]) if row else None
+            ls.set_board_transform(alignment.get("matrix") if alignment else None)
+        self._viewer.scene().update()
+        self._log.append(f"Aligned '{board_name}/{layer_name}' to a reference layer.")
+
     def _calibrate_layer(self, board_name: str, layer_name: str):
         """
         Run CalibrationGUI for the source image of the given layer.
@@ -2554,12 +2517,6 @@ class MainWindow(QMainWindow):
             if key in self._layer_scenes:
                 del self._layer_scenes[key]
             self._open_layer(board_name, layer_name)
-
-    def _toggle_lcd_dock(self, checked: bool) -> None:
-        if checked:
-            self._lcd_dock.show()
-        else:
-            self._lcd_dock.hide()
 
     def _show_about(self):
         QMessageBox.about(

@@ -1,0 +1,228 @@
+{
+  "camera_id": "cam-working-01",
+  "phase": "2-task-walk",
+  "timestamp": "2026-06-08T09:55:30",
+  "d_text": "0x10180",
+  "task_id_current": "0x057e4ad0",
+  "active_list_head": "0x0855d6c0",
+  "tcb_layout": {
+    "sig_off": 8,
+    "sig_val": "0x810600",
+    "active_node_off": 80,
+    "prio_off": 72,
+    "saved_pc_off": 192,
+    "saved_sp_off": 200
+  },
+  "tasks": [
+    {
+      "tcb": "0x02281358",
+      "name": null,
+      "priority": 100,
+      "saved_pc": "0x0055f46c",
+      "saved_sp": "0x02280b58",
+      "stack_base": "0x02282610",
+      "pc_func": "FUN_0054f2dc+0x10",
+      "pc_img": "0x0054f2ec",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x0055f46c FUN_0054f2dc+0x10"
+      ]
+    },
+    {
+      "tcb": "0x023caee8",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x0044a988",
+      "saved_sp": "0x023c9ee8",
+      "stack_base": "0x023cc1a0",
+      "pc_func": "FUN_0043a7ec+0x1c",
+      "pc_img": "0x0043a808",
+      "round": 0,
+      "module": null,
+      "stack": [
+        "0x0044a988 FUN_0043a7ec+0x1c"
+      ]
+    },
+    {
+      "tcb": "0x0240fe18",
+      "name": null,
+      "priority": 2,
+      "saved_pc": "0x001e9c20",
+      "saved_sp": "0x0240be18",
+      "stack_base": "0x024110d0",
+      "pc_func": "FUN_001d9aa0+0x0",
+      "pc_img": "0x001d9aa0",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x001e9c20 FUN_001d9aa0+0x0"
+      ]
+    },
+    {
+      "tcb": "0x057de570",
+      "name": null,
+      "priority": 45,
+      "saved_pc": "0x00598408",
+      "saved_sp": "0x057dc570",
+      "stack_base": "0x057df800",
+      "pc_func": "FUN_005880e8+0x1a0",
+      "pc_img": "0x00588288",
+      "round": 0,
+      "module": null,
+      "stack": [
+        "0x00598408 FUN_005880e8+0x1a0"
+      ]
+    },
+    {
+      "tcb": "0x057e4ad0",
+      "name": null,
+      "priority": 45,
+      "saved_pc": "0x00598408",
+      "saved_sp": "0x057e2ad0",
+      "stack_base": "0x057e5d60",
+      "pc_func": "FUN_005880e8+0x1a0",
+      "pc_img": "0x00588288",
+      "round": 0,
+      "module": null,
+      "stack": [
+        "0x00598408 FUN_005880e8+0x1a0"
+      ]
+    },
+    {
+      "tcb": "0x059579b8",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x00363788",
+      "saved_sp": "0x059569b8",
+      "stack_base": "0x05943ff0",
+      "pc_func": "FUN_00353604+0x4",
+      "pc_img": "0x00353608",
+      "round": 3,
+      "module": null,
+      "stack": [
+        "0x00363788 FUN_00353604+0x4"
+      ]
+    },
+    {
+      "tcb": "0x08455090",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x00189ebc",
+      "saved_sp": "0x08451090",
+      "stack_base": "0x08456320",
+      "pc_func": "sub_179620+0x71c",
+      "pc_img": "0x00179d3c",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00189ebc sub_179620+0x71c"
+      ]
+    },
+    {
+      "tcb": "0x0855d670",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x00604f30",
+      "saved_sp": "0x08559670",
+      "stack_base": "0x0855e900",
+      "pc_func": "FUN_005f4d94+0x1c",
+      "pc_img": "0x005f4db0",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00604f30 FUN_005f4d94+0x1c"
+      ]
+    },
+    {
+      "tcb": "0x085a5d70",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x0062e6a4",
+      "saved_sp": "0x085a1d70",
+      "stack_base": "0x085a7000",
+      "pc_func": "FUN_0061dbb0+0x974(gap)",
+      "pc_img": "0x0061e524",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x0062e6a4 FUN_0061dbb0+0x974(gap)"
+      ]
+    },
+    {
+      "tcb": "0x085ca5c0",
+      "name": null,
+      "priority": 34,
+      "saved_pc": "0x00189ebc",
+      "saved_sp": "0x085c65c0",
+      "stack_base": "0x085b4240",
+      "pc_func": "sub_179620+0x71c",
+      "pc_img": "0x00179d3c",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00189ebc sub_179620+0x71c"
+      ]
+    },
+    {
+      "tcb": "0x085d0870",
+      "name": null,
+      "priority": 34,
+      "saved_pc": "0x00189ebc",
+      "saved_sp": "0x085cc870",
+      "stack_base": "0x085b5250",
+      "pc_func": "sub_179620+0x71c",
+      "pc_img": "0x00179d3c",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00189ebc sub_179620+0x71c"
+      ]
+    },
+    {
+      "tcb": "0x085d4b10",
+      "name": null,
+      "priority": 32,
+      "saved_pc": "0x00189ebc",
+      "saved_sp": "0x085d0b10",
+      "stack_base": "0x085d5da0",
+      "pc_func": "sub_179620+0x71c",
+      "pc_img": "0x00179d3c",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00189ebc sub_179620+0x71c"
+      ]
+    },
+    {
+      "tcb": "0x085d9dc0",
+      "name": null,
+      "priority": 30,
+      "saved_pc": "0x00189ebc",
+      "saved_sp": "0x085d5dc0",
+      "stack_base": "0x085db050",
+      "pc_func": "sub_179620+0x71c",
+      "pc_img": "0x00179d3c",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00189ebc sub_179620+0x71c"
+      ]
+    },
+    {
+      "tcb": "0x086f0170",
+      "name": null,
+      "priority": 50,
+      "saved_pc": "0x00613ae0",
+      "saved_sp": "0x086ec170",
+      "stack_base": "0x086f1400",
+      "pc_func": "FUN_00603904+0x5c",
+      "pc_img": "0x00603960",
+      "round": 1,
+      "module": null,
+      "stack": [
+        "0x00613ae0 FUN_00603904+0x5c"
+      ]
+    }
+  ]
+}

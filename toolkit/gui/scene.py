@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QPen,
     QPolygonF,
     QRadialGradient,
+    QTransform,
 )
 from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -57,6 +58,12 @@ LAYER_COLORS: dict[str, QColor] = {
 class LayerScene:
     """Manages QGraphicsScene groups for a single board layer."""
 
+    # Z of the layer root group: the active layer sits at the base, overlays
+    # render above it (semi-transparent ghost) but below the viewer's own
+    # crosshair / rubber-band items (Z >= 9).
+    _Z_ACTIVE  = 0.0
+    _Z_OVERLAY = 2.0
+
     def __init__(self, scene: QGraphicsScene, board: str, layer: str):
         self.board  = board
         self.layer  = layer
@@ -65,10 +72,16 @@ class LayerScene:
         self._vignette_item: QGraphicsPathItem | None = None  # spotlight overlay
         self._original_img: np.ndarray | None = None          # stored for live enhancement
 
-        # Create a group per object type (+ "photo")
+        # Root group carries the cross-layer alignment transform so the whole
+        # layer can be registered into the shared board frame at once.
+        self._root = QGraphicsItemGroup()
+        scene.addItem(self._root)
+
+        # Create a group per object type (+ "photo"), parented to the root so
+        # the alignment transform / opacity applies to all of them together.
         for key, _, _ in [("photo", "", None)] + list(OBJECT_TYPES):
             g = QGraphicsItemGroup()
-            scene.addItem(g)
+            g.setParentItem(self._root)
             self._groups[key] = g
 
     def group(self, key: str) -> QGraphicsItemGroup | None:
@@ -81,6 +94,48 @@ class LayerScene:
     def set_all_visible(self, visible: bool):
         for g in self._groups.values():
             g.setVisible(visible)
+
+    # ── Cross-layer alignment & overlay ──────────────────────────────────────
+
+    def set_board_transform(self, matrix_2x3) -> None:
+        """Register this layer into the shared board frame.
+
+        *matrix_2x3* is a 2x3 affine ``[[a, b, tx], [c, d, ty]]`` mapping this
+        layer's warped-pixel (scene) coords into the reference layer's frame.
+        Passing a falsy value resets to identity (the reference layer).
+        """
+        if not matrix_2x3:
+            self._root.setTransform(QTransform())
+            return
+        (a, b, tx), (c, d, ty) = matrix_2x3
+        # Qt's QTransform takes column-major args: (m11, m12, m21, m22, dx, dy)
+        self._root.setTransform(QTransform(a, c, b, d, tx, ty))
+
+    def set_overlay(self, opacity: float | None) -> None:
+        """Mark this layer active (``opacity is None``) or an overlay.
+
+        Active  → fully opaque, base Z, items selectable/interactive.
+        Overlay → semi-transparent at *opacity*, raised Z so it ghosts over the
+                  active layer, and non-interactive (its items can't be
+                  clicked/selected, so it never interferes with the active layer).
+        """
+        if opacity is None:
+            self._root.setOpacity(1.0)
+            self._root.setZValue(self._Z_ACTIVE)
+            self._set_items_selectable(True)
+        else:
+            self._root.setOpacity(max(0.0, min(1.0, opacity)))
+            self._root.setZValue(self._Z_OVERLAY)
+            self._set_items_selectable(False)
+
+    def _set_items_selectable(self, selectable: bool) -> None:
+        for key, g in self._groups.items():
+            if key == "photo":
+                continue
+            for child in g.childItems():
+                child.setFlag(
+                    child.GraphicsItemFlag.ItemIsSelectable, selectable
+                )
 
     def clear_group(self, key: str):
         g = self._groups.get(key)

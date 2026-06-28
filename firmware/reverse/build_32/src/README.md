@@ -38,8 +38,8 @@ Program-Exception handler) the disassembly is genuine PPC mnemonics.
 | Group (`-DGROUP_*`) | r1mx default | What it is |
 |---|---|---|
 | `CPU_CORE` | on | PPC405 core / boot-stub / exception-vector adaptations. #62/#63 may indicate real qemu-r1mx TCG gaps. |
-| `SNAPSHOT_DATA` | on | Fixes for stale values baked into the RAM-snapshot image (BSS sentinels, C++ vtable ptrs, sysMemTop/intCnt caches, the bctrl bypasses those cause). |
-| `DISPATCH_SCAFFOLD` | on | Forces a non-crashing first context switch given the snapshot's corrupted root-task TCB/globals (lands in OpenSSL X.509v3 — a patch artifact). |
+| `SNAPSHOT_DATA` | on | Fixes for `.data`/BSS values a cold boot would set but that QEMU hasn't run the init to produce (BSS sentinels, C++ vtable ptrs, sysMemTop/intCnt slots, the bctrl bypasses those cause). *Group name is legacy:* `software.bin` is the shipped firmware program image, **not** a RAM snapshot — see re_reference §0.3 / [[firmware-image-and-framing]]. |
+| `DISPATCH_SCAFFOLD` | on | Forces a non-crashing first context switch given the not-yet-initialized root-task TCB/globals (lands in OpenSSL X.509v3 — a patch artifact). |
 | `CRYPTO_BYPASS` | on | Bypasses signature / SSD-compat / SSL-callback checks that can't complete in emulation. |
 | `DEVICE_GAP` | **off** | Workarounds for MMIO unmapped on the OLD generic 'bamboo' machine (XUartLite, RAM-size). The r1mx-virtex4 machine maps the real devices, so these are skipped. |
 | `INCLUDE_DISABLED` | off | Patches proven WRONG, kept for the record only (e.g. #57). |
@@ -67,15 +67,23 @@ How it works (`scripts/relink.py` + `scripts/gen_symbols_ld.py`):
 1. `gen_symbols_ld.py` turns the provenance manifest into `build/symbols.ld`:
    `PROVIDE(<name> = <abs addr>)` for all 10.5k functions — so a reconstructed
    unit can `bl main_boot_init` / call `FUN_0036c350` and the linker wires the
-   PC-relative branch to the real image.
-2. Each function in `src/units/*.c|*.S` whose symbol matches a manifest entry is
-   linked at its absolute address and its bytes are overlaid at that file offset.
-3. Unmodified reconstructions verify **byte-identical** to the original; an
-   intentional change shows up as exactly that unit's bytes differing.
+   PC-relative branch to the real image. Data/string addresses resolve the same way
+   via `units/data_symbols.ld` (`D_<addr>`/`B_<addr>`), giving the original `@ha/@l`
+   (`lis/addi`) relocations.
+2. `relink.py` reuses `funcmatch`'s linking with the **original `ccppc`** (so it runs
+   in the toolchain container — `make relink`/`verify-relink` wrap it). Each function
+   in `src/units/*.c|*.S` matching a manifest entry is linked at its absolute address.
+3. **Overlay policy:** byte-`identical` units and `functional`-badged units
+   (`units/functional.txt`, intentional differences) are overlaid; plain `draft`
+   units are linked (proving they resolve) but left as original blob so an incomplete
+   reconstruction can't corrupt the image. `make verify-relink` passes when the
+   relinked image differs from base *only* at the intentionally-badged units.
 
-Proven: `units/mmio_leaves.c` (the ordered-MMIO accessor leaves) rebuilds
-byte-for-byte, so `software.relinked.bin` == `software.bin` (SHA `416e148c…`).
-See `firmware/reverse/build_32/PROVENANCE.md` for the provenance taxonomy.
+The full workflow, fidelity tiers, and byte-matching rules are in
+`firmware/reverse/build_32/RECONSTRUCTION.md`. As of now, 18 reconstructed functions
+rebuild byte-identical (MMIO leaves, the `common_utils_thunks`, the
+`sensor_slot_ioctl` libsensor accessors, and `FUN_004db598`); see
+`firmware/reverse/build_32/PROVENANCE.md` for the provenance taxonomy.
 
 ## Other contents
 

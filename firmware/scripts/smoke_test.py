@@ -13,7 +13,8 @@ Checks performed (in order):
   [5] root_task_running -- after dispatch, the CPU is executing the root-task body
                         (PC in 0x380000..0x384000), NOT the old 0x124 halt loop
   [6] msr_ee         -- MSR.EE == 0 while the root task runs (sysClkEnable is not
-                        reachable from this post-boot image -- see re_reference §0.3)
+                        reached on this QEMU boot; the cold-boot init that leads there
+                        has not run -- see re_reference §0.3)
   [7] cmd_interp_loop -- liveness: the dispatched task (PC 0x381a8c, forced by patches
                         into OpenSSL X.509v3 code -- see re_reference §0.3) makes forward
                         progress: r3 advances by 6 between two hits of fn_382bec (0x382bec),

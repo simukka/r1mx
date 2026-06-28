@@ -1,0 +1,12 @@
+{
+  "camera_id": "bench-broken",
+  "boards": {},
+  "timestamp": "2026-06-07T14:05:26",
+  "phases_run": [
+    "reloc",
+    "irq",
+    "memmap"
+  ],
+  "transport": "ChannelB/xmd_rpc",
+  "target_unreachable": true
+}

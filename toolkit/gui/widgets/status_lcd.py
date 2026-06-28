@@ -63,39 +63,21 @@ class LcdFrame:
 
     def to_qimage(self) -> QImage:
         """Convert pixel data to a QImage (ARGB32 format)."""
-        w, h = self.width, self.height
+        w, h, s = self.width, self.height, self.stride
 
         if self.pixfmt == PIXFMT_BGRA32:
-            arr = np.frombuffer(self.pixels, dtype=np.uint8)
-            # Reshape to rows
-            row_bytes = min(self.stride, w * 4)
-            rows = []
-            for row in range(h):
-                start = row * self.stride
-                rows.append(arr[start:start + w * 4])
-            data = np.concatenate(rows)
-            # BGRA -> ARGB (Qt wants ARGB32 = B,G,R,A in memory on LE)
-            img = QImage(data.tobytes(), w, h, w * 4, QImage.Format.Format_ARGB32)
+            # Pass stride (bytes-per-line) directly so Qt handles row padding
+            # without any numpy work.  BGRA memory layout == ARGB32 on
+            # little-endian (x86/ARM-LE): 0xAARRGGBB stores B,G,R,A in memory.
+            img = QImage(self.pixels, w, h, s, QImage.Format.Format_ARGB32)
             return img.copy()
 
         elif self.pixfmt == PIXFMT_RGB24:
-            arr = np.frombuffer(self.pixels, dtype=np.uint8)
-            rows = []
-            for row in range(h):
-                start = row * self.stride
-                rows.append(arr[start:start + w * 3])
-            data = np.concatenate(rows)
-            img = QImage(data.tobytes(), w, h, w * 3, QImage.Format.Format_RGB888)
+            img = QImage(self.pixels, w, h, s, QImage.Format.Format_RGB888)
             return img.copy()
 
         elif self.pixfmt == PIXFMT_MONO8:
-            arr = np.frombuffer(self.pixels, dtype=np.uint8)
-            rows = []
-            for row in range(h):
-                start = row * self.stride
-                rows.append(arr[start:start + w])
-            data = np.concatenate(rows)
-            img = QImage(data.tobytes(), w, h, w, QImage.Format.Format_Grayscale8)
+            img = QImage(self.pixels, w, h, s, QImage.Format.Format_Grayscale8)
             return img.copy()
 
         elif self.pixfmt == PIXFMT_BGR565:
