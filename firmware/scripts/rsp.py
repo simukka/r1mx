@@ -87,8 +87,13 @@ class RSP:
 
     # ----- connection -----------------------------------------------------
     def connect(self):
-        self.sock = socket.create_connection((self.host, self.port),
+        try:
+            self.sock = socket.create_connection((self.host, self.port),
                                              timeout=self.timeout)
+        except ConnectionRefusedError:
+            print("Are we missing the VM's stub to the host?")
+            print('VBoxManage controlvm r1mx_32 natpf1 "xmdgdb,tcp,127.0.0.1,2345,,1234"')
+            exit(1)
         self._drain()   # flush any stale bytes a prior client left mid-stream
         return self
 

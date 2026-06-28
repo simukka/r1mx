@@ -2,12 +2,26 @@
 # qemu_boot.sh — Boot RED ONE MX Build 32 firmware (software.bin) in QEMU
 #
 # Usage:
-#   ./scripts/qemu_boot.sh [--debug] [--patched] [--net] [--build13]
+#   ./scripts/qemu_boot.sh [--debug] [--patched] [--usernet|--net|--no-net] [--build13]
 #                          [--background] [--stop] [--serial-log=PATH] [--pidfile=PATH]
 #
 # --debug        Halt at PC=0x0 and open GDB stub on port 1234 for r2/gdb-multiarch
-# --patched      Use software.patched.bin instead of the original
-# --net          Enable TAP networking for WDB Ethernet access (requires tap0 to exist)
+# --patched      Use software.patched.r1mx.bin instead of the original.
+#   WARNING: the patched image is BROKEN at the correct load base (0x10000). Its
+#   patches (#47 zero-intCnt, SP reloc, canary NOPs) were symptom-fixes for the OLD
+#   base-0 error; at base 0x10000 they corrupt a correct boot -> dead-spin at 0x10124.
+#   The ORIGINAL software.bin (default, no flag) boots fully. Use --patched only for
+#   regression checks, never for normal boots.
+# Networking (XEmacLite @ 0xe1020000; camera is 192.168.0.2):
+# --usernet      DEFAULT. SLIRP user networking — no root, no host setup. Forwards
+#                host :2323 -> guest telnet :23 and host udp :17185 -> guest WDB :17185.
+#                Override the telnet port with R1MX_TELNET_HOSTPORT (default 2323).
+# --net          Use TAP networking instead (host tap0, needs root one-time setup).
+#                Best for raw WDB/low-latency; gives the host 192.168.0.1 on the wire.
+# --no-net       Disable networking entirely.
+# --gui          Also launch the MMIO activity GUI (python3 -m toolkit.gui.emulator),
+#                which connects to QEMU's activity broker on TCP localhost:17187.
+#                Runs in the background; GUI stderr -> /tmp/r1mx-gui.log.
 # --build13      Use Build 13 SundanceBootable.bin instead (legacy)
 # --background   Daemonize: detach from stdio, serial→log file, write a pidfile.
 #   (aka --daemon, -d)  Use this for automated/scripted runs (driving the gdb stub
@@ -32,27 +46,28 @@
 #   Binary: ~/src/qemu-r1mx/build/qemu-system-ppc
 #   CPU: x2vp4, PVR overridden to 0x20011000 (Virtex-4 PPC405F6 hard-core)
 #
-# Build 32 key addresses (confirmed from static analysis):
-#   Load base  : 0x00000000
-#   Entry point: 0x00000000 (reset vector / exception table)
-#   usrInit    : 0x0036C350
+# Build 32 key addresses (confirmed: software.bin is LINKED FOR BASE 0x10000):
+#   Load base  : 0x00010000  (-device loader addr=0x10000; hreset_vector=0x10000)
+#   romInit    : file offset 0 -> runtime 0x00010000 (runs first at reset)
+#   usrInit    : 0x0036C350   (symtab values are already runtime — do NOT +0x10000)
 #   BSS start  : 0x00E9BF20
 #   BSS end    : 0x01153480
-#   UART Lite  : 0xe0600000 (XPS UARTLite, PLB bus)
-#   XEmacLite  : 0xe1020000 (XPS EthernetLite — WDB transport)
+#   UART Lite  : 0xe0600000 (XPS UARTLite console, PLB bus)
+#   XIntc      : 0xe1200000 (interrupt controller — drives the vec-0x500 path)
+#   XEmacLite  : 0xe1020000 (XPS EthernetLite — WDB transport / telnet)
 #   WDB port   : UDP 17185 (0x4321) at camera IP 192.168.0.2
 #
-# Required patches before booting (built from reverse/build_32/src; see its README):
-#   1. SP relocation: offset 0x84 — lis r1,1 → lis r1,0x800
-#   2. Canary NOP:    offset 0x36C388 — bne cr7,loop → NOP
-#   3. Canary NOP:    offset 0x36C394 — bne cr7,loop → NOP
-#   (MMIO patches #37-42 are no longer needed — real device models handle them)
+# NO source patches are required: the ORIGINAL software.bin boots unmodified once it
+# is loaded at base 0x10000. The old SP-reloc / canary-NOP / zero-intCnt patches were
+# symptom-fixes for the base-0 load error and now BREAK the boot — see --patched above.
+# All the real work is in the QEMU device models (r1mx-virtex4 machine), not byte patches.
 #
-# Expected first-boot behaviour (patched binary):
-#   Reset vector executes DCR writes (SDRAM0/EBC0/CPC0/UIC0 init).
-#   QEMU silently ignores unknown DCR accesses — these pass.
-#   Stack canary wait loop is NOP'd → falls through to BSS zero-init.
-#   VxWorks boot banner appears on console (XUartLite → stdio).
+# Expected boot behaviour (original software.bin, default):
+#   Reset vector executes DCR writes (SDRAM0/EBC0/CPC0/UIC0 init); QEMU ignores unknown
+#   DCRs. Stack canaries are satisfied by RAM init; BSS is zero-initialised. The early
+#   polled putc prints a few chars, then the interrupt-driven sio path takes over and the
+#   full VxWorks banner + Sundance app init appear (status display / battery / USB / SDMC).
+#   The VxWorks "->" shell prompt prints once the XIntc vec-0x500 path is live.
 #
 # TAP networking setup (one-time, as root):
 #   ip tuntap add dev tap0 mode tap
@@ -67,6 +82,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The toolkit package lives at the project root, one level above firmware/.
+PROJECT_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+GUI_LOG="${R1MX_GUI_LOG:-/tmp/r1mx-gui.log}"
+GUI_PID=""    # set by launch_gui; used by the foreground cleanup trap
+
+# Launch the MMIO activity GUI in the background. It connects to QEMU's broker on
+# TCP localhost:17187 and retries every 3 s, so launch order vs. QEMU doesn't matter.
+launch_gui() {
+    if ! python3 -c 'import PyQt6' >/dev/null 2>&1; then
+        echo "[!] --gui: PyQt6 not available; skipping GUI launch" >&2
+        return
+    fi
+    ( cd "$PROJECT_ROOT" && python3 -m toolkit.gui.emulator.monitor ) >"$GUI_LOG" 2>&1 &
+    GUI_PID=$!
+    echo "[*] GUI: python3 -m toolkit.gui.emulator.monitor (pid $GUI_PID, log: $GUI_LOG)"
+}
 
 # Custom QEMU binary with r1mx-virtex4 machine
 QEMU="${QEMU:-${HOME}/src/qemu-r1mx/build/qemu-system-ppc}"
@@ -84,18 +115,23 @@ PATCHED_NAME="software.patched.r1mx.bin"  # r1mx-specific patch set (no bamboo-o
 
 DEBUG=0
 USE_PATCHED=0
-USE_NET=0
+GUI=0
+NET_MODE="usernet"   # default: SLIRP user networking (no root/host setup)
 BUILD13=0
 BACKGROUND=0
 STOP=0
 PIDFILE="${R1MX_QEMU_PIDFILE:-/tmp/r1mx-qemu.pid}"
 SERIAL_LOG="${R1MX_QEMU_SERIAL:-/tmp/r1mx-qemu-serial.log}"
+TELNET_HOSTPORT="${R1MX_TELNET_HOSTPORT:-2323}"
 
 for arg in "$@"; do
     case "$arg" in
         --debug)   DEBUG=1 ;;
         --patched) USE_PATCHED=1 ;;
-        --net)     USE_NET=1 ;;
+        --usernet) NET_MODE="usernet" ;;
+        --net)     NET_MODE="tap" ;;
+        --no-net)  NET_MODE="none" ;;
+        --gui)     GUI=1 ;;
         --background|--daemon|-d) BACKGROUND=1 ;;
         --stop)    STOP=1 ;;
         --serial-log=*) SERIAL_LOG="${arg#*=}" ;;
@@ -148,11 +184,13 @@ QEMU_ARGS=(
     -machine r1mx-virtex4
     -m 2G
 
-    # Load firmware flat binary at physical 0x00000000.
-    # The PPC405 reset vector (hreset_vector) is patched to 0x0 in r1mx_virtex4.c
-    # so no separate PC-setter loader is needed — and such a loader would clobber
-    # the first instruction of the firmware by writing data to address 0x0.
-    -device "loader,file=$FIRMWARE,addr=0x0,force-raw=on"
+    # Load firmware flat binary at physical 0x00010000.
+    # software.bin is a position-dependent VxWorks RAM image LINKED FOR BASE 0x10000
+    # (proven 2026-06-20: .data initialisers + 12/13 firmware-computed code pointers +
+    # BSS origin = filesize+0x10000 all resolve ONLY at this base; the camera's 0x10180
+    # is a separate live placement).  hreset_vector is set to 0x10000 in
+    # r1mx_virtex4.c so romInit (file offset 0 -> runtime 0x10000) runs first.
+    -device "loader,file=$FIRMWARE,addr=0x10000,force-raw=on"
 )
 
 # Console handling differs by mode:
@@ -170,26 +208,50 @@ if [[ $BACKGROUND -eq 1 ]]; then
         -daemonize
     )
 else
-    # -nographic: serial0 → stdio (mon:stdio mux). Don't add -serial stdio too.
-    QEMU_ARGS+=(-nographic)
+    # Foreground console: serial0 + monitor muxed onto stdio, same as -nographic.
+    # We deliberately DON'T use -nographic here: -nographic forces the stdio chardev
+    # to signal=off (so Ctrl-C is passed to the guest and you must use Ctrl-A X to
+    # quit).  Using "-display none -serial mon:stdio" keeps the mux but leaves
+    # signal=on (the default), so Ctrl-C delivers SIGINT -> QEMU exits, and the
+    # cleanup trap below tears down the GUI too.  (Ctrl-A C still reaches the monitor;
+    # Ctrl-A X still quits.)
+    QEMU_ARGS+=(-display none -serial mon:stdio -d guest_errors)
 fi
 
-if [[ $USE_NET -eq 1 ]]; then
-    if ! ip link show tap0 &>/dev/null; then
-        echo "ERROR: tap0 not found. Create it first (as root):"
-        echo "  ip tuntap add dev tap0 mode tap"
-        echo "  ip addr add 192.168.0.1/24 dev tap0"
-        echo "  ip link set tap0 up"
-        exit 1
-    fi
-    QEMU_ARGS+=(
-        -netdev "tap,id=net0,ifname=tap0,script=no,downscript=no"
-        -nic "tap,model=xlnx.xps-ethernetlite,netdev=net0,mac=00:0a:35:00:00:01"
-    )
-    echo "[*] Networking: TAP (tap0 → XEmacLite) — camera will be 192.168.0.2"
-    echo "[*] WDB connect: wdbrpc 192.168.0.2 17185"
-    echo ""
-fi
+case "$NET_MODE" in
+    usernet)
+        # SLIRP user networking — no root, no host setup. Guest is 192.168.0.2 (from
+        # the firmware bootline); SLIRP serves it on a private net behind the host.
+        # Forward host -> guest for telnet (TCP 23) and WDB (UDP 17185).
+        QEMU_ARGS+=(
+            -nic "user,model=xlnx.xps-ethernetlite,net=192.168.0.0/24,host=192.168.0.1,mac=00:0a:35:00:00:01,hostfwd=tcp::${TELNET_HOSTPORT}-192.168.0.2:23,hostfwd=udp::17185-192.168.0.2:17185"
+        )
+        echo "[*] Networking: SLIRP user-net (XEmacLite) — camera is 192.168.0.2"
+        echo "[*] Telnet: telnet 127.0.0.1 ${TELNET_HOSTPORT}   (-> guest :23)"
+        echo "[*] WDB:    wdbrpc 127.0.0.1 17185                 (-> guest udp :17185)"
+        echo ""
+        ;;
+    tap)
+        if ! ip link show tap0 &>/dev/null; then
+            echo "ERROR: tap0 not found. Create it first (as root):"
+            echo "  ip tuntap add dev tap0 mode tap"
+            echo "  ip addr add 192.168.0.1/24 dev tap0"
+            echo "  ip link set tap0 up"
+            exit 1
+        fi
+        QEMU_ARGS+=(
+            -netdev "tap,id=net0,ifname=tap0,script=no,downscript=no"
+            -nic "tap,model=xlnx.xps-ethernetlite,netdev=net0,mac=00:0a:35:00:00:01"
+        )
+        echo "[*] Networking: TAP (tap0 → XEmacLite) — camera will be 192.168.0.2"
+        echo "[*] WDB connect: wdbrpc 192.168.0.2 17185"
+        echo ""
+        ;;
+    none)
+        echo "[*] Networking: disabled (--no-net)"
+        echo ""
+        ;;
+esac
 
 if [[ $DEBUG -eq 1 ]]; then
     echo "[*] Debug mode — halting at PC=0x0, GDB stub on :1234"
@@ -227,7 +289,33 @@ if [[ $BACKGROUND -eq 1 ]]; then
     echo "[*]   serial: $SERIAL_LOG"
     [[ $DEBUG -eq 1 ]] && echo "[*]   gdb stub: tcp::1234"
     echo "[*] Stop with: $0 --stop${PIDFILE:+ --pidfile=$PIDFILE}"
+    [[ $GUI -eq 1 ]] && launch_gui
     exit 0
 fi
 
-exec "$QEMU" "${QEMU_ARGS[@]}"
+# Foreground: run QEMU as a child (NOT exec) so this shell survives to clean up the
+# GUI when QEMU exits or the user hits Ctrl-C.  Ctrl-C sends SIGINT to the whole
+# foreground process group (this shell + QEMU, same group since job control is off):
+# QEMU quits on SIGINT (signal=on, set above) and the trap kills the GUI.
+QEMU_PID=""
+CLEANED=0
+cleanup() {
+    [[ $CLEANED -eq 1 ]] && return
+    CLEANED=1
+    trap - INT TERM EXIT   # disarm so cleanup runs once
+    if [[ -n "$QEMU_PID" ]] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        kill "$QEMU_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$GUI_PID" ]] && kill -0 "$GUI_PID" 2>/dev/null; then
+        echo ""
+        echo "[*] stopping GUI (pid $GUI_PID)"
+        kill "$GUI_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup INT TERM EXIT
+
+[[ $GUI -eq 1 ]] && launch_gui
+
+"$QEMU" "${QEMU_ARGS[@]}" &
+QEMU_PID=$!
+wait "$QEMU_PID" || true   # INT/TERM trap, or the EXIT trap, runs cleanup

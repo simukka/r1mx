@@ -3347,12 +3347,13 @@ Offset 0x08: 20 00 00 00          — NOP
 Offset 0x0C: 30 00 80 01 (header) — Type1 WRITE CRC wc=1
 Offset 0x10: 00 00 00 07          — CRC=7 (RCRC command follows)
 ...
-Offset 0x24: 30 01 80 01 (header) — Type1 WRITE KEY wc=1
-Offset 0x28: 01 EE 40 93          — KEY register = 0x01EE4093 (DES auth key or ignored)
+Offset 0x24: 30 01 80 01 (header) — Type1 WRITE IDCODE wc=1
+Offset 0x28: 01 EE 40 93          — IDCODE = 0x01EE4093 (XC4VFX100 device ID)
 ```
 
-> ⚠️ **Correction**: Offset 0x28 is the **KEY register value**, NOT the IDCODE.
-> No WRITE_IDCODE packet was found in the bitstream — the bitstream skips device checking.
+> ⚠️ **Correction (2026-06-28)**: Offset 0x24 header is `0x30018001` = Type1 WRITE **reg=12 (IDCODE)** wc=1.
+> IDCODE IS written — earlier note claiming "no WRITE_IDCODE" was wrong.
+> This confirms the part is XC4VFX100 (IDCODE 0x01EE4093).
 
 **Key:** The bitstream is **unencrypted** — AES-256 encryption was NOT used.
 The sync word is readable in plaintext, confirming full readback and analysis is possible.
@@ -3363,7 +3364,7 @@ Parsed from fpga.bin (full output):
 ```
 0x0000000c  Type1 WRITE CMD = RCRC      (reset CRC)
 0x0000001c  Type1 WRITE COR = 0x000435E5 (Configuration Options Register)
-0x00000024  Type1 WRITE KEY = 0x01EE4093 (DES key; bitstream is NOT encrypted)
+0x00000024  Type1 WRITE IDCODE = 0x01EE4093  ← XC4VFX100 device ID (confirmed 2026-06-28)
 0x0000002c  Type1 WRITE CMD = SWITCH
 0x00000038  Type1 WRITE MASK = 0x00000600
 0x00000040  Type1 WRITE CTL  = 0x00000600  ← PERSIST bit set (JTAG stays active)
@@ -3374,7 +3375,8 @@ Parsed from fpga.bin (full output):
 0x0000125c  Type1 WRITE FAR  = 0x00000000  (start at frame 0)
 0x00001264  Type1 WRITE CMD  = WCFG
 0x00001270  Type1 WRITE FDRI wc=0          (Type 2 header follows)
-0x00001274  Type2 WRITE wc=1031970         (4,127,880 bytes = 4,031 KB of frame data)
+0x00001274  Type2 WRITE wc=1031970         (4,127,880 bytes = 25170 frames × 164 B)
+  ↳ frame data start: 0x1278  ← used by fpga_bram_extract.py
 0x003f0f00  Type1 WRITE CRC  = 0xFEDCC5DD  (end CRC)
 0x003f0f08  Type1 WRITE CMD  = GRESTORE
 0x003f0f14  Type1 WRITE CMD  = LFRM
@@ -3389,7 +3391,7 @@ Parsed from fpga.bin (full output):
 **CTL = 0x600**: Bit 9 (PERSIST) + Bit 10 (security) set → JTAG interface STAYS ACTIVE
 after configuration. This means the JTAG TAP chain is accessible while the camera runs!
 
-**No IDCODE check**: Bitstream will load on any Xilinx device without checking device ID.
+**IDCODE check IS present**: Offset 0x24 writes IDCODE=0x01EE4093 (XC4VFX100). Earlier note was wrong.
 
 ### Frame Structure (ug071)
 
@@ -3459,6 +3461,36 @@ Key firmware symbols: `IoFPGAVersionGet`, `_sundance_targeted_iofpga`, `_sundanc
 `_ZN10ExecModule22EXEC_RAMDISK_FPGA_SIZEE` (FPGA bitstream stored in RAMDISK).
 
 **CTL PERSIST bit = enabled** → JTAG access to both FPGAs is possible while camera runs.
+
+### Phase 1 BRAM Analysis (2026-06-28, empirical)
+
+Tool: `firmware/scripts/fpga_bram_extract.py`. Full notes: `firmware/reverse/build_32/fpga_io/fpga_decode_notes.md`.
+
+**BRAM data block location (empirical entropy scan):**
+- Frames 0–18750: CLB/routing configuration (BT=0), high entropy
+- Frames ~19136–25170: BRAM data (BT=2), mostly all-zero INIT=0
+
+**Structural invariant (BRAM data frame marker):**
+- `word[20]` (the 21st of 41 words) = `0x00000000` in **100%** of BRAM data frames, **0%** in CLB frames
+- `word[2/12/23/33]` bits[15:0] = 0x0000 in all BRAM frames (BRAM config overhead bits)
+
+**Non-zero BRAM initialization found in 4 sub-blocks:**
+
+| Block | Frames | Entropy (active bits) | Candidate content |
+|-------|--------|----------------------|-------------------|
+| B | 22024–22063 | 5.09 bits/byte | Structured table (gamma/ramp) |
+| A | 22088–22125 | 7.17 bits/byte | Dense data (3D LUT / coefficient table) |
+| C | 22152–22189 | 7.25 bits/byte | Dense data (same type as A) |
+| D | 22216–22253 | 4.75 bits/byte | Structured table |
+
+Blobs saved to `firmware/reverse/build_32/fpga_io/bram/block_{A,B,C,D}_f22*.bin`.
+These are the **most valuable BRAM extracts** — likely contain display pipeline LUT data
+(colorspace conversion, gamma, histogram weighting) used by the custom RED IP blocks.
+
+**Remaining open work (Phase 2):**
+- BRAM bit de-interleaving per UG071 to recover exact INIT values
+- TORC or ISE 14.7 `xdl` to confirm exact FX100 column layout / FAR sequence
+- Firmware cross-reference: find which hardware blocks write/read these BRAMs
 
 ---
 
@@ -3712,18 +3744,25 @@ FlashVx (Scaleform wrapper)
 
 **Key firmware classes and symbols:**
 
-| Symbol / Class | Mangled name | Role |
-|---|---|---|
-| `FlashVx` | `_ZN7FlashVxC1Ev` | Scaleform GFx wrapper; owns framebuffer |
-| `FlashVx::FrameBufferAlloc` | `_ZN7FlashVx16FrameBufferAllocEiiRi` | Allocates CPU RAM for render target |
-| `FlashVx::FrameBufferBlit` | `_ZN7FlashVx15FrameBufferBlitEiiii` | Copies rendered region to FPGA DMA |
-| `FlashVx::FrameBufferFree` | `_ZN7FlashVx15FrameBufferFreeEv` | Frees framebuffer |
-| `FlashVx::FrameBufferResize` | `_ZN7FlashVx17FrameBufferResizeEii` | Resizes framebuffer |
-| `FlashVx::FrameBufferPixelFormat` | `_ZN7FlashVx22FrameBufferPixelFormatEv` | Returns pixel format (TODO: confirm RGBA/BGRA) |
-| `FlashVx::FrameBufferRect` | `_ZNK7FlashVx15FrameBufferRectER9FlashRect` | Returns bounding rect |
+Recovered source path (from the embedded `__FILE__` string at `0xD4CC68`):
+**`app_modules/ui_engine/flashvx.cpp`** — reconstructed in
+`src/units/flashvx.cpp`. The FlashVx vtable is at `0xE08DC0`; the object layout
+(bounds rect at `+0x8C..0x98`, framebuffer `+0x9C`, bytesPerPixel `+0xA0`,
+cursor `+0xA8/+0xAC`) is documented in that unit.
+
+| Symbol / Class | Mangled name | Addr | Role |
+|---|---|---|---|
+| `FlashVx::FlashVx` | `_ZN7FlashVxC1E9FlashRectPKc` | `0x14F03C` | ctor(FlashRect bounds, const char* name) — **was mis-listed as `_ZN7FlashVxC1Ev`; no nullary ctor exists** |
+| `FlashVx::FrameBufferAlloc` | `_ZN7FlashVx16FrameBufferAllocEiiRi` | `0x14F1F0` | Allocates CPU RAM for render target; stride = bpp×width |
+| `FlashVx::FrameBufferBlit` | `_ZN7FlashVx15FrameBufferBlitEiiii` | `0x14F35C` | Copies rendered region to FPGA DMA (LCD + SCREEN paths) |
+| `FlashVx::FrameBufferFree` | `_ZN7FlashVx15FrameBufferFreeEv` | `0x14F0B8` | Frees framebuffer |
+| `FlashVx::FrameBufferResize` | `_ZN7FlashVx17FrameBufferResizeEii` | `0x14F68C` | Repositions bounds rect to (0,0)-(w,h) |
+| `FlashVx::FrameBufferPixelFormat` | `_ZN7FlashVx22FrameBufferPixelFormatEv` | `0x14F1D8` | bytesPerPixel=4; returns GFx enum 8 (BGRA / ARGB_8888) |
+| `FlashVx::FrameBufferRect` | `_ZNK7FlashVx15FrameBufferRectER9FlashRect` | `0x14F660` | Returns bounding rect |
+| `FlashVx::DrawMouse` | `_ZN7FlashVx9DrawMouseEv` | `0x14F2B4` | Stamps a 4-byte BGRA cursor texel into the framebuffer |
 | `VxForceRedraw` | `_Z13VxForceRedrawPv` | Forces full GUI redraw |
 | `UiEngineModule` | `_ZN14UiEngineModuleC1Ev` | Top-level UI engine |
-| `UiEngineModule::FlashLoadSwf` | (C++ method) | Loads SWF file from firmware image |
+| `UiEngineModule::FlashLoadSwf` | (C++ method) | Loads SWF from firmware image — selects `swf_gui_1` (`0x9E03BC`, default) vs `swf_gui_2` (`0xB24EF8`, fallback). **Not yet reconstructed; selection predicate unproven — see TODO below §23.5.** |
 | `UiEngineModule::RunPhase` | (C++ method) | Main render loop; "Registering callbacks and buttons..." |
 | `VideoMonitorMgr` | `_ZN15VideoMonitorMgrC1Ev` | Manages HDMI/SDI output paths |
 | `VideoMonitorMgr::ConfigureLcd` | `_ZN15VideoMonitorMgr12ConfigureLcdEP15outPathConfig_t` | Sets output resolution/format |
@@ -3737,11 +3776,23 @@ FlashVx (Scaleform wrapper)
 
 | Offset | Size | Description |
 |--------|------|-------------|
-| `0x9E03BC` | ~1.33 MB | Primary GUI SWF (menus, overlays) |
-| `0xB24EF8` | ~1.35 MB | Secondary GUI SWF (alt skin or playback UI) |
+| `0x9E03BC` | ~1.33 MB | **Primary** GUI SWF — full/newer build (loaded by default) |
+| `0xB24EF8` | ~1.35 MB | **Secondary/fallback** GUI SWF — older/reduced build (lacks 4K40 + 4KOS sensor modes) |
 | + 7 others | | Total 9 SWF files in firmware |
 
 The SWF files are SWF v7 (ActionScript 2.0). They can be extracted with `binwalk` and decompiled with `JPEXS Free Flash Decompiler` or `ffdec`.
+
+`swf_gui_1` and `swf_gui_2` are **two builds of the same 427-class GUI codebase** occupying two
+flash slots — *not* a loader + payload pair (neither SWF `loadMovie`s the other). The firmware
+loads exactly one via `UiEngineModule::FlashLoadSwf()` (see §23.6); `swf_gui_1` is the default.
+The verified delta between them is sensor-mode coverage (see §24.2). The primary/fallback slot
+layout is the usual pattern that lets an interrupted GUI swap roll back to the previous image.
+
+> **TODO — lift `UiEngineModule::FlashLoadSwf()`.** It is not yet reconstructed, so the exact
+> slot-selection predicate (which offset it maps, and on what condition) is unproven. Lifting it
+> would confirm whether `swf_gui_2` is ever selected at runtime or is purely a fallback/rollback
+> copy. Evidence so far: the firmware string table, the mock server (`swf_gui.py:261`), and all
+> tooling default to `swf_gui_1`.
 
 **Scaleform GFx version:**
 
@@ -3886,9 +3937,20 @@ All assets extracted to `firmware/reverse/build_32/assets/` by `firmware/scripts
 
 ### 24.2 SWF Architecture
 
-The GUI is **SWF v7 ActionScript 2.0** rendered by **Scaleform GFx** (FlashVx wrapper). The two SWFs
-appear to be two configurations of the same codebase — both contain identical package structure.
-427 AS2 classes decompiled from swf_gui_1, organized into:
+The GUI is **SWF v7 ActionScript 2.0** rendered by **Scaleform GFx** (FlashVx wrapper). `swf_gui_1`
+and `swf_gui_2` are **two builds of the same codebase**: each decompiles to 428 AS files / 427
+classes with an identical package structure (most apparent tree differences are just
+`DefineSprite_NNN` IDs shifted by 1 — a recompile artifact). The **decisive content difference is
+sensor-mode coverage**, found in `Sensor.as` and `Reticle.as`:
+
+- `swf_gui_1` supports `2K 3K 4K 4K40 4KHD 4KHS 4KOS` — **superset** (adds 4K40 and 4KOS open-gate)
+- `swf_gui_2` supports `2K 3K 4K 4KHD 4KHS` — reduced/older build, missing 4K40 + 4KOS
+
+So `swf_gui_1` is the full/newer image and `swf_gui_2` is an older fallback slot (see §23.6).
+Reproduce with: `diff` the two `*_as` trees, and
+`grep -o 'case "[0-9A-Z]*K[0-9A-Z]*"' <tree>/.../OSD_Components/Sensor.as` in each.
+
+The 427 AS2 classes (decompiled from swf_gui_1) are organized into:
 
 - `GUI.GPDB.*` — Camera parameter database (GPDB): connects to firmware via XML socket on VxWorks,
   reads/writes all camera params (`DEBUG.*`, `UPGRADE.*`, `SENSOR.*`, `SYSTEM.*`, etc.)

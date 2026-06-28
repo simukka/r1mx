@@ -190,16 +190,37 @@ What the script does, and what you do:
 
 1. **Preflight (automatic, blocking).** Confirms the VM is running, `:2345` is reachable,
    and the XMD stub returns a live register set (halts, reads PC/LR, reads the DRAM canary,
-   resumes). It exits with the exact fix if any check fails.
-2. **Prompt:** *insert the modified-package USB, power-cycle, wait for the on-screen
-   UPGRADE prompt — do NOT confirm yet.* Press Enter. The script halts the core, sets the
-   **hardware** breakpoint at `0xAF634 + reloc`, and resumes.
-3. **Prompt:** *now CONFIRM the upgrade in the camera UI.* Press Enter. The script waits
-   for the verifier breakpoint to trap (up to `--bp-timeout`, default 600 s), then prints
-   `PC / r3 / LR` at the hit.
-4. **Override (automatic):** `r3←0` (the wrapper's success value) and `PC←LR` (return
-   immediately), clears the breakpoint, and resumes. The firmware then erases+writes flash.
-5. **Prompt:** *wait for the reboot; type the version on the splash.* PASS when it reads
+   resumes). It then runs a **hardware-breakpoint self-test**: it arms a bp at the current
+   (idle-loop) PC and confirms it re-traps, so a later "no waypoint hit" can be read as
+   "the path wasn't taken" rather than "Z1 never armed". (`--no-bp-selftest` skips it.) It
+   exits with the exact fix if any check fails.
+2. **Prompt:** *insert the modified-package USB, then on the camera press SYSTEM → SETUP →
+   MAINTENANCE and highlight `UPDATE SW` — do NOT select it yet.* Press Enter. The script
+   halts the core and arms **four pipeline breakpoints** (the PPC405 exposes exactly four
+   IAC slots), then resumes:
+
+   | waypoint | fn | `img + reloc` | meaning if it traps |
+   |---|---|---|---|
+   | `extract` | `FUN_000a8bdc` | `0x0A8BDC + reloc` | reached extract/decrypt/verify |
+   | `verify`  | `FUN_00210800` | `0x210800 + reloc` | reached per-file signature verify |
+   | `wrapper` | `FUN_000af634` | `0x0AF634 + reloc` | reached the verify wrapper (**override point**) |
+   | `flash`   | `FUN_000adc28` | `0x0ADC28 + reloc` | verification passed → erasing+programming |
+
+   (Each is tunable via `--extract-addr` / `--verify-addr` / `--wrapper-addr` / `--flash-addr`.)
+3. **Prompt:** *now select `UPDATE SW` in the camera UI.* Press Enter. The script **traces**
+   the upgrade: each time a waypoint traps it prints `name / PC / r3 / LR` plus the verify
+   error flag (`*0xE9E85C`), then continues to the next — up to `--bp-timeout` (default
+   600 s) per step.
+4. **Override (automatic):** when the `wrapper` waypoint traps, `r3←0` (the wrapper's
+   success value) and `PC←LR` (return immediately). The wrapper runs once per signed file
+   (`redone.2` software sig, `redone.4` FPGA sig), so it is overridden each time it traps;
+   the bp stays armed to catch both. On the `flash` hit the script clears all bps and
+   resumes for the erase/write.
+5. **Trace summary.** The script prints which waypoints fired and in what order, and
+   interprets it: reached flashing / reached verify-but-didn't-flash (override
+   missing/ineffective) / extraction-only (packaging problem before the signature) /
+   nothing (wrong trigger or `--reloc`, or — if the self-test failed — the bp never armed).
+6. **Prompt:** *wait for the reboot; type the version on the splash.* PASS when it reads
    `32.0.4`.
 
 ### Method options
@@ -222,10 +243,11 @@ python3 firmware/scripts/upgrade_bypass_test.py \
     --wrapper-addr 0xAF634 --reloc 0x10180 --expect-version 32.0.3
 ```
 
-The breakpoint still arms, but the script does **not** override `r3`/`PC`. Expected: the
-firmware reports `Verification Failure` / `Error Verifying Data`, skips the flash, and the
-version stays `32.0.3`. The script PASSes the negative control when the version is
-**unchanged**.
+The waypoints still arm (so you get the same pipeline trace), but the script does **not**
+override `r3`/`PC` at `wrapper`. Expected: the trace reaches `verify`/`wrapper` but **not**
+`flash`, the firmware reports `Verification Failure` / `Error Verifying Data`, skips the
+flash, and the version stays `32.0.3`. The script PASSes the negative control when the
+version is **unchanged**.
 
 ---
 

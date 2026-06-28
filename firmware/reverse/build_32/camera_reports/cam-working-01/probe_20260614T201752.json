@@ -1,0 +1,16 @@
+{
+  "camera_id": "cam-working-01",
+  "boards": {},
+  "timestamp": "2026-06-14T20:17:52",
+  "phases_run": [
+    "reloc",
+    "data_reloc"
+  ],
+  "transport": "ChannelB/xmd_rpc",
+  "halt_pc": "0x005bb0e0",
+  "reloc_candidates": 6,
+  "reloc_windows_real": 0,
+  "build_image": null,
+  "note_reloc": "no unique .text match \u2014 halt at a different context (more pages mapped) and retry, or the build image isn't among --image/--images-dir",
+  "note_D_data": "skipped (need D_text and capstone)"
+}

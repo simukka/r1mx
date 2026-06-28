@@ -1,0 +1,57 @@
+---
+layout: default
+---
+<article class="page-content journal-page">
+
+  <header class="page-header journal-entry-header">
+    <div class="journal-meta">
+      <time class="journal-meta-date" datetime="{{ page.date | date: '%Y-%m-%d' }}">
+        {{ page.date | date: "%Y-%m-%d" }}
+      </time>
+      {% if page.tags and page.tags.size > 0 %}
+      <div class="journal-meta-tags">
+        {% for t in page.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <h1 class="page-title">{{ page.title }}</h1>
+  </header>
+
+  <div class="page-body">
+    {{ content }}
+  </div>
+
+  {% assign sorted = site.journal | sort: "date" %}
+  {% assign prev_entry = nil %}
+  {% assign next_entry = nil %}
+  {% assign prev_candidate = nil %}
+  {% assign capture_next = false %}
+  {% for entry in sorted %}
+    {% if capture_next %}
+      {% assign next_entry = entry %}
+      {% assign capture_next = false %}
+    {% endif %}
+    {% if entry.url == page.url %}
+      {% assign prev_entry = prev_candidate %}
+      {% assign capture_next = true %}
+    {% endif %}
+    {% assign prev_candidate = entry %}
+  {% endfor %}
+
+  <footer class="journal-nav">
+    <div class="journal-nav-older">
+      {% if prev_entry %}
+      <a href="{{ prev_entry.url | relative_url }}">&#8592; {{ prev_entry.title }}</a>
+      <span class="journal-nav-date">{{ prev_entry.date | date: "%Y-%m-%d" }}</span>
+      {% endif %}
+    </div>
+    <a href="{{ '/journal/' | relative_url }}" class="journal-nav-index">All Entries</a>
+    <div class="journal-nav-newer">
+      {% if next_entry %}
+      <span class="journal-nav-date">{{ next_entry.date | date: "%Y-%m-%d" }}</span>
+      <a href="{{ next_entry.url | relative_url }}">{{ next_entry.title }} &#8594;</a>
+      {% endif %}
+    </div>
+  </footer>
+
+</article>

@@ -31,8 +31,6 @@ from toolkit.gui.dialogs.image_picker import ImagePickerDialog
 from toolkit.gui.dialogs.merge_entities import MergeEntitiesDialog
 from toolkit.gui.dialogs.pinout_wizard import DatasheetPinoutWizard
 from toolkit.gui.dialogs.probe_wizard import ProbeWizardDialog
-from toolkit.gui.dialogs.scan_layer import ScanLayerWizard, ScanLayerResult
-from toolkit.gui.dialogs.scan_preview import ScanPreviewDialog
 from toolkit.gui.items.footprint_overlay import FootprintOverlayItem
 from toolkit.gui.panels.inspector import InspectorPanel
 from toolkit.gui.panels.log import WorkflowLog
@@ -41,7 +39,6 @@ from toolkit.gui.scene import LayerScene, OBJECT_TYPES
 from toolkit.gui.theme import THEME
 from toolkit.gui.viewer import ImageViewer
 from toolkit.gui.widgets.service_status import ServiceStatusBar
-from toolkit.gui.widgets.status_lcd import StatusLCDWidget
 from toolkit.paths import REPO_ROOT
 from toolkit.services.manager import ServiceManager, ServiceMonitor
 from toolkit.workers.base import SubprocessWorker
@@ -193,20 +190,6 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, bottom_dock)
 
-        # Status LCD dock (hidden by default; show via View > Status LCD)
-        self._lcd_widget = StatusLCDWidget(parent=self)
-        lcd_dock = QDockWidget("Status LCD", self)
-        lcd_dock.setWidget(self._lcd_widget)
-        lcd_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        lcd_dock.setMinimumWidth(200)
-        lcd_dock.hide()
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, lcd_dock)
-        self._lcd_dock = lcd_dock
-
         self._status = QStatusBar()
         self.setStatusBar(self._status)
 
@@ -259,15 +242,6 @@ class MainWindow(QMainWindow):
         zoom_100_act.triggered.connect(self._viewer.zoom_reset)
         view_menu.addAction(zoom_100_act)
 
-        view_menu.addSeparator()
-        lcd_act = QAction("Status LCD", self)
-        lcd_act.setCheckable(True)
-        lcd_act.setChecked(False)
-        lcd_act.setShortcut("Ctrl+Shift+L")
-        lcd_act.triggered.connect(self._toggle_lcd_dock)
-        self._lcd_dock.visibilityChanged.connect(lcd_act.setChecked)
-        view_menu.addAction(lcd_act)
-
         # Help
         help_menu = mb.addMenu("&Help")
         help_menu.addAction("About r1mx Toolkit", self._show_about)
@@ -290,17 +264,9 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
 
         # Analyze
-        ana_label = QLabel("  Analyze: ")
+        ana_label = QLabel("  Components: ")
         ana_label.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
         tb.addWidget(ana_label)
-
-        ext_act = QAction("Scan Layer", self)
-        ext_act.setToolTip(
-            "Unified PCB layer scan: choose vias, pads, traces, outline, or text/components.\n"
-            "Results are previewed before saving — you can add missed items or re-tune parameters."
-        )
-        ext_act.triggered.connect(self._run_scan_layer)
-        tb.addAction(ext_act)
 
         # "Add entity" dropdown
         from PyQt6.QtWidgets import QToolButton, QMenu as _QMenu
@@ -1532,117 +1498,7 @@ class MainWindow(QMainWindow):
                 del self._layer_scenes[key]
             self._open_layer(self._active_board, self._active_layer)
 
-    def _require_board_and_layer(self) -> tuple[str | None, str | None]:
-        if not self._active_board:
-            QMessageBox.warning(self, "No board selected", "Select a board first.")
-            return None, None
-        if not self._active_layer:
-            QMessageBox.warning(self, "No layer selected",
-                                "Select a layer in the tree first.")
-            return None, None
-        return self._active_board, self._active_layer
-
-    def _run_scan_layer(self, initial_scan_type: str | None = None, initial_opts: dict | None = None):
-        """Open the unified Scan Layer wizard, run the scan, show preview, save on confirm."""
-        board, layer = self._require_board_and_layer()
-        if not board or not layer:
-            return
-
-        board_id  = self._db.get_or_create_board(board)
-        layer_row = self._db.get_layer(board_id, layer)
-        if not layer_row or not layer_row["calibrated"]:
-            QMessageBox.warning(
-                self, "Not calibrated",
-                f"{board} / {layer} must be calibrated before scanning.\n"
-                "Right-click the layer → Calibrate…"
-            )
-            return
-
-        wizard = ScanLayerWizard(board, layer, parent=self)
-        if initial_scan_type:
-            wizard.set_scan_type(initial_scan_type)
-        if initial_opts:
-            wizard.set_opts(initial_opts)
-
-        if wizard.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        scan_result = wizard.result()
-        if scan_result is None:
-            return
-
-        # Show the preview dialog
-        preview = ScanPreviewDialog(scan_result, parent=self)
-        preview_code = preview.exec()
-
-        if preview.needs_retry():
-            # Re-open wizard with same scan type + opts
-            retry_opts = preview.retry_opts()
-            self._run_scan_layer(
-                initial_scan_type=scan_result.scan_type,
-                initial_opts=retry_opts,
-            )
-            return
-
-        if preview_code != QDialog.DialogCode.Accepted:
-            return
-
-        confirmed = preview.confirmed_items()
-        self._on_scan_layer_confirmed(scan_result.scan_type, confirmed, board, layer)
-
-    def _on_scan_layer_confirmed(
-        self,
-        scan_type: str,
-        items: list,
-        board: str,
-        layer: str,
-    ):
-        """Persist confirmed scan results to DB and refresh the canvas + tree."""
-        board_id  = self._db.get_or_create_board(board)
-        layer_row = self._db.get_layer(board_id, layer)
-        if not layer_row:
-            return
-
-        layer_id = layer_row["id"]
-        cal       = json.loads(layer_row["calibration"] or "{}")
-        px_per_mm = cal.get("px_per_mm", 20.0)
-
-        if scan_type == "text":
-            # Convert any manually-added dict items to a BomEntry-compatible
-            # object so save_scan_results can handle them uniformly.
-            from types import SimpleNamespace
-            wrapped = []
-            for item in items:
-                if isinstance(item, dict):
-                    wrapped.append(SimpleNamespace(
-                        label=item.get("label", ""),
-                        reference=item.get("label", ""),
-                        ref_type=item.get("ref_type", "RefDes"),
-                        x_mm=float(item.get("x_mm", -1)),
-                        y_mm=float(item.get("y_mm", -1)),
-                        confidence=float(item.get("confidence", 1.0)),
-                        engine="manual",
-                        raw_text=item.get("label", ""),
-                    ))
-                else:
-                    wrapped.append(item)
-            n = self._db.save_scan_results(board_id, layer_id, wrapped)
-        else:
-            n = self._db.save_feature_objects(layer_id, scan_type, items, layer_key=layer)
-
-        self._log.append(
-            f"✓ Scan Layer ({scan_type}) — saved {n} objects to DB for {board}/{layer}"
-        )
-
-        # Reload canvas overlays and tree
-        key = (board, layer)
-        if key in self._layer_scenes:
-            self._layer_scenes[key].load_objects(self._db, layer_id, px_per_mm)
-            self._viewer.scene().update()
-
-        vis = self._tree.get_full_vis_state()
-        self._tree.refresh(vis)
-
+    
     def _on_component_selected(self, obj_id: int):
         """Show component details in the inspector panel and vignette-highlight the item."""
         # Highlight in the active layer scene
@@ -1720,6 +1576,16 @@ class MainWindow(QMainWindow):
         if not board or not layer:
             return
         self._set_canvas_mode(CanvasMode.SET_ORIENTATION, target_object_id=object_id)
+
+    def _require_board_and_layer(self) -> tuple[str | None, str | None]:
+        if not self._active_board:
+            QMessageBox.warning(self, "No board selected", "Select a board first.")
+            return None, None
+        if not self._active_layer:
+            QMessageBox.warning(self, "No layer selected",
+                                "Select a layer in the tree first.")
+            return None, None
+        return self._active_board, self._active_layer
 
     def _get_object_scene_rect(self, object_id: int) -> tuple[float, float, float, float] | None:
         """Return the (x, y, w, h) scene-pixel rect of an object, or None."""
@@ -2651,12 +2517,6 @@ class MainWindow(QMainWindow):
             if key in self._layer_scenes:
                 del self._layer_scenes[key]
             self._open_layer(board_name, layer_name)
-
-    def _toggle_lcd_dock(self, checked: bool) -> None:
-        if checked:
-            self._lcd_dock.show()
-        else:
-            self._lcd_dock.hide()
 
     def _show_about(self):
         QMessageBox.about(

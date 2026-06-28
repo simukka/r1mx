@@ -70,9 +70,17 @@ def build(t, sp, pool=POOL_BASE, size=POOL_SIZE, verify=True):
     """Construct the allocator. Returns True on success (malloc returns pool mem)."""
     # 1) module globals (flags default 0xBB0, alloc/free method fn-ptrs)
     _call(t, sp, 0x004593a8, 0, 0, 0xBB0)
-    # 2) seed the two garbage prerequisites FUN_0045aa38 needs
+    # 2) seed the garbage prerequisites FUN_0045aa38 / the carve FUN_0045a428 need
     _w32(t, 0xE295D4, _u32(t, 0xE26D3C))   # min-align = granule
     _w32(t, 0xE295F4, 0)                    # method-setup fn-ptr -> skip (cold garbage)
+    # iRam00e295e4 = per-allocation guard/red-zone size (memPartLib). Cold-garbage
+    # ~0x00d8fad0 (~14 MB) makes addToPool waste 14 MB at the pool front and makes
+    # the carve overhead so large the FIRST malloc takes the no-split branch and
+    # empties the free tree -> only ONE malloc is serviceable. Nothing in the
+    # allocator init writes it (it's a read-only config const set by the bypassed
+    # early data init); 0 = guards off, the production default. (Root cause found
+    # 2026-06-17 via probe_geom.py.)
+    _w32(t, 0xE295E4, 0)
     # 3) init the partition at the fixed 0xFC2530 with the pool
     pc, lr, r3 = _call(t, sp, 0x0045AA38, PART_ADDR, pool, size)
     if pc != CATCH:

@@ -1,0 +1,35 @@
+services:
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: r1mx-docs:latest
+    ports:
+      - "4000:4000"   # Jekyll site
+      - "35729:35729" # LiveReload
+    volumes:
+      # Live-edit the source from the host. Gems live in /usr/local/bundle
+      # (outside /site), so they are not shadowed by this mount.
+      - .:/site
+      # Named volumes keep build artifacts out of the host tree and avoid
+      # clobbering the host's _site / caches.
+      - site_build:/site/_site
+      - jekyll_cache:/site/.jekyll-cache
+    environment:
+      # Bundler/Jekyll niceties for the dev container.
+      - JEKYLL_ENV=development
+    command:
+      - bundle
+      - exec
+      - jekyll
+      - serve
+      - --host
+      - 0.0.0.0
+      - --livereload
+      - --livereload-port
+      - "35729"
+      - --force_polling   # reliable file-change detection across the bind mount
+
+volumes:
+  site_build:
+  jekyll_cache:

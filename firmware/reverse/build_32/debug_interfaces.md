@@ -139,6 +139,36 @@ Option 2 (via Ethernet REST/param API if exposed).
 ### Physical Location
 RED ONE camera has a 26-pin "CONTROL" connector that includes RS-232 signals (TX/RX). The XUartNs550 likely maps to this connector. A USB-to-RS232 or direct RS-232 adapter to the CONTROL connector could give serial console access if TTY0 can be redirected.
 
+### Serial/Network Port Pinout — 9-pin LEMO ↔ RJ45 (documented 2026-06-16)
+The camera's serial breakout uses a **9-pin LEMO** that maps to a standard **RJ45**
+(8P8C). The signals are **differential pairs** (RX±, TX±) plus two spare
+bidirectional pairs — i.e. this is wired to the **standard RJ45 4-pair pinout**
+(pairs 1‑2, 3‑6, 4‑5, 7‑8), not single-ended RS-232 TTL. Treat "RS-232" here as
+the connector's label; electrically it carries balanced pairs (RS-422/Ethernet
+style), so a plain 3-wire RS-232 cable will **not** work — use the LEMO↔RJ45
+breakout and a differential transceiver (or the network jack) on the host side.
+
+| LEMO pin | RJ45 pin | Signal / Description                         |
+|----------|----------|----------------------------------------------|
+| 1        | 3        | RX + (Receive Positive)                      |
+| 2        | 6        | RX − (Receive Negative)                      |
+| 3        | 1        | TX + (Transmit Positive)                     |
+| 4        | 2        | TX − (Transmit Negative)                     |
+| 5        | 7        | BI_D + (Bi-directional Data + / Spare)       |
+| 6        | 8        | BI_D − (Bi-directional Data − / Spare)       |
+| 7        | 4        | BI_D + (Bi-directional Data + / Spare)       |
+| 8        | 5        | BI_D − (Bi-directional Data − / Spare)       |
+| 9        | Shell    | Ground / Shield                              |
+
+**Why this matters for access:** the RJ45 side uses the exact 10/100 Ethernet
+pair assignment (TX on 1‑2, RX on 3‑6) — so this connector is almost certainly
+the path to the **FPGA Ethernet MAC at `0xe1020000`** that carries WDB
+(UDP 17185) and the GPDB/GET_FILE services, not just a console UART. The two
+spare BI_D pairs (4‑5, 7‑8) are present for gigabit-style 4-pair use. This is the
+strongest candidate for the physical Ethernet access the remote-access plan
+depends on (see §6 transports and the camera-remote-access notes); confirm pair
+polarity with a cable tester before connecting host Ethernet.
+
 ---
 
 ## 4. altshell (`/tffs0/altshell`)

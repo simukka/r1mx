@@ -1,0 +1,44 @@
+---
+layout: default
+---
+<article class="page-content">
+
+  <header class="page-header">
+    <h1 class="page-title">{{ page.title }}</h1>
+    {% if page.subtitle %}<p class="page-subtitle">{{ page.subtitle }}</p>{% endif %}
+  </header>
+
+  {% if page.content != "" %}
+  <div class="page-body">{{ content }}</div>
+  {% endif %}
+
+  {% assign entries = site.journal | sort: "date" | reverse %}
+  {% if entries.size == 0 %}
+  <p class="journal-empty">No entries yet.</p>
+  {% else %}
+  <ol class="journal-list" reversed>
+    {% for entry in entries %}
+    <li class="journal-list-item">
+      <div class="journal-list-header">
+        <time class="journal-list-date" datetime="{{ entry.date | date: '%Y-%m-%d' }}">
+          {{ entry.date | date: "%Y-%m-%d" }}
+        </time>
+        <a class="journal-list-title" href="{{ entry.url | relative_url }}">{{ entry.title }}</a>
+      </div>
+      {% if entry.summary %}
+      <p class="journal-list-summary">{{ entry.summary }}</p>
+      {% endif %}
+      <div class="journal-list-footer">
+        {% if entry.tags and entry.tags.size > 0 %}
+        <div class="journal-list-tags">
+          {% for t in entry.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+        </div>
+        {% endif %}
+        <a class="journal-list-read" href="{{ entry.url | relative_url }}">Read &#8594;</a>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+</article>
