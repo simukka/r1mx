@@ -306,11 +306,11 @@ cleanup() {
     if [[ -n "$QEMU_PID" ]] && kill -0 "$QEMU_PID" 2>/dev/null; then
         kill "$QEMU_PID" 2>/dev/null || true
     fi
-    if [[ -n "$GUI_PID" ]] && kill -0 "$GUI_PID" 2>/dev/null; then
-        echo ""
-        echo "[*] stopping GUI (pid $GUI_PID)"
-        kill "$GUI_PID" 2>/dev/null || true
-    fi
+    # if [[ -n "$GUI_PID" ]] && kill -0 "$GUI_PID" 2>/dev/null; then
+    #     echo ""
+    #     echo "[*] stopping GUI (pid $GUI_PID)"
+    #     kill "$GUI_PID" 2>/dev/null || true
+    # fi
 }
 trap cleanup INT TERM EXIT
 

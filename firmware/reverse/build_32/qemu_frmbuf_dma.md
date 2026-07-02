@@ -347,25 +347,46 @@ poll fn `0x352ce4` reads **`0xe200028c`** and waits for **bit8 (0x100) = DONE**
 not detected)". Catch-all now returns `0x100` for `0xe200028c`. Verified: DONE
 failure gone, bringup advances; boot still reaches full init, no hang/panic.
 
-**Step 2 — RocketIO/MGT channel "up" — RESOLVED (register found; not committed).**
+**Step 2 — RocketIO/MGT channel "up" — MODELLED + committed** (`1338cac0ea`, 2026-07-02).
 `VpConfigVerifyRio` (`0x234c14`, line 197) reads RIO status via accessor
 `0x45e510(dev=0x1e, reg=0xa104, 0)` (a generic `reg_read(device,register)` — the
 "handle" `*(0xe15588)` is the small int **0x1e**, not a pointer) and checks **bit0**
-= "channel up". Runtime-traced the accessor's MMIO read → it reads **`0xe20000f8`**.
-Modelling `0xe20000f8` bit0=1 **makes VPFPGA config SUCCEED** (no retries, no "Error
-configuring VP FPGA"; the AD9889 hot-plug loop disappears). (Red herring: fn
-`0x3617a4` polls a different reg `0xe20001d8`==4; not the RIO check.)
+(`andi. r0,r3,1`) = "channel up". Runtime-traced the accessor's MMIO read → it reads
+**`0xe20000f8`**. The IOFPGA catch-all (`fpga_catchall_read`) now returns `0x1` for
+`0xe20000f8`, so config **SUCCEEDS** (no "Rocket IO Channel is not up!", no
+`VpConfigDoProgram` retry loop, no `cpldSoftReset` failure). (Red herring: fn
+`0x3617a4` polls a different reg `0xe20001d8`==4; not the RIO check.) This was safe
+to land **only after Step 3** below removed the driver-init hang that forced the
+earlier standalone revert.
 
-**Step 3 — VPFPGA *driver* init poll — NEXT (the new wall).** With DONE+RocketIO,
-config succeeds but the VPFPGA **driver** init then **hangs** (100% CPU) in a spin
-at `0x374c30`–`0x374c4c` waiting for **bit10 (0x400)** of **`0xe0080018`** (in the
-histogram/video IP region `0xe0080000`, a *different* device model than the IOFPGA
-catch-all). It reads `0xe0080010/14/18` each iteration. ⚠️ Because this regresses
-the boot (stable full-init → hard hang), the **RocketIO model was reverted**; only
-the DONE model is committed. The recurring **serial bit-bang fn `0x3667c0`** (RMW of
-the `0xe2000224` GPIO, 16-bit shift) strongly suggests the driver bit-bangs commands
-to the VPFPGA and waits for *responses* — i.e. a point where faking status bits is
-no longer enough and the VPFPGA's actual logic/response must be modelled.
+**Step 3 — VPFPGA driver-init FIFO-ready poll — MODELLED + committed** (`0c903d18cf`,
+2026-07-02). The VPFPGA **driver** init (fn `0x1b47e8`, "Initializing VPFPGA
+driver...") reaches `0x374ba4`, which drains the vpfpga command/response FIFO and
+spins at `0x374c30`–`0x374c4c` waiting for **bit10 (0x400)** of **`0xe0080018`**
+(reading `0xe0080010/14/18` each iteration). **`0xe0080000` is the firmware's
+`vpfpga` block** per the device table @`0xe0be10`, *not* a histogram — the five
+`red.histogram-ip` labels are all misattributed (`0xe0080000`=vpfpga,
+`0xe00a0000`=sdio, `0xe0100000`=audio, `0xe0120000`=dma, `0xe0200000`=frmBuf).
+`red_hist_read` now returns `0x400` for offset `0x18` **on the 0xe0080000 instance
+only** → the loop exits first pass → "Found and initialized 1 VPFPGA devices".
+
+**Result (DONE + RocketIO + FIFO-ready, all committed):** boot clears the entire
+VPFPGA wall and advances **out of device init into the application layer** —
+`Processed [893]... parameters`, `Loaded THREE /roFs/FactoryDefaults.xml`, profile
+handlers, `Sensor detected as UNKNOWN`. Single boot, no reboot loop.
+
+**Step 4 — VP register/RocketIO data reads — THE NEW FRONTIER (uncommitted, hard).**
+Once the comm library runs it does real reads over the link and gets nothing back:
+`vpfpgaRioReadWord: rx buffer timeout`, `vpfpgaRioRead: Timeout waiting for Rx
+buffer`, then `VpRegPeek: operation failed` spam. Downstream, three app tasks take
+**fatal kernel task-level exceptions** on the missing data —
+`tMaster` (`0x556dd50`), `tAudioMgr` (`0x5555d10`), `tEvtLog` (`0x54e2b50`); the
+exception PCs (`0x00000000`, DEAR `0x38610040`/`0x64205b78`) are null/garbage
+derefs from unpopulated response buffers. The recurring **serial bit-bang fn
+`0x3667c0`** (RMW of the `0xe2000224` GPIO, 16-bit shift) is the command/response
+channel. Faking status bits is no longer enough here — the VP-FPGA's actual
+register file + frame responses must be modelled or replayed from a JTAG capture of
+a live camera (see `vp_fpga_readback.md`). This is the real ceiling, as predicted.
 
 **Cascade verdict:** each modelled status bit advances ~one step then hits the next
 hang, across multiple device regions (IOFPGA `0xe2000000`, histogram `0xe0080000`),
