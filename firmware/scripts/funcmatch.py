@@ -30,10 +30,30 @@ BASE  = REPO / "firmware/reverse/build_32/extracted/software.bin"
 MAN   = SRC / "manifest.json"
 BUILD = SRC / "build"
 SYMS  = BUILD / "symbols.ld"
-UNITS = SRC / "units"
 # Optional hand-maintained absolute addresses of DATA symbols (strings, tables, BSS
 # objects) referenced by units, so @ha/@l (lis/addi) relocations match the original.
-DATA_LD = UNITS / "data_symbols.ld"
+DATA_LD = SRC / "data_symbols.ld"
+
+# Reconstructed units live under these roots, mirroring the firmware __FILE__ module
+# tree (src/red/<module>/…, src/hw/…). discover_units() finds them for relink/recon.
+UNIT_ROOTS = [SRC / "red", SRC / "hw"]
+_UNIT_EXCLUDE = {"include", "ghidra", "build"}
+
+
+def discover_units():
+    """Every reconstructed byte-match unit: *.c/*.S under src/red + src/hw.
+    C++ TUs (*.cpp, e.g. flashvx.cpp) live in the tree for clangd navigation but are
+    NOT byte-gated yet — add "*.cpp" here once a C++ unit reaches byte_exact/functional
+    (until then including it would trip relink --verify's skip==0 invariant)."""
+    found = []
+    for root in UNIT_ROOTS:
+        if not root.exists():
+            continue
+        for pat in ("*.c", "*.S"):
+            for p in root.rglob(pat):
+                if not any(part in _UNIT_EXCLUDE for part in p.relative_to(SRC).parts):
+                    found.append(p)
+    return sorted(set(found))
 
 # The flag set that reproduces the mmio_leaves accessors byte-for-bit; the sweep can
 # refine it for harder functions. Kept in sync with toolchain/toolchain.mk.
@@ -182,7 +202,7 @@ def match_unit(src: Path, cflags: str, man: dict, mach: str, only: set[str], wor
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("units", nargs="+", help="src/units/*.c|*.S to check")
+    ap.add_argument("units", nargs="+", help="unit source(s) under src/red|src/hw to check")
     ap.add_argument("--only", action="append", default=[], help="restrict to these symbols")
     ap.add_argument("--cflags", default=DEFAULT_CFLAGS)
     ap.add_argument("--sweep", action="store_true", help="try the flag grid, report best")

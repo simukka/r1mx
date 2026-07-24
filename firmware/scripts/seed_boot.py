@@ -18,7 +18,7 @@ empty circular lists), then forces usrRoot and traces to the NEXT divergence so 
 can identify and seed the next structure. Each confirmed seed is a candidate for
 r1mx_apply_boot_env_fixups in the QEMU machine.
 
-Requires: qemu_boot.sh --patched --debug --background  (stub on :1234).
+Requires: qemu_boot.sh --debug --background  (stub on :1234).
 """
 import sys, time
 from pathlib import Path

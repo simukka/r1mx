@@ -60,12 +60,7 @@
 
 /* ---- types ---------------------------------------------------------------- */
 
-struct FlashRect {
-    int x0;   /* left   */
-    int x1;   /* right  */
-    int y0;   /* top    */
-    int y1;   /* bottom */
-};
+#include "red_types.h"   /* struct FlashRect (shared decl for clangd/IntelliSense) */
 
 class FlashPlayer {
 public:

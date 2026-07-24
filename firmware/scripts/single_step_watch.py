@@ -11,7 +11,7 @@ diff the memory.
 
 Usage:
     # Terminal A: QEMU halted at PC=0
-    ./firmware/scripts/qemu_boot.sh --patched --debug
+    ./firmware/scripts/qemu_boot.sh --debug
 
     # Terminal B
     python3 firmware/scripts/single_step_watch.py --addr 0x0 --steps 200

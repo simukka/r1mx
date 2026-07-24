@@ -9,7 +9,7 @@ keeping the live task stack, then free-runs against a net of landmark + exceptio
 vector breakpoints to find the FIRST real divergence (missing device / fault / a
 boot milestone like sysClkEnable). Reports where it lands.
 
-Requires a QEMU r1mx-virtex4 stub on :1234 (qemu_boot.sh --patched --debug).
+Requires a QEMU r1mx-virtex4 stub on :1234 (qemu_boot.sh --debug).
 """
 import sys, time
 from rsp import RSP, RSPError

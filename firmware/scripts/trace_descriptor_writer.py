@@ -9,7 +9,7 @@ the surrounding register state. Continues until --max-hits is reached or
 
 Usage:
     # Terminal A: start QEMU halted at PC=0x0 with GDB stub
-    ./firmware/scripts/qemu_boot.sh --patched --debug
+    ./firmware/scripts/qemu_boot.sh --debug
 
     # Terminal B:
     python3 firmware/scripts/trace_descriptor_writer.py

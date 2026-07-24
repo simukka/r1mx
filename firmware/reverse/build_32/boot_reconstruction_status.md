@@ -1072,7 +1072,7 @@ Verified facts (and only these — see Retractions):
 ## Reproduce the current frontier
 
 ```bash
-./firmware/scripts/qemu_boot.sh --patched --debug --background   # stub :1234, daemonized
+./firmware/scripts/qemu_boot.sh --debug --background   # stub :1234, daemonized
 cd firmware/scripts && python3 seed_boot.py                       # forces usrRoot, applies seeds, traces
 cd .. && ./firmware/scripts/qemu_boot.sh --stop
 ```

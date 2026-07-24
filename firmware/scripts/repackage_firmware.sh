@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # repackage_firmware.sh — Re-encrypt and repackage modified RED ONE MX firmware
 #
-# Takes a modified software.bin (or software.patched.bin), re-encrypts it,
+# Takes a modified software.bin (e.g. the reconstructed `make relink` image), re-encrypts it,
 # and produces a drop-in replacement redone.su ready to flash via SmartUpgrade.
 #
 # Usage:
 #   ./scripts/repackage_firmware.sh [OPTIONS]
 #
 # Options:
-#   --input PATH      Modified software.bin (default: reverse/build_32/extracted/software.patched.bin)
+#   --input PATH      Modified software.bin (default: reverse/build_32/extracted/software.bin)
 #   --build-dir PATH  Directory with original redone.2 and redone.4 files
 #                     (default: reverse/build_32/extracted)
 #   --output PATH     Output redone.su path (default: /tmp/redone.su)
@@ -40,7 +40,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS='M1H5gwOXh757rIRVY6Gj2tN080AYSX03'
 
 # Defaults
-INPUT="$REPO_ROOT/reverse/build_32/extracted/software.patched.bin"
+INPUT="$REPO_ROOT/reverse/build_32/extracted/software.bin"
 BUILD_DIR="$REPO_ROOT/reverse/build_32/extracted"
 OUTPUT="/tmp/redone.su"
 VERIFY=0

@@ -13,7 +13,7 @@ build modes:
   --mode real : force guard *0xE295F8=0 and call the REAL init FUN_0045acac
                 (= FUN_0043c570 object-create + FUN_0045aa38) — the faithful path
 
-Requires: qemu_boot.sh --patched --debug --background (stub :1234).
+Requires: qemu_boot.sh --debug --background (stub :1234).
 """
 import argparse
 import struct

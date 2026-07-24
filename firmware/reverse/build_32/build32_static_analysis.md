@@ -241,8 +241,9 @@ r2 -a ppc -b 32 -e cfg.bigendian=true \
 # On crash: read PC register
 # dr pc
 # pd 4                            # disassemble crash site
-# python3 scripts/patch_firmware.py --probe <PC> --input reverse/build_32/extracted/software.bin
-# Add Patch entry to KNOWN_PATCHES, re-run with --patched
+# On a crash, note the PC and disassemble the site. The fix goes into the reconstructed
+# source (src/red/…) or a byte-edited copy of software.bin — not a patch tool. See
+# re_reference.md §18 (Firmware Modification Workflow).
 ```
 
 ---
@@ -276,14 +277,9 @@ db 0x001C18DC   ; break at UART init
 
 ---
 
-## qemu_boot.sh / patch_firmware.py Update Checklist
+## qemu_boot.sh Update Checklist (historical — completed)
 
-**`qemu_boot.sh`:**
-- Change `FW_DIR` from `"reverse/Upgrade_Build 13/Upgrade"` to `"reverse/build_32/extracted"`
-- Change `FIRMWARE` variable to use `software.bin` / `software.patched.bin`
-
-**`patch_firmware.py`:**
-- Change `--input` default from `reverse/Upgrade_Build 13/Upgrade/SundanceBootable.bin`
-  to `reverse/build_32/extracted/software.bin`
-- Change `--output` default to `reverse/build_32/extracted/software.patched.bin`
-- Replace Phase 1 patches with Build 32 offsets (table above)
+`qemu_boot.sh` now points at `reverse/build_32/extracted` and boots the original
+`software.bin` at base `0x10000`. The old `patch_firmware.py` byte-patcher (and the
+patch build) have been retired; modified images are produced from the reconstructed
+source via `make -C reverse/build_32/src relink` (see re_reference.md §18).

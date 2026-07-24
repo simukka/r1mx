@@ -2,7 +2,7 @@
 # Generated from ISE EDK 10.1 xparameters.h, xreg405.h, and firmware analysis
 #
 # Usage (load firmware at correct base):
-#   r2 -a ppc -b 32 -e cfg.bigendian=true -m 0x0 software.patched.r1mx.bin
+#   r2 -a ppc -b 32 -e cfg.bigendian=true -m 0x10000 extracted/software.bin
 #   . annotations.r2
 #
 # Or from within r2:

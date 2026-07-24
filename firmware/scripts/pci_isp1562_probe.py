@@ -14,7 +14,7 @@ xilinx_opb_pci.c) makes two devices discoverable. See
 firmware/reverse/build_32/boot_reconstruction_status.md "ROOT CAUSE LOCALIZED".
 
 Usage:
-    ./firmware/scripts/qemu_boot.sh --patched --debug --background
+    ./firmware/scripts/qemu_boot.sh --debug --background
     python3 firmware/scripts/pci_isp1562_probe.py
     ./firmware/scripts/qemu_boot.sh --stop
 """

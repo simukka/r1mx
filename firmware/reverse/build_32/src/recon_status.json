@@ -1,10 +1,10 @@
 {
- "generated": "2026-06-13T12:40:28",
+ "generated": "2026-07-03T08:16:04",
  "summary": {
-  "reconstructed": 30,
+  "reconstructed": 28,
   "byte_exact": 19,
   "functional": 3,
-  "draft": 8,
+  "draft": 6,
   "red_total": 93,
   "red_reconstructed": 11
  },
@@ -17,7 +17,7 @@
    "module": "app_modules/common",
    "match": 85,
    "fidelity": "functional",
-   "unit": "common_diag_thunks.c"
+   "unit": "diag_thunks.c"
   },
   {
    "name": "FUN_004d83c8",
@@ -27,7 +27,7 @@
    "module": "app_modules/common",
    "match": 65,
    "fidelity": "functional",
-   "unit": "common_diag_thunks.c"
+   "unit": "diag_thunks.c"
   },
   {
    "name": "FUN_004d8d58",
@@ -37,77 +37,7 @@
    "module": "app_modules/common",
    "match": 56,
    "fidelity": "functional",
-   "unit": "common_diag_thunks.c"
-  },
-  {
-   "name": "FUN_004caf48",
-   "addr": "0x004caf48",
-   "size": 40,
-   "provenance": "red",
-   "module": "app_modules/common",
-   "match": 100,
-   "fidelity": "byte_exact",
-   "unit": "common_utils_thunks.c"
-  },
-  {
-   "name": "FUN_004caf70",
-   "addr": "0x004caf70",
-   "size": 40,
-   "provenance": "red",
-   "module": "app_modules/common",
-   "match": 100,
-   "fidelity": "byte_exact",
-   "unit": "common_utils_thunks.c"
-  },
-  {
-   "name": "FUN_004caf98",
-   "addr": "0x004caf98",
-   "size": 40,
-   "provenance": "red",
-   "module": "app_modules/common",
-   "match": 100,
-   "fidelity": "byte_exact",
-   "unit": "common_utils_thunks.c"
-  },
-  {
-   "name": "FUN_004cafc0",
-   "addr": "0x004cafc0",
-   "size": 40,
-   "provenance": "red",
-   "module": "app_modules/common",
-   "match": 100,
-   "fidelity": "byte_exact",
-   "unit": "common_utils_thunks.c"
-  },
-  {
-   "name": "FUN_004cafe8",
-   "addr": "0x004cafe8",
-   "size": 44,
-   "provenance": "red",
-   "module": "app_modules/common",
-   "match": 100,
-   "fidelity": "byte_exact",
-   "unit": "common_utils_thunks.c"
-  },
-  {
-   "name": "FUN_0039ac2c",
-   "addr": "0x0039ac2c",
-   "size": 76,
-   "provenance": "?",
-   "module": "",
-   "match": 30,
-   "fidelity": "draft",
-   "unit": "libc_leaves.c"
-  },
-  {
-   "name": "FUN_0039acec",
-   "addr": "0x0039acec",
-   "size": 60,
-   "provenance": "?",
-   "module": "",
-   "match": 36,
-   "fidelity": "draft",
-   "unit": "libc_leaves.c"
+   "unit": "diag_thunks.c"
   },
   {
    "name": "FUN_000000ac",
@@ -258,6 +188,56 @@
    "match": 93,
    "fidelity": "draft",
    "unit": "upgrade_verify.c"
+  },
+  {
+   "name": "FUN_004caf48",
+   "addr": "0x004caf48",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "utils_thunks.c"
+  },
+  {
+   "name": "FUN_004caf70",
+   "addr": "0x004caf70",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "utils_thunks.c"
+  },
+  {
+   "name": "FUN_004caf98",
+   "addr": "0x004caf98",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "utils_thunks.c"
+  },
+  {
+   "name": "FUN_004cafc0",
+   "addr": "0x004cafc0",
+   "size": 40,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "utils_thunks.c"
+  },
+  {
+   "name": "FUN_004cafe8",
+   "addr": "0x004cafe8",
+   "size": 44,
+   "provenance": "red",
+   "module": "app_modules/common",
+   "match": 100,
+   "fidelity": "byte_exact",
+   "unit": "utils_thunks.c"
   },
   {
    "name": "FUN_00029ddc",

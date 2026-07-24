@@ -382,11 +382,21 @@ buffer`, then `VpRegPeek: operation failed` spam. Downstream, three app tasks ta
 **fatal kernel task-level exceptions** on the missing data —
 `tMaster` (`0x556dd50`), `tAudioMgr` (`0x5555d10`), `tEvtLog` (`0x54e2b50`); the
 exception PCs (`0x00000000`, DEAR `0x38610040`/`0x64205b78`) are null/garbage
-derefs from unpopulated response buffers. The recurring **serial bit-bang fn
-`0x3667c0`** (RMW of the `0xe2000224` GPIO, 16-bit shift) is the command/response
-channel. Faking status bits is no longer enough here — the VP-FPGA's actual
-register file + frame responses must be modelled or replayed from a JTAG capture of
-a live camera (see `vp_fpga_readback.md`). This is the real ceiling, as predicted.
+derefs from unpopulated response buffers — the app peeks a VP register expecting a
+pointer/handle, gets `0`, and calls through it.
+
+**Read path fully decoded 2026-07-02 → `vp_register_channel_analysis.md`.** Two
+independent **data** channels, both currently answering `0`: (1) the **RIO FIFO**
+`0xe0080000` block — `+0x04/+0x08` TX cmd, `+0x0c` status nibble, `+0x10/+0x14` RX
+payload, `+0x18` b10 RX-ready; and (2) the **memory-mapped VP register window** at
+`0xe2000xxx` (reg#→addr; `0xa104`→`0xe20000f8` confirmed) reached via
+`VpRegPeek 0x232c68 → 0x22edd4 → 0x45e510/0x45e144 → vtable[0x54][0x18/0x10]`.
+`VpRegPeek` returns OK only if the 4-byte result read yields exactly `4`. NB: the
+GPIO **bit-bang** engines `0x366798`(`0xe2000224`)/`0x366588`(`0xe200022c`) are a
+*separate* CPLD/strap serial subsystem, **not** the RegPeek channel (earlier
+`0x3667c0` attribution corrected). Faking status bits is exhausted — we must return
+**real register/payload values**, modelled from consumption or replayed from JTAG
+(`vp_fpga_readback.md`). This is the real ceiling, as predicted.
 
 **Cascade verdict:** each modelled status bit advances ~one step then hits the next
 hang, across multiple device regions (IOFPGA `0xe2000000`, histogram `0xe0080000`),

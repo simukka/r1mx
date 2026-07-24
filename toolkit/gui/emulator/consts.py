@@ -5,28 +5,48 @@ BROKER_PORT = 17187
 PACKET_SIZE = 32
 PACKET_MAGIC = b"RDEV"
 
-# Device IDs (must match r1mx_activity.h)
-DEV_UART       = 0
-DEV_ETHERNET   = 1
-DEV_DMA        = 2
-DEV_HIST_LUMA  = 3
-DEV_HIST_RGB   = 4
-DEV_HIST_RGBC  = 5
-DEV_HIST_MONO  = 6
-DEV_HIST_WAVE  = 7
-DEV_FPGA       = 8
+# ---------------------------------------------------------------------------
+# Device IDs: indices into r1mx_activity.h.  The qemu-r1mx activity broker
+# sends one of these as the dev_id byte in every RDEV packet.  The integer
+# values MUST stay in sync with include/hw/ppc/r1mx_activity.h in the fork.
+#
+# IDs 3-7 were originally labelled RED "histogram" IP blocks.  The firmware
+# device table (software.bin @0xe0be10) shows those five FPGA blocks were
+# misattributed; their real identities are vpfpga / sdio / audio / dma / frmbuf.
+# Only the names are corrected (here and in the header); the integer values are
+# unchanged.  See firmware/reverse/build_32/qemu_frmbuf_dma.md.
+# ---------------------------------------------------------------------------
+DEV_UART       = 0    # XPS UARTLite            0xE060_0000
+DEV_ETHERNET   = 1    # XPS EthernetLite        0xE102_0000
+DEV_DMA        = 2    # OPB / XPS Central DMA   0x6401_0000
+DEV_VPFPGA     = 3    # VP-FPGA comm FIFO       0xE008_0000  (was "Luma Histogram")
+DEV_SDIO       = 4    # SD / SDIO block         0xE00A_0000  (was "RGB Histogram")
+DEV_AUDIO      = 5    # Audio block             0xE010_0000  (was "RGB Comp Histo")
+DEV_IODMA      = 6    # IOFPGA DMA block        0xE012_0000  (was "Mono Histogram")
+DEV_FRMBUF     = 7    # Frame buffer block      0xE020_0000  (was "Luma Waveform")
+DEV_FPGA       = 8    # IOFPGA fabric/catch-all 0xE000_0000-0xE3FF_FFFF
+DEV_CPU        = 9    # PPC405F6 CPU sampler    (addr = current PC)
+DEV_RAM        = 10   # System SDRAM            0x0000_0000
+DEV_ROM        = 11   # NOR flash + boot ROM    0xF000_0000 / 0xFFFF_0000
+DEV_SDCARD     = 12   # Block backend slot 0    (CF / SD)
+DEV_SSD        = 13   # Block backend slot 1    (SiI3512 SATA SSD)
 
-# Short name, long name, base address
+# Short name, long name, base address (0xFFFF_FFFF base = no single MMIO base).
 DEVICE_INFO: Dict[int, Tuple[str, str, int]] = {
-    DEV_UART:      ("UART",      "XPS UARTLite",         0xE060_0000),
-    DEV_ETHERNET:  ("ETH",       "XPS EthernetLite",     0xE102_0000),
-    DEV_DMA:       ("DMA",       "OPB DMA Channel",      0x6401_0000),
-    DEV_HIST_LUMA: ("HIST-LUMA", "Luma Histogram",       0xE008_0000),
-    DEV_HIST_RGB:  ("HIST-RGB",  "RGB Histogram",        0xE00A_0000),
-    DEV_HIST_RGBC: ("HIST-RGBC", "RGB Comp Histogram",   0xE010_0000),
-    DEV_HIST_MONO: ("HIST-MONO", "Mono Histogram",       0xE012_0000),
-    DEV_HIST_WAVE: ("HIST-WAVE", "Luma Waveform",        0xE020_0000),
-    DEV_FPGA:      ("FPGA",      "FPGA Catch-all",       0xE000_0000),
+    DEV_UART:     ("UART",   "XPS UARTLite",              0xE060_0000),
+    DEV_ETHERNET: ("ETH",    "XPS EthernetLite",          0xE102_0000),
+    DEV_DMA:      ("DMA",    "OPB / XPS Central DMA",     0x6401_0000),
+    DEV_VPFPGA:   ("VPFPGA", "VP-FPGA comm FIFO",         0xE008_0000),
+    DEV_SDIO:     ("SDIO",   "SD / SDIO block",           0xE00A_0000),
+    DEV_AUDIO:    ("AUDIO",  "Audio block",               0xE010_0000),
+    DEV_IODMA:    ("IO-DMA", "IOFPGA DMA block",          0xE012_0000),
+    DEV_FRMBUF:   ("FRMBUF", "Frame buffer block",        0xE020_0000),
+    DEV_FPGA:     ("IOFPGA", "IOFPGA fabric / catch-all", 0xE000_0000),
+    DEV_CPU:      ("CPU",    "PPC405F6 CPU sampler",      0xFFFF_FFFF),
+    DEV_RAM:      ("RAM",    "System SDRAM",              0x0000_0000),
+    DEV_ROM:      ("ROM",    "NOR flash + boot ROM",      0xF000_0000),
+    DEV_SDCARD:   ("SDCARD", "Block slot 0 (CF / SD)",    0xFFFF_FFFF),
+    DEV_SSD:      ("SSD",    "Block slot 1 (SATA SSD)",   0xFFFF_FFFF),
 }
 
 # ---------------------------------------------------------------------------
@@ -68,22 +88,33 @@ REG_MAP: Dict[int, Tuple[str, str]] = {
     0x6401_002C: ("DMA_IS",    "Interrupt Status (W1C)"),
     0x6401_0030: ("DMA_IE",    "Interrupt Enable"),
 
-    # RED Histogram IPs — inferred from firmware disassembly
-    0xE008_0034: ("LUMA_HIST_STATUS0", ""),
-    0xE008_0038: ("LUMA_HIST_CTRL",    "Enable[5]"),
-    0xE008_003C: ("LUMA_HIST_STATUS1", "Done[5]"),
-    0xE00A_0034: ("RGB_HIST_STATUS0",  ""),
-    0xE00A_0038: ("RGB_HIST_CTRL",     "Enable[5]"),
-    0xE00A_003C: ("RGB_HIST_STATUS1",  "Done[5]"),
-    0xE010_0034: ("RGBC_HIST_STATUS0", ""),
-    0xE010_0038: ("RGBC_HIST_CTRL",    "Enable[5]"),
-    0xE010_003C: ("RGBC_HIST_STATUS1", "Done[5]"),
-    0xE012_0034: ("MONO_HIST_STATUS0", ""),
-    0xE012_0038: ("MONO_HIST_CTRL",    "Enable[5]"),
-    0xE012_003C: ("MONO_HIST_STATUS1", "Done[5]"),
-    0xE020_0034: ("LUMA_WAVE_STATUS0", ""),
-    0xE020_0038: ("LUMA_WAVE_CTRL",    "Enable[5]"),
-    0xE020_003C: ("LUMA_WAVE_STATUS1", "Done[5]"),
+    # --- Corrected FPGA-block registers (firmware device table @0xe0be10) --
+    # VP-FPGA comm block (0xe0080000, was mislabelled "Luma Histogram").  The
+    # VPFPGA driver-init routine (fn @0x374ba4) drains a command/response FIFO
+    # and polls +0x18 bit10 for "FIFO drained / ready"; modelled in qemu-r1mx
+    # hw/misc/red_histogram_ip.c for the 0xe0080000 instance.
+    0xE008_0010: ("VPFPGA_FIFO_D0",   "VP-FPGA response FIFO data word 0"),
+    0xE008_0014: ("VPFPGA_FIFO_D1",   "VP-FPGA response FIFO data word 1"),
+    0xE008_0018: ("VPFPGA_FIFO_STAT", "FIFO drained / ready[10]"),
+
+    # IOFPGA status/control (0xe2000000, inside the FPGA catch-all range).
+    # Video-pipeline bringup polls these; values modelled in r1mx_virtex4.c.
+    0xE200_00F8: ("IOFPGA_RIO_STAT",   "RocketIO/MGT channel up[0]"),
+    0xE200_0224: ("IOFPGA_GPIO_BB",    "Serial bit-bang GPIO: clk[0] data[2] -> display/DAC"),
+    0xE200_028C: ("IOFPGA_VPCFG_STAT", "VP-FPGA config: DONE[8]"),
+
+    # XPS IIC (I2C controller) at 0xb2600000.  Drives the 3 PCA9698 I2C GPIO
+    # expanders (status LCD / board I/O) and the HDMI / HD-SDI / audio codecs.
+    0xB260_001C: ("IIC_GIE",     "Global interrupt enable[31]"),
+    0xB260_0020: ("IIC_ISR",     "Interrupt status"),
+    0xB260_0028: ("IIC_IER",     "Interrupt enable"),
+    0xB260_0040: ("IIC_SOFTR",   "Software reset (write 0xA)"),
+    0xB260_0100: ("IIC_CR",      "Control: EN[0] MSMS[1] TXRX[2] TXAK[3] RSTA[4] TX[5]"),
+    0xB260_0104: ("IIC_SR",      "Status: TXFIFO_empty[2] AAS[5] BB[6]"),
+    0xB260_0108: ("IIC_TX_FIFO", "TX byte"),
+    0xB260_010C: ("IIC_RX_FIFO", "RX byte"),
+    0xB260_0110: ("IIC_ADR",     "Slave address (7-bit in 7:1)"),
+    0xB260_0124: ("IIC_GPO",     "General-purpose output (AuxGpio)"),
 }
 
 

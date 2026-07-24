@@ -65,7 +65,7 @@ python3 firmware/scripts/dump_regs_at_bp.py --port 2345 --addr 0x5bb11c
 
 ```bash
 # terminal 1
-firmware/scripts/qemu_boot.sh --patched --debug          # QEMU gdbstub :1234
+firmware/scripts/qemu_boot.sh --debug          # QEMU gdbstub :1234
 # (Channel A already up: HW stub on :2345)
 
 # terminal 2 — step both from usrInit, watch the console UART + ctor ptr

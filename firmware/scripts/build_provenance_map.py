@@ -28,7 +28,7 @@ from collections import defaultdict, Counter
 
 REPO = Path("/home/simukka/src/RED/r1mx")
 BIN  = REPO / "firmware/reverse/build_32/extracted/software.bin"
-FUNCS_DIR = REPO / "firmware/reverse/build_32/src/all_functions"
+FUNCS_DIR = REPO / "firmware/reverse/build_32/src/ghidra"
 OUT_JSON  = REPO / "firmware/reverse/build_32/src/manifest.json"
 OUT_CSV   = REPO / "firmware/reverse/build_32/src/manifest.csv"
 

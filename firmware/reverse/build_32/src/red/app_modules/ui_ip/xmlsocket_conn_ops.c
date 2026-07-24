@@ -12,7 +12,7 @@
  *
  * Reverify with:
  *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py \
- *       units/xmlsocket_conn_ops.c
+ *       red/app_modules/ui_ip/xmlsocket_conn_ops.c
  *
  * REGION BUILD-PROFILE FINDINGS (see xmlsocket_region_notes.md). This region is
  * -O2 (confirmed: -O1 is worse and even breaks the byte-exact wrapper below;

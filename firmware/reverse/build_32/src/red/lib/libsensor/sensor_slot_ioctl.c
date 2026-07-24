@@ -19,7 +19,7 @@
  *
  * The signed shift `(B_00e13504 >> idx) & 1` compiles to `sraw` (PPC masks the shift
  * count to 6 bits, matching Ghidra's `>> (idx & 0x3f)`). The two globals and the
- * table base are linker symbols (units/data_symbols.ld, B_00e13504 / B_00e1333c) so
+ * table base are linker symbols (data_symbols.ld, B_00e13504 / B_00e1333c) so
  * ccppc emits the original @ha/@l (lis + lwz, lis + addi) sequences.
  *
  * Two codegen-shape constraints (found via funcmatch byte-diff):
@@ -32,7 +32,7 @@
  *
  * Reconstructed and verified BYTE-IDENTICAL with the original compiler:
  *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py \
- *       units/sensor_slot_ioctl.c
+ *       red/lib/libsensor/sensor_slot_ioctl.c
  */
 
 extern int B_00e13504;             /* sensor-present bitmask (signed: shift is sraw) */

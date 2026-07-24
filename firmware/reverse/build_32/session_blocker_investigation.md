@@ -72,7 +72,7 @@ required and was blocked (see below).
 ## Dynamic-analysis attempt — blocked by boot regression
 
 QEMU build at `~/src/qemu-r1mx/build/qemu-system-ppc` (built 2026-05-17).
-Firmware as above. Launched with `./scripts/qemu_boot.sh --patched`.
+Firmware as above. Launched with `./scripts/qemu_boot.sh`.
 
 ### Observation
 
@@ -159,20 +159,20 @@ In priority order — each item is small and independently informative:
 
 ```bash
 # Repro the reset loop (20 s sample)
-./firmware/scripts/qemu_boot.sh --patched > /tmp/boot.log 2>&1 &
+./firmware/scripts/qemu_boot.sh > /tmp/boot.log 2>&1 &
 sleep 20; pkill qemu-system-ppc; grep -c '\^\^\^' /tmp/boot.log
 # expected: 2  ; actual: 18701
 
 # Halt+sample
-./firmware/scripts/qemu_boot.sh --patched --debug &
+./firmware/scripts/qemu_boot.sh --debug &
 python3 firmware/scripts/gdb_halt_inspect.py --samples 4
 
 # Dump live RAM
-./firmware/scripts/qemu_boot.sh --patched --debug &
+./firmware/scripts/qemu_boot.sh --debug &
 python3 firmware/scripts/gdb_dump_mem.py --ranges 0x0:64 0x700:32 0x020390d0:32
 
 # Watchpoint trace (use to find the writer to addr 0)
-./firmware/scripts/qemu_boot.sh --patched --debug &
+./firmware/scripts/qemu_boot.sh --debug &
 python3 firmware/scripts/trace_descriptor_writer.py --addr 0x0 --max-hits 5
 ```
 

@@ -7,7 +7,7 @@
  * package format and the verify/install flow.
  *
  * Reconstructed byte-for-bit with the original compiler (ccppc 3.4.4); verify with
- *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py units/upgrade_verify.c
+ *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py red/app_modules/flashutils/upgrade_verify.c
  *
  * Image functions are resolved at their absolute addresses via symbols.ld; data
  * (format strings) via data_symbols.ld so the @ha/@l (lis/addi) relocations match.

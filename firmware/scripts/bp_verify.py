@@ -22,7 +22,7 @@ from pathlib import Path
 
 QEMU     = Path.home() / "src/qemu-r1mx/build/qemu-system-ppc"
 FIRMWARE = Path(__file__).resolve().parents[2] / \
-           "firmware/reverse/build_32/extracted/software.patched.r1mx.bin"
+           "firmware/reverse/build_32/extracted/software.bin"
 PORT     = 2345   # different from smoke_test to avoid conflicts
 BP_ADDR  = 0x36C424   # bl 0x5a7f30 (kernelInit call site in usrInit)
 TIMEOUT  = 15.0
@@ -101,7 +101,7 @@ def main() -> int:
          "-machine", "r1mx-virtex4",
          "-m", "2048",
          "-nographic",
-         "-device", f"loader,file={FIRMWARE},addr=0x0,force-raw=on",
+         "-device", f"loader,file={FIRMWARE},addr=0x10000,force-raw=on",
          "-S",
          "-gdb", f"tcp::{PORT}"],
         stdout=subprocess.DEVNULL,

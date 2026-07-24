@@ -1,9 +1,9 @@
-/* common_diag_thunks.c -- reconstructed app_modules/common diagnostic-record thunks.
+/* diag_thunks.c -- reconstructed app_modules/common diagnostic-record thunks.
  *
  * Module  : app_modules/common (utils.h / "on/utils.cpp")   Provenance: red (source-path)
- * Fidelity: functional (see note) -- the simpler members are in common_utils_thunks.c
+ * Fidelity: functional (see note) -- the simpler members are in utils_thunks.c
  *
- * Sibling of common_utils_thunks.c: these are the slightly larger members of the
+ * Sibling of utils_thunks.c: these are the slightly larger members of the
  * same inlined-helper family. Each unpacks a small context object (passed by pointer
  * or as loose fields) and forwards it -- together with the source-file string -- to
  * an out-of-line diagnostic/log worker (FUN_004e2###). They differ in the worker,
@@ -30,7 +30,7 @@
  * behaviourally identical (same callee, same argument values), so these are
  * functional-tier; the byte difference is cosmetic instruction reordering. Reverify:
  *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py \
- *       units/common_diag_thunks.c
+ *       red/app_modules/common/diag_thunks.c
  */
 
 extern const char D_00d2dce4[];   /* "on/utils.cpp" */

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """recon_status.py -- reconstruction coverage dashboard.
 
-Rebuilds every function in src/units/ with the ORIGINAL compiler (via funcmatch) and
+Rebuilds every unit under src/red/ + src/hw/ with the ORIGINAL compiler (via funcmatch) and
 reports how much of the firmware is reconstructed and at what fidelity:
 
   byte_exact  rebuilds to the original firmware bytes (funcmatch 100%) -- verified
@@ -42,14 +42,14 @@ def main():
     # a function validated via funcdiff/lockstep). A listed function that turns out
     # byte-exact still reports byte_exact -- the override only upgrades draft.
     functional = set()
-    ffile = fm.UNITS / "functional.txt"
+    ffile = fm.SRC / "functional.txt"
     if ffile.exists():
         for line in ffile.read_text().splitlines():
             line = line.split("#", 1)[0].strip()
             if line:
                 functional.add(line.split()[0])
 
-    units = sorted(list(fm.UNITS.glob("*.c")) + list(fm.UNITS.glob("*.S")))
+    units = fm.discover_units()
     funcs = []
     for src in units:
         try:

@@ -70,8 +70,13 @@ the original firmware was built against this older EDK-10-era set.)
 
 | File | SHA-256 | Role |
 |------|---------|------|
-| `extracted/software.bin` | `416e148c…d9cd` | original decrypted Build 32 v32.0.3 — RE source of truth |
-| `extracted/software.patched.r1mx.bin` | `f97e33a1…5550` | QEMU-boot binary, built from source: `make -C firmware/reverse/build_32/src install`. **Lean default since 2026-06-02** — 29 patch sections: 27 bisected-redundant patches dropped + #1/#2/#3 moved into the qemu-r1mx machine. Requires the patched `r1mx-virtex4` machine. `make full` rebuilds the legacy 59-patch image (`281ef88a…`). |
+| `extracted/software.bin` | `416e148c…d9cd` | original decrypted Build 32 v32.0.3 — RE source of truth, **and the image QEMU boots** (unmodified, loaded at base `0x10000`). |
+
+The obsolete binary-patch image has been retired: the
+original `software.bin` boots directly, and the fixes that once lived as firmware byte
+patches now live in the qemu-r1mx device models / PPC405 core patches. The reconstructed
+image is built from source with `make -C firmware/reverse/build_32/src relink`;
+`make … verify` asserts the byte-exact relink is bit-for-bit identical to `software.bin`.
 
 ### 0.2 Verified boot behavior  (reproduce: `python3 firmware/scripts/smoke_test.py`)
 
@@ -270,68 +275,28 @@ layer, which QEMU does not yet model):
 - For the PIT tick (Phase 5), do not rely on re-running `usrRoot`; drive the external timer /
   `MSR.EE` emulator-side.
 
-#### Patch necessity map (unwind, bisected 2026-06-02)
+#### Boot fixups (historical — the binary-patch build has been retired)
 
-Built from `firmware/reverse/build_32/src` (`make r1mx DROP=<offset>` + `smoke_test`), every
-r1mx patch was tested for whether the boot still reaches the dispatch+liveness state. Result:
-**27 of the 59 r1mx patches are NOT needed** — `make minimal` builds without them (32 sections)
-and passes the **full** smoke test identically (SHA `72bff3e3…` vs the 59-patch `281ef88a…`).
+The original `software.bin` boots in QEMU unmodified once loaded at base `0x10000`; the
+old binary-patch build (and the 59/29-section bisection that produced it) has been retired.
+The enduring conclusions of that work:
 
-**Redundant (27 — tagged `[REDUNDANT for dispatch]` in `patches.S`, excluded by `make minimal`):**
+- **3 boot-environment fixups are now supplied by the `r1mx-virtex4` machine**, not the
+  firmware image (`hw/ppc/r1mx_virtex4.c` `r1mx_apply_boot_env_fixups`, a VM-state-change
+  handler that fires on RUNNING after `-device loader` populates RAM, before the vCPU runs):
+  - romInit SP relocate (`lis r1,0x800`) so the deep usrInit stack clears the flat-loaded image;
+  - the two VxWorks init-agent canary VALUES (`0x12348765@0xE269A4`, `0x5A5AC3C3@0xE269A0`),
+    modelling the init agent, so the canary spin exits naturally.
+- **CPU-emulation fixes live in qemu-r1mx** (cputlb truncation, mmu_helper cast, SLER abort,
+  PPC405 FSL stubs — see the "PPC405 Core Patches" table in `CLAUDE.md`), not the image.
+- **No device patches are needed** — the r1mx-virtex4 machine maps the real peripherals
+  (the old `DEVICE_GAP` XUartLite NOPs are obsolete).
+- Everything the old patches stood in for (pre-cold-boot `.data`/BSS values, dispatch
+  scaffolding, crypto) is a property of firmware state that hasn't run yet, not an emulator
+  responsibility — so it is left to the reconstructed source, not byte-patched.
 
-| Patches | Note |
-|---|---|
-| `#22–#33` BSS sentinels (`e26ddc, e27000, e276b8, e27bd4, e29438, e2a3c8, e2a748, e2a918, e2a994, e2a9b4, e2b590, e2b7d8`) | 12 — only the first sentinel (`#21`) matters |
-| `#10–#12` bcopy guards (`388280, 388284, 3878cc`) | 3 — guarded path not taken |
-| `#65` `fn_371c74` fn-ptr null (`371c9c`) | 1 — if-path bypasses `fn_371c74` |
-| `#49+#50` `fn_5b58a8` vtable-bypass pair (`5b5964, 5b596c`) | 2 |
-| `#53b` fast-exit NOP (`381ad0`) | 1 |
-| `#58+#59` `fn_38038c` overflow-redirect pair (`38042c, 380430`) | 2 |
-| `#61` deferred-ctor NOP (`37c33c`) | 1 |
-| `#55` bne-NOP (`371d5c`) | 1 — comparison is already equal (TCB+0x94==global==0), so the if-path is taken without forcing it |
-| `#34, #35` SSD `IsCompatible` bypasses (`5d552c, 5d58e8`) | 2 |
-| `#62` Program-Exception handler rewrite (`0x700`) | 1 — **0x700 never fires** during this boot; dropping it restores the firmware's own handler (more faithful) |
-| `#63` `0x734` bctrl NOP | 1 — that hardware-dispatch path is not taken |
-
-**Moved into qemu-r1mx (3 — `[MOVED TO qemu-r1mx]` in `patches.S`, also dropped from default):**
-
-| Patch | Now supplied by the machine |
-|---|---|
-| `#1` romInit SP relocate (`0x84`) | The flat-load model puts the boot stack (`0xFFF0`) inside the image; `r1mx_apply_boot_env_fixups` writes the relocated `lis r1,0x800` so the deep usrInit stack clears the image. |
-| `#2/#3` canary spin NOPs (`36c388/394`) | The machine seeds the VxWorks canary VALUES (`0x12348765@0xE269A4`, `0x5A5AC3C3@0xE269A0`) — modelling the init agent — so the spin exits naturally. |
-
-Implemented in `hw/ppc/r1mx_virtex4.c` (`r1mx_apply_boot_env_fixups`, a VM-state-change handler
-that fires on RUNNING, after the `-device loader` populates RAM, before the vCPU executes). The
-writes are idempotent, so the legacy `make full` 59-patch image still boots on the patched machine.
-
-**Load-bearing in the firmware (29):** `#21`, `#6`, `#7–#9` vtable ptrs, `#13–#20` bctrl bypasses,
-`#36/#44/#45/#46`, `#51/#52/#53` (sysMemTop/intCnt); `#47+#48` `fn_5b57b0` pair, `#53a` PC hardcode,
-`#53c` LR slot, `#54` scheduler null-deref; `#4` SSL verify-callback skip. `#5` (BSS-memset skip)
-is **optimization only** (boot works without it, ~15 s slower).
-
-"Redundant" means *not needed to reach the current (OpenSSL-artifact) dispatch state* — these
-patches prevent crashes on code paths this boot does not take. If the dispatch is later
-redirected toward the real root task, re-evaluate (which is why they remain in `patches.S`).
-
-#### What was moved to qemu-r1mx, and what stays
-
-Applying the test "does this patch compensate for an *emulator inaccuracy* (vs. the cold-boot init
-sequence not having run, or un-emulatable crypto)?":
-
-- **Moved (#1/#2/#3):** boot-environment items — the flat-load boot stack (#1) and the missing
-  init-agent canaries (#2/#3). Now in the machine (`r1mx_apply_boot_env_fixups`); dropped from the
-  default firmware image.
-- **No new device emulation needed.** The only MMIO/device patches were the 5 `DEVICE_GAP`
-  (XUartLite) ones, already handled — the r1mx-virtex4 machine maps the real device (`bamboo_only`).
-- **`#62`/`#63` are not emulator gaps** — bisection shows they're redundant (no program exception
-  fires on this path). The real CPU-emulation fixes already live in qemu-r1mx (cputlb truncation,
-  mmu_helper cast, SLER abort, FSL stubs).
-- **Everything else stays firmware:** the image's pre-cold-boot `.data`/BSS values, dispatch
-  scaffolding, and crypto — not emulator responsibilities (these stand in for init that hasn't run /
-  heap state built at runtime; crypto needs keys/hardware).
-
-**Result: the default image is 29 patch sections** (`f97e33a1…`); `make full` keeps the legacy 59
-(`281ef88a…`). Both require the patched `r1mx-virtex4` machine.
+The detailed per-section patch-necessity bisection (which `.patch_<offset>` sections were
+redundant vs. load-bearing) is preserved in git history.
 
 ### 0.4 Superseded claims elsewhere in the repo  (do not trust)
 
@@ -1250,7 +1215,7 @@ layout, software version, and every Xilinx EDK driver file compiled into the BSP
 
 **Extraction method:**
 ```bash
-strings firmware/reverse/build_32/extracted/software.patched.r1mx.bin \
+strings firmware/reverse/build_32/extracted/software.bin \
   | grep -E 'C:/(sundance|WindRiver)' | sort -u
 ```
 
@@ -1514,9 +1479,9 @@ Disassembly:
 
 ## 9a. Phase 2/3 QEMU Patches — Discovered at Runtime
 
-Applied in addition to the Phase 1 patches above. All offsets are also runtime addresses (firmware loads at 0x0).
+These offsets are documented for historical reference. All offsets are also runtime addresses (the firmware loads at base `0x10000`).
 
-Build with `make -C firmware/reverse/build_32/src install` to produce `software.patched.r1mx.bin`. Use `make all` for the bamboo-machine binary (includes the `DEVICE_GAP` group). Patches are flag-gated assembly in `firmware/reverse/build_32/src/patches/patches.S`; see that tree's `README.md`. (The legacy `patch_firmware.py` byte-patcher has been retired.)
+**The binary-patch build has been retired** — the original `software.bin` boots unmodified in QEMU (see §0.3); the boot-environment fixups these tables describe are now supplied by the `r1mx-virtex4` machine and the qemu-r1mx core patches, not by modifying the image.
 
 ### Complete Patch Table (54 patches — current as of session 20)
 
@@ -1644,7 +1609,7 @@ is delivered and the `workQ` flag at `0x010D0584` is never set. No external time
 startup — `TCR := 0xFFFFFFFF` (mask → 0xFFC00000), `PIT := 0`, `TSR := 0`. `sysClkEnable` is
 not reached in the current QEMU run, so the PIT reload stays 0 and no tick fires.
 
-**Confirmed addresses (patched binary `software.patched.r1mx.bin`):**
+**Confirmed addresses (in `software.bin`):**
 
 | Symbol | Address | Notes |
 |---|---|---|
@@ -1684,8 +1649,8 @@ usrInit (0x36c350)
 > breakpoint harness, which steps off each BP. kernelInit **is** reached **and returns**; the
 > firmware's terminal state is the `0x124` halt loop, and usrRoot is never reached. The earlier
 > data came from a harness that re-triggered the BP at `0x36c424` on every `continue` (so the
-> PC never advanced past it). The "65-patch" binary cited here also predates the current
-> `software.patched.r1mx.bin` (sha `f7be6c2a…`). Retained for history only.
+> PC never advanced past it). The "65-patch" binary cited here predates the retired
+> binary-patch build entirely. Retained for history only.
 
 **Actual blocker (live QEMU trace, 30 s run, `--r1mx` 65-patch binary):**
 - `usrInit` (`0x36c350`) runs through to `0x36c424` (`bl kernelInit`) → enters `kernelInit @ 0x5a7f30`.
@@ -2650,7 +2615,7 @@ openssl enc -d -aes-256-cbc -md md5 \
 PASS='M1H5gwOXh757rIRVY6Gj2tN080AYSX03'
 
 # Re-encrypt software.bin → redone.1:
-gzip -c software.patched.bin | \
+gzip -c software.bin | \
     openssl enc -e -aes-256-cbc -md md5 \
     -pass "pass:$PASS" \
     -out redone.1.new
@@ -2796,20 +2761,18 @@ apt install radare2
 ~/src/qemu-r1mx/build/qemu-system-ppc -M r1mx-virtex4,help
 ```
 
-### Firmware Patching
+### Firmware (no patching)
 
-Before booting, generate the patched binary:
+No patching is required — QEMU boots the original `software.bin` unmodified (loaded at
+base `0x10000` by the `r1mx-virtex4` machine). The binary-patch build has been retired
+(see §0.3). To build a *reconstructed* image from source:
 
 ```bash
-cd ~/src/RED/r1mx/firmware/reverse/build_32/src
-make install
-# Applies 59 of 64 patches (5 DEVICE_GAP/bamboo patches skipped for r1mx)
-# Output: reverse/build_32/extracted/software.patched.r1mx.bin
-# SHA-256: d6bd531325652aae94d0690b8922fb5bd6134e7ee57712c596f387d17534c359
+make -C firmware/reverse/build_32/src relink   # -> build/software.relinked.bin
+make -C firmware/reverse/build_32/src verify    # assert byte-exact relink == software.bin
 ```
 
-For the full patch table see §9a. The `--r1mx` flag skips patches that
-are only needed for the bamboo machine.
+See `firmware/reverse/build_32/src/README.md` for the reconstruction workflow.
 
 ### Launch Commands (use `qemu_boot.sh`)
 
@@ -2819,16 +2782,16 @@ The `firmware/scripts/qemu_boot.sh` script wraps all launch flags:
 cd ~/src/r1mx/firmware
 
 # Normal boot (patched binary, stdout serial):
-./scripts/qemu_boot.sh --patched
+./scripts/qemu_boot.sh
 
 # Debug mode (QEMU halted, GDB stub on tcp:1234):
-./scripts/qemu_boot.sh --patched --debug
+./scripts/qemu_boot.sh --debug
 
 # With TAP networking for WDB (requires tap0 to exist):
-./scripts/qemu_boot.sh --patched --net
+./scripts/qemu_boot.sh --net
 
 # Debug + networking:
-./scripts/qemu_boot.sh --patched --debug --net
+./scripts/qemu_boot.sh --debug --net
 ```
 
 Set up TAP once (as root):
@@ -2842,7 +2805,7 @@ ip link set tap0 up
 
 ```bash
 # Enable crash logging:
-./scripts/qemu_boot.sh --patched -- -d int,cpu_reset 2>crash.log
+./scripts/qemu_boot.sh -- -d int,cpu_reset 2>crash.log
 
 # Find crash address in log:
 grep "PC=" crash.log | head -5
@@ -3173,40 +3136,35 @@ for r in refs:
 
 ## 18. Firmware Modification Workflow
 
-### 1. Identify Patch Target
+The binary-patch tool (`patch_firmware.py`) has been retired. Produce a modified image
+either from the reconstructed source (preferred) or by byte-editing a copy of
+`software.bin`, then repackage for the camera.
 
-Use r2 or Ghidra to locate the exact instruction bytes to change.
+### 1. Identify the target
 
-### 2. Add to `patch_firmware.py`
+Use r2 or Ghidra to locate the exact instruction/bytes to change (file offset =
+runtime address − 0x10000; see §0.1).
 
-```python
-# In KNOWN_PATCHES list:
-Patch(
-    offset=0xXXXXXX,          # file offset = runtime address
-    original=b'\xAA\xBB\xCC\xDD',  # verify original bytes
-    replacement=PPC_NOP,       # or PPC_BLR or custom bytes
-    description="What this does and why we patch it",
-    phase=2,
-),
-```
+### 2. Produce a modified image
 
-### 3. Apply and Test
+- **From reconstructed source (preferred):** edit the relevant unit under `src/red/…`,
+  then `make -C firmware/reverse/build_32/src relink` → `build/software.relinked.bin`.
+  `make … verify-relink` confirms only your intended bytes differ from the original.
+- **Direct byte edit:** copy `extracted/software.bin`, patch the target bytes at their
+  file offset (verify the original bytes first).
+
+### 3. Test in QEMU
 
 ```bash
-# Apply patches:
-python3 firmware/scripts/patch_firmware.py \
-    --input firmware/reverse/build_32/extracted/software.bin \
-    --output firmware/reverse/build_32/extracted/software.patched.bin
-
-# Test in QEMU:
-./firmware/scripts/qemu_boot.sh --patched
+./firmware/scripts/qemu_boot.sh        # boots the original software.bin
+# to boot a modified image, point the loader (or a driver's --firmware) at your copy
 ```
 
 ### 4. Repackage for Camera
 
 ```bash
 ./firmware/scripts/repackage_firmware.sh \
-    --input firmware/reverse/build_32/extracted/software.patched.bin \
+    --input firmware/reverse/build_32/src/build/software.relinked.bin \
     --build-dir firmware/reverse/build_32/extracted/ \
     --output /tmp/redone.su
 
@@ -3214,6 +3172,8 @@ python3 firmware/scripts/patch_firmware.py \
 mkdir -p /mnt/cf/upgrade
 cp /tmp/redone.su /mnt/cf/upgrade/redone.su
 ```
+> Note: a modified image also needs the RSA-1024 signature handled (redone.2/redone.4)
+> — re-encryption alone is not accepted by the upgrade verifier. See [[upgrade-rsa-signed]].
 
 ### Priority Modification Targets
 

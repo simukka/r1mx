@@ -7,7 +7,7 @@
  *
  * Reconstructed from software.bin and verified BYTE-IDENTICAL to the original by
  * the ORIGINAL compiler (Wind River GNU GCC 3.4.4, powerpc-wrs-vxworks):
- *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py units/mmio_leaves.c
+ *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py hw/mmio_leaves.c
  *
  * Two sub-families:
  *   - 8-bit (0x0ac/0x0b8): displacement addressing (lbz/stb 0(r3)). Plain C "*p"

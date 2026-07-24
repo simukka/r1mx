@@ -105,13 +105,13 @@ designed to defeat):
 cd firmware
 # find the version string and bump it in place (same byte length)
 grep -abo '32\.0\.3' reverse/build_32/extracted/software.bin    # note the OFFSET(s)
-cp reverse/build_32/extracted/software.bin reverse/build_32/extracted/software.patched.bin
-printf '32.0.4' | dd of=reverse/build_32/extracted/software.patched.bin \
+cp reverse/build_32/extracted/software.bin reverse/build_32/extracted/software.mod.bin
+printf '32.0.4' | dd of=reverse/build_32/extracted/software.mod.bin \
     bs=1 seek=<OFFSET> conv=notrunc
 # (repeat for each occurrence you intend to change; the splash one is what you'll read)
 
 scripts/repackage_firmware.sh \
-    --input     reverse/build_32/extracted/software.patched.bin \
+    --input     reverse/build_32/extracted/software.mod.bin \
     --build-dir reverse/build_32/extracted \
     --output    /tmp/redone.B.su \
     --verify
@@ -256,7 +256,7 @@ version is **unchanged**.
 Rehearse the halt so the live override is minimal:
 
 ```bash
-firmware/scripts/qemu_boot.sh --patched --debug          # gdbstub :1234
+firmware/scripts/qemu_boot.sh --debug          # gdbstub :1234
 # breakpoint 0xAF634 (no reloc under QEMU), practice the r3/PC override
 python3 firmware/scripts/upgrade_bypass_test.py --stage b \
     --port 1234 --no-vm-check --wrapper-addr 0xAF634 --reloc 0

@@ -33,7 +33,7 @@ Usage:
     # Override paths / tune timeouts:
     .venv/bin/python firmware/scripts/smoke_test.py \\
         --qemu ~/src/qemu-r1mx/build/qemu-system-ppc \\
-        --firmware reverse/build_32/extracted/software.patched.r1mx.bin \\
+        --firmware reverse/build_32/extracted/software.bin \\
         --timeout-scale 2.0
 
     # Run only the reset-loop and kernelInit checks:
@@ -82,7 +82,7 @@ _REPO_ROOT = _FIRMWARE_DIR.parent               # repo root
 DEFAULT_QEMU = Path.home() / "src/qemu-r1mx/build/qemu-system-ppc"
 DEFAULT_FIRMWARE = (
     _REPO_ROOT
-    / "firmware/reverse/build_32/extracted/software.patched.r1mx.bin"
+    / "firmware/reverse/build_32/extracted/software.bin"
 )
 DEFAULT_GDB_PORT = 1234
 DEFAULT_TIMEOUT_SCALE = 1.0
@@ -516,7 +516,7 @@ class QemuProcess:
             "-machine", "r1mx-virtex4",
             "-m", str(self._memory_mb),
             "-nographic",
-            "-device", f"loader,file={self._firmware},addr=0x0,force-raw=on",
+            "-device", f"loader,file={self._firmware},addr=0x10000,force-raw=on",
             "-S",                           # halt at PC=0x0
             "-gdb", f"tcp::{self._gdb_port}",
         ]
@@ -779,15 +779,16 @@ def run_smoke_test(
             gdb.initial_stop()
             # Standard ACK mode throughout -- no QStartNoAckMode negotiation.
 
-            # Verify this is a fresh QEMU halted at PC=0x0 (not a stale instance
-            # from a previous session that _kill_port failed to evict).
+            # Verify this is a fresh QEMU halted at the reset vector PC=0x10000 (the
+            # r1mx-virtex4 hreset_vector; not a stale instance from a previous session
+            # that _kill_port failed to evict).
             initial_regs = gdb.get_regs()
             initial_pc = initial_regs.get("pc", 0xFFFFFFFF)
-            if initial_pc != 0x0:
+            if initial_pc != 0x10000:
                 results.append(CheckResult(
                     key="qemu_start", label="QEMU GDB stub ready",
                     status=FAIL,
-                    detail=f"expected fresh boot at PC=0x0, got PC=0x{initial_pc:08x} -- stale QEMU?",
+                    detail=f"expected fresh boot at PC=0x10000, got PC=0x{initial_pc:08x} -- stale QEMU?",
                 ))
                 return results
 
@@ -999,7 +1000,7 @@ def main() -> int:
         "--firmware",
         type=Path,
         default=DEFAULT_FIRMWARE,
-        help=f"Patched firmware binary (default: ...software.patched.r1mx.bin)",
+        help=f"Firmware binary (default: ...extracted/software.bin)",
     )
     ap.add_argument(
         "--port",

@@ -86,36 +86,26 @@ Full history: https://github.com/simukka/qemu-r1mx/commits/r1mx
 
 ---
 
-## Step 2 - Patch the Firmware Binary
+## Step 2 - Firmware Binary (no patching)
 
-The patched binary is committed at `firmware/reverse/build_32/extracted/software.patched.bin`
-and ready to use. To regenerate it (e.g. after adding new patches):
+No firmware patching is required. QEMU boots the **original** committed image at
+`firmware/reverse/build_32/extracted/software.bin`; it runs unmodified once loaded at
+base `0x10000` (which the `r1mx-virtex4` machine does automatically via
+`hreset_vector`). The obsolete binary-patch build has been retired — the fixes that
+once lived as firmware byte patches (stack relocation, canary-wait NOPs, the Program
+Exception `rfi` handler) are now provided by the QEMU device models and the PPC405
+core patches in the qemu-r1mx fork (see the "PPC405 Core Patches" table in
+`CLAUDE.md`), not by modifying the image.
+
+To rebuild a *reconstructed* image from source (byte-exact units relinked onto the
+original substrate), use the carve-out relink model:
 
 ```bash
-cd ~/src/RED/r1mx
-.venv/bin/python firmware/scripts/patch_firmware.py --r1mx
-# Output: firmware/reverse/build_32/extracted/software.patched.r1mx.bin
+make -C firmware/reverse/build_32/src relink   # -> build/software.relinked.bin
+make -C firmware/reverse/build_32/src verify    # assert byte-exact relink == software.bin
 ```
 
-The `--r1mx` flag applies 59 of 64 patches (5 bamboo-machine MMIO NOPs are skipped
-since the `r1mx-virtex4` machine models those peripherals with real device stubs).
-
-### What the patches fix
-
-The firmware was designed for real hardware. In QEMU, several things break without patches:
-
-- **Stack relocation** (patch #1): Initial SP set to 256 MB rather than 1 MB, to
-  avoid overwriting kernel BSS during early stack use
-- **Stack canary wait** (patches #2, #3): Two loops that wait for canary values
-  to appear in memory are NOP'd (they never appear in emulation)
-- **Unimplemented SPR writes** (patch #58, rfi handler at 0x700): The Program
-  Exception vector is replaced with `mfspr SRR0 / addi +4 / mtspr SRR0 / rfi`,
-  cleanly skipping any unimplemented hardware register write
-- **Various task-init and scheduler fixes** (patches #42-57): Null-pointer guards,
-  scheduler selection fix, WDB network wait NOP, etc.
-
-For the full patch table see `firmware/scripts/patch_firmware.py` or the
-`### Patches Required` section of `re_reference.md`.
+See `firmware/reverse/build_32/src/README.md` for the full reconstruction workflow.
 
 ---
 
@@ -123,7 +113,7 @@ For the full patch table see `firmware/scripts/patch_firmware.py` or the
 
 ```bash
 cd ~/src/RED/r1mx/firmware
-./scripts/qemu_boot.sh --patched
+./scripts/qemu_boot.sh
 ```
 
 QEMU launches with `-nographic`; the XUartLite console appears on stdout.
@@ -149,7 +139,7 @@ quit QEMU.
 
 ```bash
 cd ~/src/RED/r1mx/firmware
-./scripts/qemu_boot.sh --patched --debug
+./scripts/qemu_boot.sh --debug
 ```
 
 QEMU halts immediately at PC=0x0 and opens a GDB RSP stub on `tcp:1234`.
@@ -213,7 +203,7 @@ sudo ip link set tap0 up
 
 ```bash
 cd ~/src/RED/r1mx/firmware
-./scripts/qemu_boot.sh --patched --net
+./scripts/qemu_boot.sh --net
 # [*] Networking: TAP (tap0 -> XEmacLite) - camera will be 192.168.0.2
 # [*] WDB connect: wdbrpc 192.168.0.2 17185
 ```
@@ -254,7 +244,7 @@ When the firmware crashes or hangs, capture QEMU interrupt log:
 
 ```bash
 cd ~/src/RED/r1mx/firmware
-./scripts/qemu_boot.sh --patched -- -d int,cpu_reset 2>crash.log
+./scripts/qemu_boot.sh -- -d int,cpu_reset 2>crash.log
 
 # Find the crash address:
 grep "PC=" crash.log | head -10
@@ -303,10 +293,8 @@ Adding a new patch:
 
 | Flag | Effect |
 |---|---|
-| `--patched` | Use `software.patched.r1mx.bin` (required) |
-| `--debug` | Halt at 0x0, GDB stub on tcp:1234 |
+| `--debug` | Halt at the reset vector (PC=0x10000), GDB stub on tcp:1234 |
 | `--net` | Enable TAP networking (requires tap0) |
-| `--build13` | Use Build 13 legacy binary |
 | `-- <extra args>` | Pass extra flags directly to QEMU |
 
 ---

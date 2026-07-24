@@ -1,4 +1,4 @@
-/* common_utils_thunks.c -- reconstructed app_modules/common "utils.h" thunks.
+/* utils_thunks.c -- reconstructed app_modules/common "utils.h" thunks.
  *
  * Module  : app_modules/common (utils.h)   Provenance: red (source-path xref)
  * Fidelity: byte_exact (target)
@@ -26,9 +26,9 @@
  * these were built without sibcall optimization. Reconstructed and verified
  * BYTE-IDENTICAL with the original compiler (ccppc 3.4.4, powerpc-wrs-vxworks):
  *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py \
- *       units/common_utils_thunks.c
+ *       red/app_modules/common/utils_thunks.c
  *
- * The "utils.h" pointer is supplied as a linker symbol (units/data_symbols.ld,
+ * The "utils.h" pointer is supplied as a linker symbol (data_symbols.ld,
  * D_00d2db9c) so ccppc materializes it with the original lis/addi (@ha/@l) pair.
  */
 

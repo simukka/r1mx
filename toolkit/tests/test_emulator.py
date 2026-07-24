@@ -19,7 +19,11 @@ import pytest
 
 from toolkit.gui.emulator import (
     DEV_DMA,
+    DEV_FRMBUF,
+    DEV_SSD,
     DEV_UART,
+    DEV_VPFPGA,
+    DEVICE_INFO,
     PACKET_MAGIC,
     PACKET_SIZE,
     ActivityPacket,
@@ -90,12 +94,60 @@ def test_decode_register_note_unknown_address_empty():
 
 
 # ---------------------------------------------------------------------------
+# Corrected device findings: the five "histogram" blocks (IDs 3-7) are really
+# vpfpga / sdio / audio / dma / frmbuf per the firmware device table @0xe0be10.
+# ---------------------------------------------------------------------------
+
+def test_device_ids_match_header_values():
+    # Integer values must stay in sync with r1mx_activity.h.
+    assert (DEV_VPFPGA, DEV_FRMBUF, DEV_SSD) == (3, 7, 13)
+
+
+def test_device_info_covers_all_ids_zero_to_thirteen():
+    assert sorted(DEVICE_INFO) == list(range(14))
+
+
+def test_vpfpga_device_short_name_replaces_histogram():
+    assert DEVICE_INFO[DEV_VPFPGA][0] == "VPFPGA"
+
+
+def test_decode_vpfpga_fifo_status_register():
+    assert decode_register(0xE008_0018) == "VPFPGA_FIFO_STAT"
+
+
+def test_decode_iofpga_config_done_register():
+    assert decode_register(0xE200_028C) == "IOFPGA_VPCFG_STAT"
+
+
+def test_decode_iofpga_rocketio_register():
+    assert decode_register(0xE200_00F8) == "IOFPGA_RIO_STAT"
+
+
+def test_decode_iic_rx_fifo_register():
+    assert decode_register(0xB260_010C) == "IIC_RX_FIFO"
+
+
+def test_vpfpga_fifo_status_note_mentions_ready():
+    assert "ready" in decode_register_note(0xE008_0018).lower()
+
+
+def test_stale_histogram_register_name_is_gone():
+    # 0xe0080034 was "LUMA_HIST_STATUS0"; now it decodes as a bare offset.
+    assert decode_register(0xE008_0034).startswith("+0x")
+
+
+# ---------------------------------------------------------------------------
 # ActivityPacket — pure dataclass, no QApp
 # ---------------------------------------------------------------------------
 
 def test_activity_packet_dev_short():
     pkt = _make_pkt(dev_id=DEV_UART)
     assert pkt.dev_short == "UART"
+
+
+def test_activity_packet_dev_short_vpfpga():
+    pkt = _make_pkt(dev_id=DEV_VPFPGA, addr=0xE008_0018)
+    assert pkt.dev_short == "VPFPGA"
 
 
 def test_activity_packet_is_read_false_for_write():

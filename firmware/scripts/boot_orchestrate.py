@@ -34,7 +34,7 @@ RESULT (2026-06-19): the first two stages WORK end-to-end from the wall context:
   iRam00E3A624[]/the context) and seed them as machine fixups — large, fragile,
   low-confidence.  See boot_reconstruction_status.md 2026-06-19.
 
-Use:  ./qemu_boot.sh --patched --debug --background   (stub :1234), then run this.
+Use:  ./qemu_boot.sh --debug --background   (stub :1234), then run this.
 """
 import struct
 from rsp import RSP

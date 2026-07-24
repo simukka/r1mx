@@ -6,21 +6,21 @@ Given a function address (or FUN_ name), it gathers everything needed to rewrite
 function as readable, byte-exact C and prints it as one markdown "packet":
 
   * the manifest record (provenance, module, size, fidelity badge)
-  * the Ghidra pseudocode (src/all_functions/0x..._*.c)
+  * the Ghidra pseudocode (src/ghidra/0x..._*.c)
   * the original PPC405 disassembly of the function's bytes from software.bin
   * callees (bl targets) and callers (who bl's here), named via the manifest
   * referenced data: string literals + data symbols the function materializes
     (lis/addi|ori pairs), with the D_<addr> names data_symbols.ld wants
   * candidate Xilinx headers from xsrc/ when the module looks driver-shaped
 
-With --scaffold it also writes a starter unit at src/units/<name>.c following the
+With --scaffold it also writes a starter unit at src/red/<module>/<name>.c following the
 doc-header standard, wired with extern decls for every callee, ready to iterate
 against funcmatch.
 
 Usage:
   firmware/scripts/lift.py 0x000af634           # print the packet
   firmware/scripts/lift.py FUN_000af634
-  firmware/scripts/lift.py 0xaf634 --scaffold    # also write src/units/FUN_000af634.c
+  firmware/scripts/lift.py 0xaf634 --scaffold    # also write src/red/<module>/FUN_000af634.c
   firmware/scripts/lift.py 0xaf634 --scaffold --unit upgrade_verify.c   # append-mode name
 
 Disassembly uses objdumpppc when present (the toolchain container), else falls back
@@ -36,9 +36,9 @@ REPO  = Path(__file__).resolve().parents[2]
 SRC   = REPO / "firmware/reverse/build_32/src"
 BASE  = REPO / "firmware/reverse/build_32/extracted/software.bin"
 MAN   = SRC / "manifest.json"
-FUNCS = SRC / "all_functions"
-UNITS = SRC / "units"
-DATA_LD = UNITS / "data_symbols.ld"
+FUNCS = SRC / "ghidra"
+RED   = SRC / "red"
+DATA_LD = SRC / "data_symbols.ld"
 XSRC  = REPO / "firmware/reverse/build_32/xsrc"
 
 # Executable regions of the flat image (mirrors build_provenance_map.py CODE).
@@ -282,7 +282,7 @@ def build_packet(rec, by_addr, by_name, starts):
         w(gf.read_text(errors="replace").rstrip())
         w("```")
     else:
-        w("(no all_functions/ file found for this address)")
+        w("(no ghidra/ file found for this address)")
     w("")
 
     # xsrc hints
@@ -306,9 +306,14 @@ def known_data_syms():
 def scaffold(rec, callees, datarefs, by_addr, by_name, starts, unit_name):
     addr = rec["addr"]
     canon = f"FUN_{addr:08x}"
-    path = UNITS / (unit_name or f"{canon}.c")
+    # Place the new unit in its module's directory, mirroring the firmware __FILE__
+    # tree (src/red/<module>/…); functions with no attributed module go to _unsorted.
+    module = rec.get("module")
+    subdir = (RED / module) if module else (RED / "_unsorted")
+    path = subdir / (unit_name or f"{canon}.c")
     if path.exists():
         return path, False
+    subdir.mkdir(parents=True, exist_ok=True)
 
     known = known_data_syms()
     # extern decls for callees (skip self), best-effort signatures
@@ -342,14 +347,14 @@ def scaffold(rec, callees, datarefs, by_addr, by_name, starts, unit_name):
  *
  * Reconstructed with the original compiler (ccppc 3.4.4, powerpc-wrs-vxworks);
  * verify byte-for-bit with:
- *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py units/{path.name}
+ *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py {path.relative_to(SRC)}
  *
  * CALL GRAPH:
  *   callers: {len(callers)}    callees:
 {callee_lines}
  *
  * Image functions resolve at their absolute addresses via build/symbols.ld; data
- * (strings/tables) via units/data_symbols.ld so the @ha/@l relocations match:
+ * (strings/tables) via data_symbols.ld so the @ha/@l relocations match:
 {chr(10).join(data_notes) if data_notes else ' *   (no data-symbol references detected)'}
  */
 """
@@ -386,7 +391,7 @@ def main():
     ap = argparse.ArgumentParser(description="assemble a reconstruction packet")
     ap.add_argument("target", help="function address (0x..) or FUN_ / real name")
     ap.add_argument("--scaffold", action="store_true",
-                    help="also write a starter unit at src/units/<name>.c")
+                    help="also write a starter unit at src/red/<module>/<name>.c")
     ap.add_argument("--unit", default=None,
                     help="filename for the scaffolded unit (default FUN_<addr>.c)")
     args = ap.parse_args()

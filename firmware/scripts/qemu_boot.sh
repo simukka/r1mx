@@ -2,16 +2,10 @@
 # qemu_boot.sh — Boot RED ONE MX Build 32 firmware (software.bin) in QEMU
 #
 # Usage:
-#   ./scripts/qemu_boot.sh [--debug] [--patched] [--usernet|--net|--no-net] [--build13]
+#   ./scripts/qemu_boot.sh [--debug] [--usernet|--net|--no-net]
 #                          [--background] [--stop] [--serial-log=PATH] [--pidfile=PATH]
 #
 # --debug        Halt at PC=0x0 and open GDB stub on port 1234 for r2/gdb-multiarch
-# --patched      Use software.patched.r1mx.bin instead of the original.
-#   WARNING: the patched image is BROKEN at the correct load base (0x10000). Its
-#   patches (#47 zero-intCnt, SP reloc, canary NOPs) were symptom-fixes for the OLD
-#   base-0 error; at base 0x10000 they corrupt a correct boot -> dead-spin at 0x10124.
-#   The ORIGINAL software.bin (default, no flag) boots fully. Use --patched only for
-#   regression checks, never for normal boots.
 # Networking (XEmacLite @ 0xe1020000; camera is 192.168.0.2):
 # --usernet      DEFAULT. SLIRP user networking — no root, no host setup. Forwards
 #                host :2323 -> guest telnet :23 and host udp :17185 -> guest WDB :17185.
@@ -22,7 +16,6 @@
 # --gui          Also launch the MMIO activity GUI (python3 -m toolkit.gui.emulator),
 #                which connects to QEMU's activity broker on TCP localhost:17187.
 #                Runs in the background; GUI stderr -> /tmp/r1mx-gui.log.
-# --build13      Use Build 13 SundanceBootable.bin instead (legacy)
 # --background   Daemonize: detach from stdio, serial→log file, write a pidfile.
 #   (aka --daemon, -d)  Use this for automated/scripted runs (driving the gdb stub
 #                from another process). A backgrounded -nographic QEMU has no TTY and
@@ -33,7 +26,7 @@
 # --serial-log=PATH / --pidfile=PATH   Override the background log / pidfile locations.
 #
 # Example (background + gdb stub, then drive it):
-#   ./scripts/qemu_boot.sh --patched --debug --background
+#   ./scripts/qemu_boot.sh --debug --background
 #   python3 scripts/smoke_test.py        # or any rsp.py client on :1234
 #   ./scripts/qemu_boot.sh --stop
 #
@@ -58,9 +51,9 @@
 #   WDB port   : UDP 17185 (0x4321) at camera IP 192.168.0.2
 #
 # NO source patches are required: the ORIGINAL software.bin boots unmodified once it
-# is loaded at base 0x10000. The old SP-reloc / canary-NOP / zero-intCnt patches were
-# symptom-fixes for the base-0 load error and now BREAK the boot — see --patched above.
-# All the real work is in the QEMU device models (r1mx-virtex4 machine), not byte patches.
+# is loaded at base 0x10000. (The old SP-reloc / canary-NOP / zero-intCnt byte patches
+# were symptom-fixes for the base-0 load error and have been retired — they now BREAK
+# the boot.)  All the real work is in the QEMU device models (r1mx-virtex4 machine).
 #
 # Expected boot behaviour (original software.bin, default):
 #   Reset vector executes DCR writes (SDRAM0/EBC0/CPC0/UIC0 init); QEMU ignores unknown
@@ -111,13 +104,9 @@ fi
 # Defaults — Build 32
 FW_DIR="$REPO_ROOT/reverse/build_32/extracted"
 BIN_NAME="software.bin"
-PATCHED_NAME="software.patched.r1mx.bin"  # r1mx-specific patch set (no bamboo-only NOPs)
-
 DEBUG=0
-USE_PATCHED=0
 GUI=0
 NET_MODE="usernet"   # default: SLIRP user networking (no root/host setup)
-BUILD13=0
 BACKGROUND=0
 STOP=0
 PIDFILE="${R1MX_QEMU_PIDFILE:-/tmp/r1mx-qemu.pid}"
@@ -127,7 +116,6 @@ TELNET_HOSTPORT="${R1MX_TELNET_HOSTPORT:-2323}"
 for arg in "$@"; do
     case "$arg" in
         --debug)   DEBUG=1 ;;
-        --patched) USE_PATCHED=1 ;;
         --usernet) NET_MODE="usernet" ;;
         --net)     NET_MODE="tap" ;;
         --no-net)  NET_MODE="none" ;;
@@ -136,12 +124,6 @@ for arg in "$@"; do
         --stop)    STOP=1 ;;
         --serial-log=*) SERIAL_LOG="${arg#*=}" ;;
         --pidfile=*)    PIDFILE="${arg#*=}" ;;
-        --build13)
-            BUILD13=1
-            FW_DIR="$REPO_ROOT/reverse/Upgrade_Build 13/Upgrade"
-            BIN_NAME="SundanceBootable.bin"
-            PATCHED_NAME="SundanceBootable.patched.bin"
-            ;;
     esac
 done
 
@@ -165,18 +147,9 @@ if [[ $STOP -eq 1 ]]; then
     exit 0
 fi
 
-if [[ $USE_PATCHED -eq 1 ]]; then
-    FIRMWARE="$FW_DIR/$PATCHED_NAME"
-else
-    FIRMWARE="$FW_DIR/$BIN_NAME"
-fi
-
+FIRMWARE="$FW_DIR/$BIN_NAME"
 if [[ ! -f "$FIRMWARE" ]]; then
     echo "ERROR: firmware not found: $FIRMWARE"
-    if [[ $USE_PATCHED -eq 1 ]]; then
-        echo "  Run first:"
-        echo "    make -C reverse/build_32/src install"
-    fi
     exit 1
 fi
 
@@ -264,9 +237,6 @@ if [[ $DEBUG -eq 1 ]]; then
 fi
 
 LABEL="Build 32 v32.0.3"
-[[ $BUILD13 -eq 1 ]] && LABEL="Build 13 (legacy)"
-[[ $USE_PATCHED -eq 1 ]] && LABEL="$LABEL [PATCHED]"
-
 echo "[*] RED ONE MX QEMU Boot — $LABEL"
 echo "[*] Firmware: $FIRMWARE"
 echo "[*] QEMU: $QEMU"

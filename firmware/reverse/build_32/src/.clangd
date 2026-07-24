@@ -1,0 +1,9 @@
+# clangd config for the reconstructed RED ONE MX firmware units.
+#
+# compile_commands.json (make compile-commands) carries the ORIGINAL Wind River
+# GCC-3.4.4 flags — those drive the byte-exact container build, not clang, so adapt
+# them to clang's PowerPC frontend here: drop the gcc-only -mcpu=405 / -ffreestanding
+# and give clang an explicit PPC target with no host system includes.
+CompileFlags:
+  Remove: [-mcpu=*, -ffreestanding]
+  Add: [--target=powerpc-unknown-eabi, -nostdlibinc]

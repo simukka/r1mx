@@ -5,7 +5,7 @@
  * pins the RED app build flags and proves the toolchain reproduces RED's compiled C.
  *
  * Verify:
- *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py units/red_app_proof.c
+ *   toolchain/in-container.sh python3 firmware/scripts/funcmatch.py red/app_modules/digmag/red_app_proof.c
  */
 
 /* 0x004db598 (app_modules/digmag): registers/looks up the digmag param-name string

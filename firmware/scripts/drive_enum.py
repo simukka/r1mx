@@ -32,7 +32,7 @@ system / a scheduler), so this seeded hand-build is the faithful-enough path.
 Residual: the EHCI (loop-2) post-alloc init runs a method call (*0x377c24) +
 EHCI capability-register poll — the next device-model layer, not the allocator.
 
-Requires: qemu_boot.sh --patched --debug --background (stub :1234).
+Requires: qemu_boot.sh --debug --background (stub :1234).
 """
 import struct
 from rsp import RSP

@@ -7,12 +7,12 @@ r1mx-virtex4 peripheral models (plans/qemu_xilinx_drivers.md).
 
 Targets (both speak RSP — see rsp.py):
     HW   : XMD GDB stub, reached via VirtualBox NAT pf  (default 127.0.0.1:2345)
-    QEMU : qemu_boot.sh --patched --debug               (default 127.0.0.1:1234)
+    QEMU : qemu_boot.sh --debug               (default 127.0.0.1:1234)
 
 Typical use
 -----------
   # terminal 1
-  firmware/scripts/qemu_boot.sh --patched --debug
+  firmware/scripts/qemu_boot.sh --debug
   # VM: standalone xmd ; connect ppc hw   (starts stub on guest :1234)
   # host: VBoxManage controlvm r1mx_32 natpf1 "xmdgdb,tcp,127.0.0.1,2345,,1234"
 
